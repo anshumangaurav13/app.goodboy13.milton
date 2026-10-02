@@ -85,8 +85,8 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
         if (properties.stabilizer > 0.001f) {
             val stab = properties.stabilizer.coerceIn(0.001f, 1.0f)
             // Rate-invariant time constant (seconds):
-            // 5% -> ~59ms, 10% -> ~106ms, 15% -> ~150ms, 50% -> ~416ms, 100% -> ~750ms
-            val tau = (stab.toDouble().pow(0.85) * 0.75).toFloat()
+            // 5% -> ~4.2ms, 10% -> ~10.1ms, 15% -> ~16.8ms, 50% -> ~75ms, 100% -> ~180ms
+            val tau = (stab.toDouble().pow(1.25) * 0.18).toFloat()
 
             val dtSeconds = if (lastEventTimeMillis >= 0L && eventTimeMillis > lastEventTimeMillis) {
                 val dt = (eventTimeMillis - lastEventTimeMillis) / 1000.0f
