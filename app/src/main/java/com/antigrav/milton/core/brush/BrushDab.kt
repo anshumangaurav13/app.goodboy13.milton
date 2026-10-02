@@ -8,7 +8,8 @@ data class BrushDab(
     val y: Float,
     val radius: Float,
     val alpha: Float,
-    val colorRgb: Int
+    val colorRgb: Int,
+    val isEraser: Boolean = false
 )
 
 data class BrushProperties(
@@ -17,5 +18,6 @@ data class BrushProperties(
     var opacity: Float = 1.0f,
     var spacing: Float = 0.15f,
     var hardness: Float = 0.85f,
-    var minRadius: Float = 3.0f
+    var minRadius: Float = 2.0f,
+    var isEraser: Boolean = false
 )

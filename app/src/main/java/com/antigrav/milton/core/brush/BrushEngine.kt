@@ -28,7 +28,8 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
             y = worldY,
             radius = radius,
             alpha = properties.opacity,
-            colorRgb = properties.colorRgb
+            colorRgb = properties.colorRgb,
+            isEraser = properties.isEraser
         )
         return listOf(initialDab)
     }
@@ -69,7 +70,8 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
                     y = iy,
                     radius = ir,
                     alpha = properties.opacity,
-                    colorRgb = properties.colorRgb
+                    colorRgb = properties.colorRgb,
+                    isEraser = properties.isEraser
                 )
             )
             lastPlacedD = d

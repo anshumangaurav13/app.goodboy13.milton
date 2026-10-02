@@ -1,6 +1,8 @@
 package com.antigrav.milton.core.tile
 
 import android.opengl.GLES30
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 /**
  * A single 512x512 raster chunk of the infinite canvas.
@@ -86,6 +88,46 @@ class RasterTile(val coord: TileCoord) {
         GLES30.glClearColor(0f, 0f, 0f, 0f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         unbindFbo()
+        isDirty = true
+    }
+
+    /**
+     * Reads the current RGBA pixel buffer of this tile from its FBO.
+     */
+    fun readPixels(): ByteArray {
+        if (!isInitialized) initGl()
+        bindFbo()
+        val byteBuf = ByteBuffer.allocateDirect(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4)
+            .order(ByteOrder.nativeOrder())
+        GLES30.glReadPixels(
+            0, 0,
+            TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+            GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, byteBuf
+        )
+        unbindFbo()
+        val rawBytes = ByteArray(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4)
+        byteBuf.rewind()
+        byteBuf.get(rawBytes)
+        return rawBytes
+    }
+
+    /**
+     * Writes an RGBA pixel buffer back into this tile's texture.
+     */
+    fun writePixels(rawBytes: ByteArray) {
+        if (!isInitialized) initGl()
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+        val byteBuf = ByteBuffer.allocateDirect(rawBytes.size)
+            .order(ByteOrder.nativeOrder())
+            .put(rawBytes)
+        byteBuf.position(0)
+        GLES30.glTexSubImage2D(
+            GLES30.GL_TEXTURE_2D, 0,
+            0, 0,
+            TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+            GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, byteBuf
+        )
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
         isDirty = true
     }
 

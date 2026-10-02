@@ -11,8 +11,10 @@ import com.antigrav.milton.core.brush.BrushDab
 import com.antigrav.milton.core.tile.RasterTile
 import com.antigrav.milton.core.tile.TileCoord
 import com.antigrav.milton.core.tile.TileMap
+import com.antigrav.milton.core.history.UndoManager
 import com.antigrav.milton.core.viewport.Viewport
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.floor
 
 data class DabPacket(
@@ -42,6 +44,17 @@ class MiltonCanvasRenderer(
     private val finalMvpMatrix = FloatArray(16)
 
     private val pendingDabsForCommit = ConcurrentLinkedQueue<BrushDab>()
+    val undoManager = UndoManager()
+    private val pendingUndoCount = java.util.concurrent.atomic.AtomicInteger(0)
+    private val pendingRedoCount = java.util.concurrent.atomic.AtomicInteger(0)
+
+    fun requestUndo() {
+        pendingUndoCount.incrementAndGet()
+    }
+
+    fun requestRedo() {
+        pendingRedoCount.incrementAndGet()
+    }
 
     private var isGlInitialized = false
 
@@ -124,11 +137,12 @@ class MiltonCanvasRenderer(
 
         val mvp = computeFinalMvpMatrix(bufferInfo, transform)
         for (dab in param.dabs) {
+            val dabColor = if (dab.isEraser) backgroundColorRgb else dab.colorRgb
             dabShader.renderDab(
                 centerX = dab.x,
                 centerY = dab.y,
                 radius = dab.radius,
-                colorRgb = dab.colorRgb,
+                colorRgb = dabColor,
                 alpha = dab.alpha,
                 hardness = 0.85f,
                 projectionMatrix = mvp
@@ -147,6 +161,18 @@ class MiltonCanvasRenderer(
         ensureGlInitialized()
         viewport.updateScreenSize(width, height)
 
+        // 0. Handle requested undo / redo on the GL thread
+        var undos = pendingUndoCount.getAndSet(0)
+        while (undos > 0) {
+            undoManager.undo(tileMap)
+            undos--
+        }
+        var redos = pendingRedoCount.getAndSet(0)
+        while (redos > 0) {
+            undoManager.redo(tileMap)
+            redos--
+        }
+
         for (packet in params) {
             if (packet.dabs.isNotEmpty()) {
                 pendingDabsForCommit.addAll(packet.dabs)
@@ -161,7 +187,22 @@ class MiltonCanvasRenderer(
         }
         Log.i(TAG, "onDrawMultiBufferedLayer: buffer=${bufferInfo.width}x${bufferInfo.height}, dabsToStamp=${dabsToStamp.size}")
         if (dabsToStamp.isNotEmpty()) {
+            val affectedTiles = mutableSetOf<RasterTile>()
+            val tileSize = TileCoord.TILE_SIZE.toFloat()
+            for (dab in dabsToStamp) {
+                val minTx = floor((dab.x - dab.radius) / tileSize).toInt()
+                val maxTx = floor((dab.x + dab.radius) / tileSize).toInt()
+                val minTy = floor((dab.y - dab.radius) / tileSize).toInt()
+                val maxTy = floor((dab.y + dab.radius) / tileSize).toInt()
+                for (ty in minTy..maxTy) {
+                    for (tx in minTx..maxTx) {
+                        affectedTiles.add(tileMap.getOrCreateTile(tx, ty))
+                    }
+                }
+            }
+            undoManager.capturePreStrokeTiles(affectedTiles)
             stampDabsIntoTiles(dabsToStamp)
+            undoManager.commitStroke(tileMap)
         }
 
         // 2. Clear backbuffer with background paper color
@@ -198,7 +239,6 @@ class MiltonCanvasRenderer(
 
     private fun stampDabsIntoTiles(dabs: List<BrushDab>) {
         GLES30.glEnable(GLES30.GL_BLEND)
-        GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
 
         val tileSize = TileCoord.TILE_SIZE.toFloat()
 
@@ -207,6 +247,12 @@ class MiltonCanvasRenderer(
             val maxTx = floor((dab.x + dab.radius) / tileSize).toInt()
             val minTy = floor((dab.y - dab.radius) / tileSize).toInt()
             val maxTy = floor((dab.y + dab.radius) / tileSize).toInt()
+
+            if (dab.isEraser) {
+                GLES30.glBlendFunc(GLES30.GL_ZERO, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+            } else {
+                GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+            }
 
             for (ty in minTy..maxTy) {
                 for (tx in minTx..maxTx) {
@@ -220,7 +266,7 @@ class MiltonCanvasRenderer(
                         centerX = localX,
                         centerY = localY,
                         radius = dab.radius,
-                        colorRgb = dab.colorRgb,
+                        colorRgb = if (dab.isEraser) 0 else dab.colorRgb,
                         alpha = dab.alpha,
                         hardness = 0.85f,
                         projectionMatrix = tileOrthoMatrix

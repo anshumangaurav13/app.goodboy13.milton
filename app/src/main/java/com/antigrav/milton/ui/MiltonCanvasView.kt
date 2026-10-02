@@ -69,7 +69,55 @@ class MiltonCanvasView @JvmOverloads constructor(
         override fun onFling(vx: Float, vy: Float) {
             // Fling updates handled via onPanZoomRotate callbacks
         }
+
+        override fun onUndo() {
+            undo()
+        }
+
+        override fun onRedo() {
+            redo()
+        }
     })
+
+    var isEraserMode: Boolean = false
+        set(value) {
+            field = value
+            brushEngine.properties.isEraser = value
+        }
+
+    var brushSize: Float
+        get() = brushEngine.properties.size
+        set(value) {
+            brushEngine.properties.size = value
+            brushEngine.properties.minRadius = (value * 0.15f).coerceAtLeast(1.5f)
+        }
+
+    var brushOpacity: Float
+        get() = brushEngine.properties.opacity
+        set(value) {
+            brushEngine.properties.opacity = value
+        }
+
+    var brushColorRgb: Int
+        get() = brushEngine.properties.colorRgb
+        set(value) {
+            brushEngine.properties.colorRgb = value
+        }
+
+    fun undo() {
+        renderer.requestUndo()
+        frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+    }
+
+    fun redo() {
+        renderer.requestRedo()
+        frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+    }
+
+    fun resetCanvas() {
+        renderer.viewport.reset()
+        frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+    }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -131,9 +179,16 @@ class MiltonCanvasView @JvmOverloads constructor(
         val pressure = if (rawPressure <= 0.001f) 0.5f else rawPressure.coerceIn(0.01f, 1.0f)
         val worldPos = renderer.viewport.screenToWorld(sx, sy)
 
+        val stylusTool = event.getToolType(stylusIndex)
+        val buttonState = event.buttonState
+        val isHardwareEraser = (stylusTool == MotionEvent.TOOL_TYPE_ERASER) ||
+                ((buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0) ||
+                ((buttonState and MotionEvent.BUTTON_STYLUS_SECONDARY) != 0)
+
         when (action) {
             MotionEvent.ACTION_DOWN -> {
-                Log.i(TAG, "Stylus DOWN at screen=($sx, $sy), world=(${worldPos.x}, ${worldPos.y}), pressure=$pressure")
+                brushEngine.properties.isEraser = isEraserMode || isHardwareEraser
+                Log.i(TAG, "Stylus DOWN at screen=($sx, $sy), world=(${worldPos.x}, ${worldPos.y}), pressure=$pressure, isEraser=${brushEngine.properties.isEraser}")
                 val initialDabs = brushEngine.startStroke(worldPos.x, worldPos.y, pressure)
                 if (initialDabs.isNotEmpty()) {
                     renderer.queueDabs(initialDabs)
@@ -171,12 +226,14 @@ class MiltonCanvasView @JvmOverloads constructor(
                     renderer.queueDabs(endDabs)
                 }
                 frontBufferedRenderer?.commit()
+                brushEngine.properties.isEraser = isEraserMode
             }
 
             MotionEvent.ACTION_CANCEL -> {
                 Log.i(TAG, "Stylus CANCEL")
                 brushEngine.endStroke()
                 frontBufferedRenderer?.cancel()
+                brushEngine.properties.isEraser = isEraserMode
             }
         }
 

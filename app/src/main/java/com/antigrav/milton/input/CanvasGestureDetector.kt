@@ -25,6 +25,8 @@ class CanvasGestureDetector(
         fun onGestureStart()
         fun onGestureEnd()
         fun onFling(vx: Float, vy: Float)
+        fun onUndo()
+        fun onRedo()
     }
 
     var isZoomLocked: Boolean = false
@@ -37,6 +39,9 @@ class CanvasGestureDetector(
     private var isGesturing: Boolean = false
 
     private var gestureTotalMovement: Float = 0f
+    private var sessionMaxPointers: Int = 0
+    private var sessionStartTime: Long = 0L
+    private var sessionMaxMovement: Float = 0f
     private var velocityTracker: VelocityTracker? = null
 
     // Fling inertia animation
@@ -108,6 +113,9 @@ class CanvasGestureDetector(
             MotionEvent.ACTION_DOWN -> {
                 stopFling()
                 gestureTotalMovement = 0f
+                sessionMaxMovement = 0f
+                sessionMaxPointers = 1
+                sessionStartTime = System.currentTimeMillis()
                 isGesturing = false
                 previousX = event.x
                 previousY = event.y
@@ -116,11 +124,10 @@ class CanvasGestureDetector(
             MotionEvent.ACTION_POINTER_DOWN -> {
                 stopFling()
                 val count = event.pointerCount
+                if (count > sessionMaxPointers) {
+                    sessionMaxPointers = count
+                }
                 if (count >= 2) {
-                    if (!isGesturing) {
-                        isGesturing = true
-                        listener.onGestureStart()
-                    }
                     val p0x = event.getX(0)
                     val p0y = event.getY(0)
                     val p1x = event.getX(1)
@@ -141,8 +148,9 @@ class CanvasGestureDetector(
                     val dy = curY - previousY
                     val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
                     gestureTotalMovement += dist
+                    sessionMaxMovement += dist
 
-                    if (gestureTotalMovement > 8f && !isGesturing) {
+                    if (gestureTotalMovement > 10f && !isGesturing) {
                         isGesturing = true
                         listener.onGestureStart()
                     }
@@ -163,22 +171,30 @@ class CanvasGestureDetector(
 
                     val dx = curX - previousX
                     val dy = curY - previousY
-                    gestureTotalMovement += hypot(dx.toDouble(), dy.toDouble()).toFloat()
+                    val moveDist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
+                    gestureTotalMovement += moveDist
+                    sessionMaxMovement += moveDist
 
-                    val zoomFactor = if (!isZoomLocked && previousSpan > 10f && curSpan > 10f) {
-                        curSpan / previousSpan
-                    } else 1.0f
-
-                    var angleDelta = if (!isRotationLocked) curAngle - previousAngle else 0f
+                    val zoomDelta = if (previousSpan > 10f) abs(curSpan - previousSpan) else 0f
+                    var angleDelta = curAngle - previousAngle
                     if (angleDelta > 180f) angleDelta -= 360f
                     if (angleDelta < -180f) angleDelta += 360f
 
                     if (!isGesturing) {
-                        isGesturing = true
-                        listener.onGestureStart()
+                        if (gestureTotalMovement > 12f || zoomDelta > 14f || abs(angleDelta) > 2.5f) {
+                            isGesturing = true
+                            listener.onGestureStart()
+                        }
                     }
 
-                    listener.onPanZoomRotate(previousX, previousY, curX, curY, zoomFactor, angleDelta)
+                    if (isGesturing) {
+                        val zoomFactor = if (!isZoomLocked && previousSpan > 10f && curSpan > 10f) {
+                            curSpan / previousSpan
+                        } else 1.0f
+
+                        val appliedAngle = if (!isRotationLocked) angleDelta else 0f
+                        listener.onPanZoomRotate(previousX, previousY, curX, curY, zoomFactor, appliedAngle)
+                    }
 
                     previousX = curX
                     previousY = curY
@@ -212,7 +228,16 @@ class CanvasGestureDetector(
             }
 
             MotionEvent.ACTION_UP -> {
-                if (isGesturing) {
+                val duration = System.currentTimeMillis() - sessionStartTime
+                val isTap = !isGesturing && duration < 320L && sessionMaxMovement < 28f
+
+                if (isTap) {
+                    if (sessionMaxPointers == 2) {
+                        listener.onUndo()
+                    } else if (sessionMaxPointers == 3) {
+                        listener.onRedo()
+                    }
+                } else if (isGesturing) {
                     velocityTracker?.computeCurrentVelocity(1000)
                     val vx = velocityTracker?.xVelocity ?: 0f
                     val vy = velocityTracker?.yVelocity ?: 0f
