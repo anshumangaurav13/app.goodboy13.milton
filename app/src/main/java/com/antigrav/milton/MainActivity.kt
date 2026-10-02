@@ -392,7 +392,7 @@ class MainActivity : ComponentActivity() {
                             layerManager.selectLayer(id)
                         },
                         onAddLayer = {
-                            layerManager.addLayer()
+                            canvasView.addLayer()
                         },
                         onDeleteLayer = { id ->
                             canvasView.deleteLayer(id)

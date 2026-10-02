@@ -12,6 +12,8 @@ import com.antigrav.milton.core.brush.BrushDab
 import com.antigrav.milton.core.brush.BrushEngine
 import com.antigrav.milton.core.gl.DabPacket
 import com.antigrav.milton.core.gl.MiltonCanvasRenderer
+import com.antigrav.milton.core.history.AddLayerCommand
+import com.antigrav.milton.core.layer.Layer
 import com.antigrav.milton.input.CanvasGestureDetector
 
 data class EyedropperReticleState(
@@ -219,6 +221,23 @@ class MiltonCanvasView @JvmOverloads constructor(
     fun redo() {
         renderer.requestRedo()
         frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+    }
+
+    fun addLayer(name: String? = null, insertAboveActive: Boolean = true): Layer? {
+        val activeBefore = layerManager.activeLayerId
+        val newLayer = layerManager.addLayer(name, insertAboveActive) ?: return null
+        val storageIndex = layerManager.layers.indexOf(newLayer)
+        renderer.undoManager.pushCustomCommand(
+            AddLayerCommand(
+                layerId = newLayer.id,
+                layerName = newLayer.name,
+                layerOpacity = newLayer.opacity,
+                layerIsVisible = newLayer.isVisible,
+                storageIndex = storageIndex,
+                activeLayerIdBefore = activeBefore
+            )
+        )
+        return newLayer
     }
 
     fun deleteLayer(layerId: Long) {
