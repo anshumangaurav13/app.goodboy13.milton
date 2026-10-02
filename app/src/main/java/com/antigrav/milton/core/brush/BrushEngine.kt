@@ -18,7 +18,7 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
     private var currentStrokeId: Long = 0L
 
     private fun computeAlpha(normY: Float): Float {
-        val maxAlpha = (properties.opacity * properties.opacityBezierConfig.maxPercent.coerceIn(0f, 1f)).coerceIn(0.001f, 1.0f)
+        val maxAlpha = properties.opacity.coerceIn(0.001f, 1.0f)
         val minAlpha = properties.opacityBezierConfig.minPercent.coerceIn(0f, 1f).coerceAtMost(maxAlpha)
         return (minAlpha + (maxAlpha - minAlpha) * normY).coerceIn(0.001f, 1.0f)
     }

@@ -7,6 +7,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.ui.platform.LocalDensity
@@ -175,30 +177,25 @@ fun LayersFloatingWindow(
         }
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 340.dp)
-                    .onGloballyPositioned { coords ->
-                        listHeightPx = coords.size.height.toFloat()
-                    },
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                itemsIndexed(
-                    items = reversedLayers,
-                    key = { _, layer -> layer.id }
-                ) { indexInReversed, layer ->
-                    val isActive = (layer.id == activeLayerId)
-                    val isTopmost = (indexInReversed == 0)
-                    val isBottommost = (indexInReversed == reversedLayers.size - 1)
-                    val isBeingDragged = (layer.id == draggingLayerId)
-
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        // Glowing insertion indicator above this item if drop slot matches
-                        if (draggingLayerId != null && dropSlotIndex == indexInReversed) {
-                            GlowingInsertionLine()
-                        }
+            Box(modifier = Modifier.fillMaxWidth()) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 340.dp)
+                        .onGloballyPositioned { coords ->
+                            listHeightPx = coords.size.height.toFloat()
+                        },
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    itemsIndexed(
+                        items = reversedLayers,
+                        key = { _, layer -> layer.id }
+                    ) { indexInReversed, layer ->
+                        val isActive = (layer.id == activeLayerId)
+                        val isTopmost = (indexInReversed == 0)
+                        val isBottommost = (indexInReversed == reversedLayers.size - 1)
+                        val isBeingDragged = (layer.id == draggingLayerId)
 
                         LayerCard(
                             layer = layer,
@@ -261,12 +258,27 @@ fun LayersFloatingWindow(
                                 dragOffsetY = 0f
                             }
                         )
-
-                        // Glowing insertion indicator below the very last item if drop slot is at the end
-                        if (draggingLayerId != null && isBottommost && dropSlotIndex == reversedLayers.size) {
-                            GlowingInsertionLine()
-                        }
                     }
+                }
+
+                // Glowing insertion indicator as an overlay on top of the list (no layout shifts)
+                if (draggingLayerId != null && dropSlotIndex in 0..reversedLayers.size) {
+                    val visible = listState.layoutInfo.visibleItemsInfo
+                    val lineY = if (dropSlotIndex < reversedLayers.size) {
+                        val item = visible.firstOrNull { it.index == dropSlotIndex }
+                        item?.offset?.toFloat() ?: if (visible.isNotEmpty() && dropSlotIndex < visible.first().index) 0f else listHeightPx
+                    } else {
+                        val lastItem = visible.lastOrNull()
+                        if (lastItem != null) (lastItem.offset + lastItem.size).toFloat() else listHeightPx
+                    }
+                    GlowingInsertionLine(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer {
+                                translationY = lineY - 4.dp.toPx()
+                            }
+                            .zIndex(20f)
+                    )
                 }
             }
 
@@ -390,15 +402,19 @@ private fun CanvasBackgroundButton(
                 android.graphics.Color.colorToHSV(currentColorRgb, hsv)
                 hsv
             }
-            var hue by remember { mutableFloatStateOf(initialHsv[0]) }
-            var saturation by remember { mutableFloatStateOf(initialHsv[1]) }
+            var hue by remember { mutableFloatStateOf(if (initialHsv[1] > 0.05f) initialHsv[0] else 40f) }
+            var saturation by remember { mutableFloatStateOf(if (initialHsv[1] > 0.05f) initialHsv[1] else 0.85f) }
             var value by remember { mutableFloatStateOf(initialHsv[2]) }
 
             LaunchedEffect(currentColorRgb) {
                 val hsv = FloatArray(3)
                 android.graphics.Color.colorToHSV(currentColorRgb, hsv)
-                hue = hsv[0]
-                saturation = hsv[1]
+                if (hsv[1] > 0.04f && hsv[2] > 0.04f) {
+                    hue = hsv[0]
+                }
+                if (hsv[2] > 0.04f && hsv[1] > 0.02f) {
+                    saturation = hsv[1]
+                }
                 value = hsv[2]
             }
 
@@ -625,20 +641,28 @@ private fun LayerCard(
                     modifier = Modifier.weight(1f)
                 )
 
-                // Drag handle with smooth drag gestures
+                // Drag handle with smooth, unstealable drag gestures
                 Box(
                     modifier = Modifier
-                        .size(22.dp)
+                        .size(26.dp)
                         .pointerInput(layer.id) {
-                            detectDragGestures(
-                                onDragStart = onDragStart,
-                                onDrag = { change, dragAmount ->
-                                    change.consume()
-                                    onDrag(dragAmount)
-                                },
-                                onDragEnd = onDragEnd,
-                                onDragCancel = onDragCancel
-                            )
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                down.consume()
+                                var currentPos = down.position
+                                onDragStart(currentPos)
+                                do {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                                    if (change != null && change.pressed) {
+                                        val delta = change.position - currentPos
+                                        currentPos = change.position
+                                        change.consume()
+                                        onDrag(delta)
+                                    }
+                                } while (event.changes.any { it.pressed })
+                                onDragEnd()
+                            }
                         },
                     contentAlignment = Alignment.Center
                 ) {

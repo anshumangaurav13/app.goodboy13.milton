@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -49,10 +50,18 @@ fun HsvColorWheel(
 ) {
     var touchMode by remember { mutableStateOf(WheelTouchMode.NONE) }
 
+    val currentHue by rememberUpdatedState(hue)
+    val currentSaturation by rememberUpdatedState(saturation)
+    val currentValue by rememberUpdatedState(value)
+    val onHueChangeState by rememberUpdatedState(onHueChange)
+    val onSaturationChangeState by rememberUpdatedState(onSaturationChange)
+    val onValueChangeState by rememberUpdatedState(onValueChange)
+    val onColorChangedState by rememberUpdatedState(onColorChanged)
+
     Canvas(
         modifier = modifier
             .size(wheelSize)
-            .pointerInput(wheelSize) {
+            .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val w = size.width.toFloat()
@@ -71,29 +80,40 @@ fun HsvColorWheel(
                     val dy = down.position.y - cy
                     val dist = hypot(dx, dy)
 
-                    touchMode = if (dist >= rInner - 6.dp.toPx()) {
+                    // Robust boundary separation between Outer Hue Ring and Inner SV Square
+                    val splitRadius = (rInner + rSafe) * 0.5f
+                    touchMode = if (dist >= splitRadius) {
                         WheelTouchMode.HUE
                     } else {
                         WheelTouchMode.SV
                     }
 
-                    var curHue = hue
-                    var curSat = saturation
-                    var curVal = value
+                    var curHue = currentHue
+                    var curSat = currentSaturation
+                    var curVal = currentValue
 
                     if (touchMode == WheelTouchMode.HUE) {
                         var angle = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
                         if (angle < 0f) angle += 360f
                         curHue = angle
-                        onHueChange(angle)
+                        onHueChangeState(angle)
+                        // If current color is neutral (grayscale/graphite/white), touching a hue should give that vibrant hue!
+                        if (curSat < 0.05f) {
+                            curSat = 1.0f
+                            onSaturationChangeState(1.0f)
+                            if (curVal < 0.20f) {
+                                curVal = 1.0f
+                                onValueChangeState(1.0f)
+                            }
+                        }
                     } else {
                         curSat = ((down.position.x - sqLeft) / sqSize).coerceIn(0f, 1f)
                         curVal = (1f - (down.position.y - sqTop) / sqSize).coerceIn(0f, 1f)
-                        onSaturationChange(curSat)
-                        onValueChange(curVal)
+                        onSaturationChangeState(curSat)
+                        onValueChangeState(curVal)
                     }
                     val newCol = android.graphics.Color.HSVToColor(floatArrayOf(curHue, curSat, curVal))
-                    onColorChanged(newCol)
+                    onColorChangedState(newCol)
                     down.consume()
 
                     do {
@@ -106,15 +126,19 @@ fun HsvColorWheel(
                                 var angle = Math.toDegrees(atan2(curDy.toDouble(), curDx.toDouble())).toFloat()
                                 if (angle < 0f) angle += 360f
                                 curHue = angle
-                                onHueChange(angle)
+                                onHueChangeState(angle)
+                                if (curSat < 0.05f) {
+                                    curSat = 1.0f
+                                    onSaturationChangeState(1.0f)
+                                }
                             } else {
                                 curSat = ((change.position.x - sqLeft) / sqSize).coerceIn(0f, 1f)
                                 curVal = (1f - (change.position.y - sqTop) / sqSize).coerceIn(0f, 1f)
-                                onSaturationChange(curSat)
-                                onValueChange(curVal)
+                                onSaturationChangeState(curSat)
+                                onValueChangeState(curVal)
                             }
                             val moveCol = android.graphics.Color.HSVToColor(floatArrayOf(curHue, curSat, curVal))
-                            onColorChanged(moveCol)
+                            onColorChangedState(moveCol)
                             change.consume()
                         }
                     } while (event.changes.any { it.pressed })

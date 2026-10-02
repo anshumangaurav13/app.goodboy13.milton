@@ -139,7 +139,7 @@ fun BezierCurveGraph(
             val graphH = (graphBottom - graphTop).coerceAtLeast(1f)
 
             val minP = config.minPercent.coerceIn(0f, 1f)
-            val maxP = config.maxPercent.coerceIn(minP, 1f)
+            val maxP = 1.0f
 
             fun toScreen(nx: Float, ny: Float): Offset {
                 val sx = graphLeft + nx.coerceIn(0f, 1f) * graphW
@@ -158,9 +158,9 @@ fun BezierCurveGraph(
             val anchorColor = Color.White.copy(alpha = 0.50f)
 
             val startPos = toScreen(0f, minP)
-            val endPos = toScreen(1f, maxP)
-            val cp1ScreenY = minP + (maxP - minP) * config.cp1y
-            val cp2ScreenY = minP + (maxP - minP) * config.cp2y
+            val endPos = toScreen(1f, 1.0f)
+            val cp1ScreenY = minP + (1.0f - minP) * config.cp1y
+            val cp2ScreenY = minP + (1.0f - minP) * config.cp2y
             val cp1Pos = toScreen(config.cp1x, cp1ScreenY)
             val cp2Pos = toScreen(config.cp2x, cp2ScreenY)
 
@@ -179,14 +179,13 @@ fun BezierCurveGraph(
                                 val (nx, ny) = toNormalized(change.position.x, change.position.y)
                                 val cfg = currentConfig
                                 val curMinP = cfg.minPercent.coerceIn(0f, 1f)
-                                val curMaxP = cfg.maxPercent.coerceIn(curMinP, 1f)
-                                val yRange = (curMaxP - curMinP).coerceAtLeast(0.01f)
+                                val yRange = (1.0f - curMinP).coerceAtLeast(0.01f)
                                 val mappedY = ((ny - curMinP) / yRange).coerceIn(0f, 1f)
 
                                 if (activeHandle == 1) {
-                                    currentOnConfigChange(cfg.copy(cp1x = nx, cp1y = mappedY))
+                                    currentOnConfigChange(cfg.copy(cp1x = nx, cp1y = mappedY, maxPercent = 1.0f))
                                 } else if (activeHandle == 2) {
-                                    currentOnConfigChange(cfg.copy(cp2x = nx, cp2y = mappedY))
+                                    currentOnConfigChange(cfg.copy(cp2x = nx, cp2y = mappedY, maxPercent = 1.0f))
                                 }
                             },
                             onDragEnd = { activeHandle = 0 },
@@ -229,21 +228,11 @@ fun BezierCurveGraph(
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
                 )
 
-                // 3. Min % and Max % Guideline thresholds if non-trivial
+                // 3. Min % Guideline threshold if non-trivial
                 if (minP > 0.01f) {
                     val y = toScreen(0f, minP).y
                     drawLine(
                         color = Color(0x6626A69A),
-                        start = Offset(graphLeft, y),
-                        end = Offset(graphRight, y),
-                        strokeWidth = 1.0f,
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
-                    )
-                }
-                if (maxP < 0.99f) {
-                    val y = toScreen(0f, maxP).y
-                    drawLine(
-                        color = Color(0x66AB47BC),
                         start = Offset(graphLeft, y),
                         end = Offset(graphRight, y),
                         strokeWidth = 1.0f,
@@ -321,39 +310,20 @@ fun BezierCurveGraph(
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        // Min % and Max % percentage controls
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            ValueDragControl(
-                label = "Min",
-                value = (config.minPercent * 100f).roundToInt().toFloat(),
-                onValueChange = { newMin ->
-                    val minVal = (newMin / 100f).coerceIn(0f, config.maxPercent)
-                    onConfigChange(config.copy(minPercent = minVal))
-                },
-                valueRange = 0f..100f,
-                unit = "%",
-                displayDecimals = 0,
-                fillColor = Color(0xFF26A69A),
-                modifier = Modifier.weight(1f)
-            )
-
-            ValueDragControl(
-                label = "Max",
-                value = (config.maxPercent * 100f).roundToInt().toFloat(),
-                onValueChange = { newMax ->
-                    val maxVal = (newMax / 100f).coerceIn(config.minPercent, 1f)
-                    onConfigChange(config.copy(maxPercent = maxVal))
-                },
-                valueRange = 0f..100f,
-                unit = "%",
-                displayDecimals = 0,
-                fillColor = Color(0xFFAB47BC),
-                modifier = Modifier.weight(1f)
-            )
-        }
+        // Min % percentage control (Max is always 100% since brush slider sets maximum)
+        ValueDragControl(
+            label = "Min",
+            value = (config.minPercent * 100f).roundToInt().toFloat(),
+            onValueChange = { newMin ->
+                val minVal = (newMin / 100f).coerceIn(0f, 1.0f)
+                onConfigChange(config.copy(minPercent = minVal, maxPercent = 1.0f))
+            },
+            valueRange = 0f..100f,
+            unit = "%",
+            displayDecimals = 0,
+            fillColor = Color(0xFF26A69A),
+            modifier = Modifier.fillMaxWidth()
+        )
 
         // Preset Chips: single horizontal row of mini curve icons
         if (presets.isNotEmpty()) {
@@ -376,7 +346,7 @@ fun BezierCurveGraph(
                             onConfigChange(
                                 presetConfig.copy(
                                     minPercent = config.minPercent,
-                                    maxPercent = config.maxPercent
+                                    maxPercent = 1.0f
                                 )
                             )
                         },

@@ -165,13 +165,17 @@ class MiltonCanvasRenderer(
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, bufferInfo.frameBufferId)
         GLES30.glViewport(0, 0, bufferInfo.width, bufferInfo.height)
 
-        GLES30.glEnable(GLES30.GL_BLEND)
-        GLES30.glBlendFuncSeparate(
-            GLES30.GL_ONE,
-            GLES30.GL_ONE_MINUS_SRC_ALPHA,
-            GLES30.GL_ONE,
-            GLES30.GL_ONE_MINUS_SRC_ALPHA
-        )
+        if (dabShader.usesFramebufferFetch) {
+            GLES30.glDisable(GLES30.GL_BLEND)
+        } else {
+            GLES30.glEnable(GLES30.GL_BLEND)
+            GLES30.glBlendFuncSeparate(
+                GLES30.GL_ONE,
+                GLES30.GL_ONE_MINUS_SRC_ALPHA,
+                GLES30.GL_ONE,
+                GLES30.GL_ONE_MINUS_SRC_ALPHA
+            )
+        }
 
         val mvp = computeFinalMvpMatrix(bufferInfo, transform)
         val activeOpacity = activeLayer.opacity
@@ -186,8 +190,12 @@ class MiltonCanvasRenderer(
                 hardness = dab.hardness,
                 brushMode = dab.brushMode,
                 pressure = dab.pressure,
-                projectionMatrix = mvp
+                projectionMatrix = mvp,
+                isEraser = false
             )
+        }
+        if (dabShader.usesFramebufferFetch) {
+            GLES30.glEnable(GLES30.GL_BLEND)
         }
     }
 
@@ -272,9 +280,6 @@ class MiltonCanvasRenderer(
         val visibleBounds = viewport.getVisibleWorldBounds()
         val allLayers = layerManager.layers
 
-        GLES30.glEnable(GLES30.GL_BLEND)
-        GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-
         val mvp = computeFinalMvpMatrix(bufferInfo, transform)
         tileBlitShader.begin(mvp)
 
@@ -332,9 +337,7 @@ class MiltonCanvasRenderer(
         val localY = (worldY - ty * tileSize).toInt().coerceIn(0, 511)
         val glY = 511 - localY
 
-        var rAcc = Color.red(backgroundColorRgb).toFloat()
-        var gAcc = Color.green(backgroundColorRgb).toFloat()
-        var bAcc = Color.blue(backgroundColorRgb).toFloat()
+        var accColor = backgroundColorRgb
 
         val pixelBuf = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder())
 
@@ -352,18 +355,16 @@ class MiltonCanvasRenderer(
             val r = pixelBuf.get().toInt() and 0xFF
             val g = pixelBuf.get().toInt() and 0xFF
             val b = pixelBuf.get().toInt() and 0xFF
-            val a = ((pixelBuf.get().toInt() and 0xFF) / 255.0f) * layer.opacity
+            val rawAlpha = pixelBuf.get().toInt() and 0xFF
+            val a = (rawAlpha / 255.0f) * layer.opacity
 
-            rAcc = r * a + rAcc * (1f - a)
-            gAcc = g * a + gAcc * (1f - a)
-            bAcc = b * a + bAcc * (1f - a)
+            if (a > 0.001f) {
+                val layerCol = Color.rgb(r, g, b)
+                accColor = PigmentColorMixing.mixColorsInt(accColor, layerCol, a)
+            }
         }
 
-        return Color.rgb(
-            rAcc.roundToInt().coerceIn(0, 255),
-            gAcc.roundToInt().coerceIn(0, 255),
-            bAcc.roundToInt().coerceIn(0, 255)
-        )
+        return accColor
     }
 
     private fun stampDabsIntoTiles(targetTileMap: TileMap, dabs: List<BrushDab>) {
@@ -390,14 +391,20 @@ class MiltonCanvasRenderer(
             tile.hasContent = true
 
             tile.bindFbo()
-            GLES30.glEnable(GLES30.GL_BLEND)
-            GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
+            if (dabShader.usesFramebufferFetch) {
+                GLES30.glDisable(GLES30.GL_BLEND)
+            } else {
+                GLES30.glEnable(GLES30.GL_BLEND)
+                GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
+            }
 
             for (dab in tileDabs) {
-                if (dab.isEraser) {
-                    GLES30.glBlendFunc(GLES30.GL_ZERO, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-                } else {
-                    GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+                if (!dabShader.usesFramebufferFetch) {
+                    if (dab.isEraser) {
+                        GLES30.glBlendFunc(GLES30.GL_ZERO, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+                    } else {
+                        GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+                    }
                 }
 
                 val localX = dab.x - (tx * tileSize)
@@ -414,10 +421,14 @@ class MiltonCanvasRenderer(
                     pressure = dab.pressure,
                     worldOffsetX = tx * tileSize,
                     worldOffsetY = ty * tileSize,
-                    projectionMatrix = tileOrthoMatrix
+                    projectionMatrix = tileOrthoMatrix,
+                    isEraser = dab.isEraser
                 )
             }
             tile.unbindFbo()
+            if (dabShader.usesFramebufferFetch) {
+                GLES30.glEnable(GLES30.GL_BLEND)
+            }
         }
     }
 

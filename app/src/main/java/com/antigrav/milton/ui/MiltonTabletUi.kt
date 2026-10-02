@@ -885,15 +885,19 @@ private fun ColorPaletteFloatingWindow(
         hsv
     }
 
-    var hue by remember { mutableFloatStateOf(initialHsv[0]) }
-    var saturation by remember { mutableFloatStateOf(initialHsv[1]) }
+    var hue by remember { mutableFloatStateOf(if (initialHsv[1] > 0.05f) initialHsv[0] else 210f) }
+    var saturation by remember { mutableFloatStateOf(if (initialHsv[1] > 0.05f) initialHsv[1] else 0.85f) }
     var value by remember { mutableFloatStateOf(initialHsv[2]) }
 
     LaunchedEffect(currentColorRgb) {
         val hsv = FloatArray(3)
         android.graphics.Color.colorToHSV(currentColorRgb, hsv)
-        hue = hsv[0]
-        saturation = hsv[1]
+        if (hsv[1] > 0.04f && hsv[2] > 0.04f) {
+            hue = hsv[0]
+        }
+        if (hsv[2] > 0.04f && hsv[1] > 0.02f) {
+            saturation = hsv[1]
+        }
         value = hsv[2]
     }
 

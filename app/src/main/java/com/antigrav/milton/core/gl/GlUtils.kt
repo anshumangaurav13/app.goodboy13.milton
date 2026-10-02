@@ -46,4 +46,13 @@ object GlUtils {
 
         return program
     }
+
+    fun tryCreateProgram(vertexCode: String, fragmentCode: String): Int {
+        return try {
+            createProgram(vertexCode, fragmentCode)
+        } catch (e: Exception) {
+            Log.w(TAG, "tryCreateProgram fallback triggered: ${e.message}")
+            0
+        }
+    }
 }
