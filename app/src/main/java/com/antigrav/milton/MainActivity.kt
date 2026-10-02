@@ -13,9 +13,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,6 +32,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
@@ -35,6 +42,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.antigrav.milton.core.brush.BrushType
 import com.antigrav.milton.core.storage.CanvasExportEngine
 import com.antigrav.milton.core.storage.DocumentStorageManager
+import com.antigrav.milton.core.storage.SavedProjectSummary
 import com.antigrav.milton.ui.MiltonCanvasView
 import com.antigrav.milton.ui.MiltonTabletUi
 import com.antigrav.milton.ui.QUICK_PALETTE_COLORS
@@ -125,6 +133,27 @@ class MainActivity : ComponentActivity() {
                 var documentTitle by remember { mutableStateOf(currentDocumentTitle) }
                 val scope = rememberCoroutineScope()
 
+                var savedProjectsList by remember { mutableStateOf<List<SavedProjectSummary>>(emptyList()) }
+                var totalSavedSizeStr by remember { mutableStateOf("0 KB") }
+                var currentProjectSizeStr by remember { mutableStateOf("0 KB") }
+                var appRamUsageMb by remember { mutableIntStateOf(0) }
+                var showNewProjectDialog by remember { mutableStateOf(false) }
+
+                fun refreshProjectMetrics() {
+                    scope.launch(Dispatchers.IO) {
+                        val list = storageManager.listSavedProjects()
+                        val totalBytes = storageManager.getTotalSavedProjectsDiskSizeBytes()
+                        val curBytes = storageManager.getCurrentProjectDiskSizeBytes()
+                        val ram = storageManager.getAppRamUsageMb()
+                        withContext(Dispatchers.Main) {
+                            savedProjectsList = list
+                            totalSavedSizeStr = storageManager.formatFileSize(totalBytes)
+                            currentProjectSizeStr = storageManager.formatFileSize(curBytes)
+                            appRamUsageMb = ram
+                        }
+                    }
+                }
+
                 // Activity Result Launcher for importing .milton archives
                 val importMiltonLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.OpenDocument()
@@ -142,6 +171,7 @@ class MainActivity : ComponentActivity() {
                                             zoomLevel = imported.viewportZoom
                                             rotationDegrees = imported.viewportRotation
                                             isCanvasFlipped = imported.isFlippedHorizontally
+                                            refreshProjectMetrics()
                                             Toast.makeText(
                                                 this@MainActivity,
                                                 "Imported '${imported.title}'",
@@ -182,6 +212,7 @@ class MainActivity : ComponentActivity() {
                             isCanvasFlipped = restored.isFlippedHorizontally
                         }
                     }
+                    refreshProjectMetrics()
                 }
 
                 fun exportImage(isPng: Boolean) {
@@ -274,6 +305,7 @@ class MainActivity : ComponentActivity() {
                     canvasView.onStrokeCompleted = { strokeColor ->
                         handler.post {
                             addRecentColor(strokeColor)
+                            refreshProjectMetrics()
                         }
                     }
                     onDispose {
@@ -406,13 +438,66 @@ class MainActivity : ComponentActivity() {
                             currentDocumentTitle = newTitle
                             storageManager.scheduleAutosave(newTitle, canvasView)
                         },
-                        onManualSave = {
-                            scope.launch(Dispatchers.IO) {
-                                storageManager.flushAutosaveNow(documentTitle, canvasView)
-                                withContext(Dispatchers.Main) {
-                                    Toast.makeText(this@MainActivity, "Project saved", Toast.LENGTH_SHORT).show()
+                        onNewProjectClick = {
+                            if (storageManager.hasCanvasContent(canvasView)) {
+                                showNewProjectDialog = true
+                            } else {
+                                scope.launch(Dispatchers.IO) {
+                                    val newMeta = storageManager.createNewBlankProject(canvasView)
+                                    withContext(Dispatchers.Main) {
+                                        documentTitle = newMeta.title
+                                        currentDocumentTitle = newMeta.title
+                                        canvasBackgroundColor = newMeta.backgroundColorRgb
+                                        zoomLevel = newMeta.viewportZoom
+                                        rotationDegrees = newMeta.viewportRotation
+                                        isCanvasFlipped = newMeta.isFlippedHorizontally
+                                        refreshProjectMetrics()
+                                        Toast.makeText(this@MainActivity, "Created new project", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                             }
+                        },
+                        onManualSave = {
+                            scope.launch(Dispatchers.IO) {
+                                storageManager.saveCurrentProjectToLibrary(documentTitle, canvasView)
+                                refreshProjectMetrics()
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(this@MainActivity, "Saved project to library", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        savedProjects = savedProjectsList,
+                        totalSavedProjectsSize = totalSavedSizeStr,
+                        currentProjectDiskSize = currentProjectSizeStr,
+                        appRamUsageMb = appRamUsageMb,
+                        onLoadProject = { projId ->
+                            scope.launch(Dispatchers.IO) {
+                                val loaded = storageManager.loadProjectFromLibrary(projId, canvasView)
+                                withContext(Dispatchers.Main) {
+                                    if (loaded != null) {
+                                        documentTitle = loaded.title
+                                        currentDocumentTitle = loaded.title
+                                        canvasBackgroundColor = loaded.backgroundColorRgb
+                                        zoomLevel = loaded.viewportZoom
+                                        rotationDegrees = loaded.viewportRotation
+                                        isCanvasFlipped = loaded.isFlippedHorizontally
+                                        refreshProjectMetrics()
+                                        Toast.makeText(this@MainActivity, "Loaded '${loaded.title}'", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        },
+                        onDeleteSavedProject = { projId ->
+                            scope.launch(Dispatchers.IO) {
+                                storageManager.deleteProjectFromLibrary(projId)
+                                refreshProjectMetrics()
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(this@MainActivity, "Project deleted", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        onMenuOpened = {
+                            refreshProjectMetrics()
                         },
                         onExportMilton = {
                             scope.launch(Dispatchers.IO) {
@@ -438,6 +523,75 @@ class MainActivity : ComponentActivity() {
                         onExportJpg = { exportImage(isPng = false) },
                         onImportMilton = { importMiltonLauncher.launch(arrayOf("*/*")) }
                     )
+
+                    if (showNewProjectDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showNewProjectDialog = false },
+                            title = {
+                                Text("Start New Project?", color = Color.White, fontWeight = FontWeight.Bold)
+                            },
+                            text = {
+                                Text(
+                                    "Do you want to save the current artwork before starting a new project, or discard changes?",
+                                    color = Color(0xDDFFFFFF)
+                                )
+                            },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        showNewProjectDialog = false
+                                        scope.launch(Dispatchers.IO) {
+                                            storageManager.saveCurrentProjectToLibrary(documentTitle, canvasView)
+                                            val newMeta = storageManager.createNewBlankProject(canvasView)
+                                            withContext(Dispatchers.Main) {
+                                                documentTitle = newMeta.title
+                                                currentDocumentTitle = newMeta.title
+                                                canvasBackgroundColor = newMeta.backgroundColorRgb
+                                                zoomLevel = newMeta.viewportZoom
+                                                rotationDegrees = newMeta.viewportRotation
+                                                isCanvasFlipped = newMeta.isFlippedHorizontally
+                                                refreshProjectMetrics()
+                                                Toast.makeText(this@MainActivity, "Saved and created new project", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Text("Save & New", color = Color(0xFF64B5F6), fontWeight = FontWeight.Bold)
+                                }
+                            },
+                            dismissButton = {
+                                Row {
+                                    TextButton(
+                                        onClick = { showNewProjectDialog = false }
+                                    ) {
+                                        Text("Cancel", color = Color(0x99FFFFFF))
+                                    }
+                                    TextButton(
+                                        onClick = {
+                                            showNewProjectDialog = false
+                                            scope.launch(Dispatchers.IO) {
+                                                val newMeta = storageManager.createNewBlankProject(canvasView)
+                                                withContext(Dispatchers.Main) {
+                                                    documentTitle = newMeta.title
+                                                    currentDocumentTitle = newMeta.title
+                                                    canvasBackgroundColor = newMeta.backgroundColorRgb
+                                                    zoomLevel = newMeta.viewportZoom
+                                                    rotationDegrees = newMeta.viewportRotation
+                                                    isCanvasFlipped = newMeta.isFlippedHorizontally
+                                                    refreshProjectMetrics()
+                                                    Toast.makeText(this@MainActivity, "Created new project", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        Text("Discard & New", color = Color(0xFFFF5252))
+                                    }
+                                }
+                            },
+                            containerColor = Color(0xFF22262E),
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                    }
                 }
             }
         }

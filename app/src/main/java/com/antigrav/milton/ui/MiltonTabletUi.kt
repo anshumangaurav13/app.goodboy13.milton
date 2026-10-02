@@ -31,10 +31,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Colorize
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
@@ -46,9 +50,11 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.ScreenRotation
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.UploadFile
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -59,7 +65,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.window.Popup
+import com.antigrav.milton.core.storage.SavedProjectSummary
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -174,7 +184,15 @@ fun MiltonTabletUi(
     eyedropperReticleState: EyedropperReticleState = EyedropperReticleState(),
     documentTitle: String = "Untitled Artwork",
     onTitleChange: (String) -> Unit = {},
+    onNewProjectClick: () -> Unit = {},
     onManualSave: () -> Unit = {},
+    savedProjects: List<SavedProjectSummary> = emptyList(),
+    totalSavedProjectsSize: String = "0 KB",
+    currentProjectDiskSize: String = "0 KB",
+    appRamUsageMb: Int = 0,
+    onLoadProject: (String) -> Unit = {},
+    onDeleteSavedProject: (String) -> Unit = {},
+    onMenuOpened: () -> Unit = {},
     onExportMilton: () -> Unit = {},
     onExportPng: () -> Unit = {},
     onExportJpg: () -> Unit = {},
@@ -225,7 +243,15 @@ fun MiltonTabletUi(
             TabletTopLeftBar(
                 documentTitle = documentTitle,
                 onTitleChange = onTitleChange,
+                onNewProjectClick = onNewProjectClick,
                 onManualSave = onManualSave,
+                savedProjects = savedProjects,
+                totalSavedProjectsSize = totalSavedProjectsSize,
+                currentProjectDiskSize = currentProjectDiskSize,
+                appRamUsageMb = appRamUsageMb,
+                onLoadProject = onLoadProject,
+                onDeleteSavedProject = onDeleteSavedProject,
+                onMenuOpened = onMenuOpened,
                 onExportMilton = onExportMilton,
                 onExportPng = onExportPng,
                 onExportJpg = onExportJpg,
@@ -308,11 +334,37 @@ fun MiltonTabletUi(
                     modifier = Modifier
                         .size(42.dp)
                         .clip(zenExitShape)
-                        .clickable { onToggleZenMode(false) },
+                        .clickable { onToggleZenMode(false) }
+                        .drawBehind {
+                            val sw = 1.dp.toPx()
+                            val r = 14.dp.toPx()
+                            val w = size.width
+                            val h = size.height
+                            val path = androidx.compose.ui.graphics.Path().apply {
+                                moveTo(sw / 2f, 0f)
+                                lineTo(sw / 2f, h - r)
+                                arcTo(
+                                    rect = androidx.compose.ui.geometry.Rect(
+                                        sw / 2f,
+                                        h - 2f * r + sw / 2f,
+                                        2f * r - sw / 2f,
+                                        h - sw / 2f
+                                    ),
+                                    startAngleDegrees = 180f,
+                                    sweepAngleDegrees = -90f,
+                                    forceMoveTo = false
+                                )
+                                lineTo(w, h - sw / 2f)
+                            }
+                            drawPath(
+                                path = path,
+                                color = Color(0x35FFFFFF),
+                                style = Stroke(width = sw)
+                            )
+                        },
                     color = Color(0xD0181A1F),
                     shadowElevation = 8.dp,
-                    shape = zenExitShape,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x44FFFFFF))
+                    shape = zenExitShape
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
@@ -393,10 +445,48 @@ private fun TabletToolRail(
         modifier = Modifier
             .width(56.dp)
             .shadow(elevation = 12.dp, shape = railShape)
-            .clip(railShape),
+            .clip(railShape)
+            .drawBehind {
+                val sw = 1.dp.toPx()
+                val r = 16.dp.toPx()
+                val w = this.size.width
+                val h = this.size.height
+                val path = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(0f, sw / 2f)
+                    lineTo(w - r, sw / 2f)
+                    arcTo(
+                        rect = androidx.compose.ui.geometry.Rect(
+                            w - 2f * r + sw / 2f,
+                            sw / 2f,
+                            w - sw / 2f,
+                            2f * r - sw / 2f
+                        ),
+                        startAngleDegrees = 270f,
+                        sweepAngleDegrees = 90f,
+                        forceMoveTo = false
+                    )
+                    lineTo(w - sw / 2f, h - r)
+                    arcTo(
+                        rect = androidx.compose.ui.geometry.Rect(
+                            w - 2f * r + sw / 2f,
+                            h - 2f * r + sw / 2f,
+                            w - sw / 2f,
+                            h - sw / 2f
+                        ),
+                        startAngleDegrees = 0f,
+                        sweepAngleDegrees = 90f,
+                        forceMoveTo = false
+                    )
+                    lineTo(0f, h - sw / 2f)
+                }
+                drawPath(
+                    path = path,
+                    color = Color(0x35FFFFFF),
+                    style = Stroke(width = sw)
+                )
+            },
         color = Color(0xF2181A1F),
         shape = railShape,
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x35FFFFFF)),
         tonalElevation = 6.dp
     ) {
         Column(
@@ -712,17 +802,31 @@ private fun QuickRailOpacityScrubber(
     }
 }
 
+private enum class LeftBarSubmenu {
+    NONE,
+    EXPORT,
+    SAVED_PROJECTS
+}
+
 /**
  * Top left header bar: Docked to top-left edge, flush with corner.
  * Contains:
- * 1. Sandwich menu with dropdown: Manual Save, Export .milton, Export PNG, Export JPG, Import .milton.
+ * 1. Compact sandwich menu with flyout submenus: New Project, Save Project, Saved Projects >, Export >, Import .milton, and RAM/Disk footer.
  * 2. In-place titlebar editable by holding (long press), but NOT merely tapping.
  */
 @Composable
 private fun TabletTopLeftBar(
     documentTitle: String,
     onTitleChange: (String) -> Unit,
+    onNewProjectClick: () -> Unit,
     onManualSave: () -> Unit,
+    savedProjects: List<SavedProjectSummary>,
+    totalSavedProjectsSize: String,
+    currentProjectDiskSize: String,
+    appRamUsageMb: Int,
+    onLoadProject: (String) -> Unit,
+    onDeleteSavedProject: (String) -> Unit,
+    onMenuOpened: () -> Unit,
     onExportMilton: () -> Unit,
     onExportPng: () -> Unit,
     onExportJpg: () -> Unit,
@@ -730,6 +834,7 @@ private fun TabletTopLeftBar(
 ) {
     val barShape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 14.dp)
     var isMenuExpanded by remember { mutableStateOf(false) }
+    var activeSubmenu by remember { mutableStateOf(LeftBarSubmenu.NONE) }
     var isEditingTitle by remember { mutableStateOf(false) }
     var tempTitle by remember(documentTitle) { mutableStateOf(documentTitle) }
     val focusRequester = remember { FocusRequester() }
@@ -737,10 +842,36 @@ private fun TabletTopLeftBar(
     Surface(
         modifier = Modifier
             .shadow(elevation = 10.dp, shape = barShape)
-            .clip(barShape),
+            .clip(barShape)
+            .drawBehind {
+                val sw = 1.dp.toPx()
+                val r = 14.dp.toPx()
+                val w = size.width
+                val h = size.height
+                val path = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(w - sw / 2f, 0f)
+                    lineTo(w - sw / 2f, h - r)
+                    arcTo(
+                        rect = androidx.compose.ui.geometry.Rect(
+                            w - 2f * r + sw / 2f,
+                            h - 2f * r + sw / 2f,
+                            w - sw / 2f,
+                            h - sw / 2f
+                        ),
+                        startAngleDegrees = 0f,
+                        sweepAngleDegrees = 90f,
+                        forceMoveTo = false
+                    )
+                    lineTo(0f, h - sw / 2f)
+                }
+                drawPath(
+                    path = path,
+                    color = Color(0x35FFFFFF),
+                    style = Stroke(width = sw)
+                )
+            },
         shape = barShape,
         color = Color(0xF0181A1F),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x35FFFFFF)),
         tonalElevation = 6.dp
     ) {
         Row(
@@ -751,7 +882,13 @@ private fun TabletTopLeftBar(
             // Sandwich menu button
             Box {
                 IconButton(
-                    onClick = { isMenuExpanded = !isMenuExpanded },
+                    onClick = {
+                        isMenuExpanded = !isMenuExpanded
+                        if (isMenuExpanded) {
+                            activeSubmenu = LeftBarSubmenu.NONE
+                            onMenuOpened()
+                        }
+                    },
                     modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
@@ -762,96 +899,261 @@ private fun TabletTopLeftBar(
                     )
                 }
 
-                DropdownMenu(
-                    expanded = isMenuExpanded,
-                    onDismissRequest = { isMenuExpanded = false },
-                    modifier = Modifier
-                        .background(Color(0xF5181A1F))
-                        .border(1.dp, Color(0x35FFFFFF), RoundedCornerShape(12.dp))
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Save Project", color = Color.White, fontSize = 14.sp) },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Save,
-                                contentDescription = null,
-                                tint = Color(0xFF64B5F6),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        },
-                        onClick = {
+                if (isMenuExpanded) {
+                    Popup(
+                        alignment = Alignment.TopStart,
+                        offset = IntOffset(x = 0, y = 110),
+                        onDismissRequest = {
                             isMenuExpanded = false
-                            onManualSave()
+                            activeSubmenu = LeftBarSubmenu.NONE
                         }
-                    )
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            // Primary Compact Menu
+                            Surface(
+                                modifier = Modifier
+                                    .width(185.dp)
+                                    .shadow(elevation = 16.dp, shape = RoundedCornerShape(12.dp)),
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xF7181A1F),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x35FFFFFF))
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                ) {
+                                    // 1. New Project
+                                    CompactMenuItem(
+                                        icon = Icons.Default.Add,
+                                        iconTint = Color(0xFF81C784),
+                                        text = "New Project",
+                                        onClick = {
+                                            isMenuExpanded = false
+                                            activeSubmenu = LeftBarSubmenu.NONE
+                                            onNewProjectClick()
+                                        }
+                                    )
 
-                    HorizontalDivider(color = Color(0x25FFFFFF))
+                                    // 2. Save Project
+                                    CompactMenuItem(
+                                        icon = Icons.Default.Save,
+                                        iconTint = Color(0xFF64B5F6),
+                                        text = "Save Project",
+                                        onClick = {
+                                            isMenuExpanded = false
+                                            activeSubmenu = LeftBarSubmenu.NONE
+                                            onManualSave()
+                                        }
+                                    )
 
-                    DropdownMenuItem(
-                        text = { Text("Export PNG", color = Color.White, fontSize = 14.sp) },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Image,
-                                contentDescription = null,
-                                tint = Color(0xFF81C784),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        },
-                        onClick = {
-                            isMenuExpanded = false
-                            onExportPng()
+                                    // 3. Saved Projects flyout
+                                    CompactMenuItem(
+                                        icon = Icons.Default.Folder,
+                                        iconTint = Color(0xFFFFCA28),
+                                        text = "Saved Projects",
+                                        hasSubmenu = true,
+                                        isSubmenuOpen = activeSubmenu == LeftBarSubmenu.SAVED_PROJECTS,
+                                        onClick = {
+                                            activeSubmenu = if (activeSubmenu == LeftBarSubmenu.SAVED_PROJECTS) {
+                                                LeftBarSubmenu.NONE
+                                            } else {
+                                                onMenuOpened()
+                                                LeftBarSubmenu.SAVED_PROJECTS
+                                            }
+                                        }
+                                    )
+
+                                    HorizontalDivider(
+                                        color = Color(0x22FFFFFF),
+                                        thickness = 1.dp,
+                                        modifier = Modifier.padding(vertical = 3.dp, horizontal = 6.dp)
+                                    )
+
+                                    // 4. Export flyout
+                                    CompactMenuItem(
+                                        icon = Icons.Default.Share,
+                                        iconTint = Color(0xFFFFB74D),
+                                        text = "Export",
+                                        hasSubmenu = true,
+                                        isSubmenuOpen = activeSubmenu == LeftBarSubmenu.EXPORT,
+                                        onClick = {
+                                            activeSubmenu = if (activeSubmenu == LeftBarSubmenu.EXPORT) {
+                                                LeftBarSubmenu.NONE
+                                            } else {
+                                                LeftBarSubmenu.EXPORT
+                                            }
+                                        }
+                                    )
+
+                                    // 5. Import .milton
+                                    CompactMenuItem(
+                                        icon = Icons.Default.FolderOpen,
+                                        iconTint = Color(0xFF4FC3F7),
+                                        text = "Import .milton",
+                                        onClick = {
+                                            isMenuExpanded = false
+                                            activeSubmenu = LeftBarSubmenu.NONE
+                                            onImportMilton()
+                                        }
+                                    )
+
+                                    HorizontalDivider(
+                                        color = Color(0x22FFFFFF),
+                                        thickness = 1.dp,
+                                        modifier = Modifier.padding(vertical = 3.dp, horizontal = 6.dp)
+                                    )
+
+                                    // 6. Metrics Footer (RAM & Disk)
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "RAM: ${appRamUsageMb} MB",
+                                            fontSize = 10.sp,
+                                            color = Color(0x99FFFFFF),
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = "Disk: $currentProjectDiskSize",
+                                            fontSize = 10.sp,
+                                            color = Color(0x99FFFFFF),
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Secondary Flyout Submenus
+                            when (activeSubmenu) {
+                                LeftBarSubmenu.EXPORT -> {
+                                    Surface(
+                                        modifier = Modifier
+                                            .width(160.dp)
+                                            .shadow(elevation = 16.dp, shape = RoundedCornerShape(12.dp)),
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color(0xF7181A1F),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x35FFFFFF))
+                                    ) {
+                                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                            CompactMenuItem(
+                                                icon = Icons.Default.Image,
+                                                iconTint = Color(0xFF81C784),
+                                                text = "PNG Image",
+                                                onClick = {
+                                                    isMenuExpanded = false
+                                                    activeSubmenu = LeftBarSubmenu.NONE
+                                                    onExportPng()
+                                                }
+                                            )
+                                            CompactMenuItem(
+                                                icon = Icons.Default.Photo,
+                                                iconTint = Color(0xFFFFB74D),
+                                                text = "JPG Image",
+                                                onClick = {
+                                                    isMenuExpanded = false
+                                                    activeSubmenu = LeftBarSubmenu.NONE
+                                                    onExportJpg()
+                                                }
+                                            )
+                                            CompactMenuItem(
+                                                icon = Icons.Default.UploadFile,
+                                                iconTint = Color(0xFFBA68C8),
+                                                text = ".milton Project",
+                                                onClick = {
+                                                    isMenuExpanded = false
+                                                    activeSubmenu = LeftBarSubmenu.NONE
+                                                    onExportMilton()
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                                LeftBarSubmenu.SAVED_PROJECTS -> {
+                                    Surface(
+                                        modifier = Modifier
+                                            .width(260.dp)
+                                            .shadow(elevation = 16.dp, shape = RoundedCornerShape(12.dp)),
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color(0xF7181A1F),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x35FFFFFF))
+                                    ) {
+                                        Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                                            // Header with Total Size on Disk
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 10.dp, vertical = 2.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(
+                                                    text = "Saved Projects",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = Color(0x2864B5F6),
+                                                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0x5564B5F6))
+                                                ) {
+                                                    Text(
+                                                        text = "Total: $totalSavedProjectsSize",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = Color(0xFF90CAF9),
+                                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            HorizontalDivider(
+                                                color = Color(0x22FFFFFF),
+                                                thickness = 1.dp,
+                                                modifier = Modifier.padding(vertical = 4.dp, horizontal = 6.dp)
+                                            )
+
+                                            if (savedProjects.isEmpty()) {
+                                                Text(
+                                                    text = "No saved projects found",
+                                                    fontSize = 11.sp,
+                                                    color = Color(0x77FFFFFF),
+                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                                                )
+                                            } else {
+                                                Column(
+                                                    modifier = Modifier
+                                                        .heightIn(max = 260.dp)
+                                                        .verticalScroll(rememberScrollState())
+                                                ) {
+                                                    savedProjects.forEach { proj ->
+                                                        SavedProjectItemRow(
+                                                            project = proj,
+                                                            onLoad = {
+                                                                isMenuExpanded = false
+                                                                activeSubmenu = LeftBarSubmenu.NONE
+                                                                onLoadProject(proj.id)
+                                                            },
+                                                            onDelete = {
+                                                                onDeleteSavedProject(proj.id)
+                                                            }
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                LeftBarSubmenu.NONE -> {}
+                            }
                         }
-                    )
-
-                    DropdownMenuItem(
-                        text = { Text("Export JPG", color = Color.White, fontSize = 14.sp) },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Photo,
-                                contentDescription = null,
-                                tint = Color(0xFFFFB74D),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        },
-                        onClick = {
-                            isMenuExpanded = false
-                            onExportJpg()
-                        }
-                    )
-
-                    DropdownMenuItem(
-                        text = { Text("Export .milton", color = Color.White, fontSize = 14.sp) },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.UploadFile,
-                                contentDescription = null,
-                                tint = Color(0xFFBA68C8),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        },
-                        onClick = {
-                            isMenuExpanded = false
-                            onExportMilton()
-                        }
-                    )
-
-                    HorizontalDivider(color = Color(0x25FFFFFF))
-
-                    DropdownMenuItem(
-                        text = { Text("Import .milton", color = Color.White, fontSize = 14.sp) },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.FolderOpen,
-                                contentDescription = null,
-                                tint = Color(0xFF4FC3F7),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        },
-                        onClick = {
-                            isMenuExpanded = false
-                            onImportMilton()
-                        }
-                    )
+                    }
                 }
             }
 
@@ -963,6 +1265,126 @@ private fun TabletTopLeftBar(
     }
 }
 
+@Composable
+private fun CompactMenuItem(
+    icon: ImageVector,
+    iconTint: Color,
+    text: String,
+    hasSubmenu: Boolean = false,
+    isSubmenuOpen: Boolean = false,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        color = if (isSubmenuOpen) Color(0x2564B5F6) else Color.Transparent
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(16.dp)
+            )
+            Text(
+                text = text,
+                color = Color.White,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f)
+            )
+            if (hasSubmenu) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = if (isSubmenuOpen) Color(0xFF64B5F6) else Color(0x77FFFFFF),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SavedProjectItemRow(
+    project: SavedProjectSummary,
+    onLoad: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val dateStr = remember(project.modifiedAt) {
+        val sdf = java.text.SimpleDateFormat("MMM dd, HH:mm", java.util.Locale.US)
+        sdf.format(java.util.Date(project.modifiedAt))
+    }
+    val sizeStr = remember(project.sizeOnDiskBytes) {
+        when {
+            project.sizeOnDiskBytes < 1024 -> "${project.sizeOnDiskBytes} B"
+            project.sizeOnDiskBytes < 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f KB", project.sizeOnDiskBytes / 1024.0)
+            else -> String.format(java.util.Locale.US, "%.1f MB", project.sizeOnDiskBytes / (1024.0 * 1024.0))
+        }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onLoad() }
+            .padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
+        ) {
+            Text(
+                text = project.title,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = dateStr,
+                    fontSize = 10.sp,
+                    color = Color(0x88FFFFFF)
+                )
+                Text(
+                    text = "•",
+                    fontSize = 10.sp,
+                    color = Color(0x55FFFFFF)
+                )
+                Text(
+                    text = sizeStr,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFFFFB74D)
+                )
+            }
+        }
+
+        IconButton(
+            onClick = onDelete,
+            modifier = Modifier.size(28.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.DeleteOutline,
+                contentDescription = "Delete",
+                tint = Color(0x99FF5252),
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+}
+
 /**
  * Top minimal bar holding canvas navigation controls, zoom/rotation lock toggles, and single fullscreen button.
  */
@@ -989,10 +1411,36 @@ private fun TabletTopBar(
     Surface(
         modifier = Modifier
             .shadow(elevation = 10.dp, shape = topBarShape)
-            .clip(topBarShape),
+            .clip(topBarShape)
+            .drawBehind {
+                val sw = 1.dp.toPx()
+                val r = 14.dp.toPx()
+                val w = size.width
+                val h = size.height
+                val path = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(sw / 2f, 0f)
+                    lineTo(sw / 2f, h - r)
+                    arcTo(
+                        rect = androidx.compose.ui.geometry.Rect(
+                            sw / 2f,
+                            h - 2f * r + sw / 2f,
+                            2f * r - sw / 2f,
+                            h - sw / 2f
+                        ),
+                        startAngleDegrees = 180f,
+                        sweepAngleDegrees = -90f,
+                        forceMoveTo = false
+                    )
+                    lineTo(w, h - sw / 2f)
+                }
+                drawPath(
+                    path = path,
+                    color = Color(0x35FFFFFF),
+                    style = Stroke(width = sw)
+                )
+            },
         shape = topBarShape,
         color = Color(0xF0181A1F),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x35FFFFFF)),
         tonalElevation = 6.dp
     ) {
         Row(
