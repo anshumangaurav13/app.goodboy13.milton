@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -34,6 +35,9 @@ import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,11 +45,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import com.antigrav.milton.core.model.BezierControlPoints
+import com.antigrav.milton.ui.components.DraggableFloatingWindow
 import com.antigrav.milton.ui.components.EraserIcon
+import com.antigrav.milton.ui.components.FloatingWindowState
 import com.antigrav.milton.ui.components.PaintbrushIcon
 import com.antigrav.milton.ui.components.PenIcon
 import com.antigrav.milton.ui.components.PencilIcon
 import com.antigrav.milton.ui.components.ToolParametersPopup
+import com.antigrav.milton.ui.components.rememberFloatingWindowState
 import java.util.Locale
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -70,7 +77,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import com.antigrav.milton.core.brush.BrushType
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -107,22 +113,31 @@ fun MiltonTabletUi(
     canRedo: Boolean,
     onRedo: () -> Unit,
     zoomLevel: Float,
+    isZoomLocked: Boolean,
+    onToggleZoomLock: () -> Unit,
+    rotationDegrees: Float,
+    isRotationLocked: Boolean,
+    onToggleRotationLock: () -> Unit,
     onResetCanvas: () -> Unit,
     isZenMode: Boolean,
     onToggleZenMode: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var showColorWheelDialog by remember { mutableStateOf(false) }
+    var showColorPaletteWindow by remember { mutableStateOf(false) }
     var showToolParametersMenu by remember { mutableStateOf(false) }
+    val colorWindowState = rememberFloatingWindowState(initialX = 84f, initialY = 120f)
 
     LaunchedEffect(isZenMode) {
         if (isZenMode) {
             showToolParametersMenu = false
-            showColorWheelDialog = false
+            showColorPaletteWindow = false
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val containerW = constraints.maxWidth
+        val containerH = constraints.maxHeight
+
         // 1. Left Vertical Tool Rail
         AnimatedVisibility(
             visible = !isZenMode,
@@ -141,7 +156,7 @@ fun MiltonTabletUi(
                 opacity = brushOpacity,
                 onOpacityChange = onBrushOpacityChange,
                 colorRgb = brushColorRgb,
-                onOpenColorPicker = { showColorWheelDialog = true }
+                onOpenColorPicker = { showColorPaletteWindow = !showColorPaletteWindow }
             )
         }
 
@@ -167,7 +182,7 @@ fun MiltonTabletUi(
             )
         }
 
-        // 3. Top Right Header Bar (Undo, Redo, Zoom %, Reset View, Single Fullscreen Toggle)
+        // 3. Top Right Header Bar (Undo, Redo, Zoom Lock, Rotation Lock, Reset View, Single Fullscreen Toggle)
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -180,6 +195,11 @@ fun MiltonTabletUi(
                     canRedo = canRedo,
                     onRedo = onRedo,
                     zoomLevel = zoomLevel,
+                    isZoomLocked = isZoomLocked,
+                    onToggleZoomLock = onToggleZoomLock,
+                    rotationDegrees = rotationDegrees,
+                    isRotationLocked = isRotationLocked,
+                    onToggleRotationLock = onToggleRotationLock,
                     onResetCanvas = onResetCanvas,
                     onToggleZenMode = { onToggleZenMode(true) }
                 )
@@ -207,15 +227,15 @@ fun MiltonTabletUi(
             }
         }
 
-        // 4. Color Wheel Dialog (Circular Hue ring + Saturation/Value square)
-        if (showColorWheelDialog) {
-            ColorWheelDialog(
+        // 4. Floating Draggable Color Palette Window (confined within app bounds)
+        if (!isZenMode && showColorPaletteWindow) {
+            ColorPaletteFloatingWindow(
                 currentColorRgb = brushColorRgb,
-                onColorSelected = { color ->
-                    onBrushColorChange(color)
-                    showColorWheelDialog = false
-                },
-                onDismiss = { showColorWheelDialog = false }
+                onColorSelected = onBrushColorChange,
+                onClose = { showColorPaletteWindow = false },
+                containerWidth = containerW,
+                containerHeight = containerH,
+                state = colorWindowState
             )
         }
     }
@@ -406,11 +426,8 @@ private fun QuickRailSizeScrubber(
                             val delta = dx + dy
                             totalMoved += kotlin.math.abs(dx) + kotlin.math.abs(dy)
 
-                            val factor = when {
-                                accumulatedSize < 20f -> 0.35f
-                                accumulatedSize < 60f -> 0.65f
-                                else -> 1.0f
-                            }
+                            // Continuous proportional sensitivity: slow & precise in low range, swift in large range
+                            val factor = (0.05f + 0.0055f * accumulatedSize).coerceIn(0.05f, 3.0f)
                             accumulatedSize = (accumulatedSize + delta * factor).coerceIn(1f, 500f)
                             onSizeChangeState.value(accumulatedSize)
                             change.consume()
@@ -561,7 +578,7 @@ private fun QuickRailOpacityScrubber(
 }
 
 /**
- * Top minimal bar holding canvas navigation controls and the single fullscreen button.
+ * Top minimal bar holding canvas navigation controls, zoom/rotation lock toggles, and single fullscreen button.
  */
 @Composable
 private fun TabletTopBar(
@@ -570,6 +587,11 @@ private fun TabletTopBar(
     canRedo: Boolean,
     onRedo: () -> Unit,
     zoomLevel: Float,
+    isZoomLocked: Boolean,
+    onToggleZoomLock: () -> Unit,
+    rotationDegrees: Float,
+    isRotationLocked: Boolean,
+    onToggleRotationLock: () -> Unit,
     onResetCanvas: () -> Unit,
     onToggleZenMode: () -> Unit
 ) {
@@ -622,24 +644,75 @@ private fun TabletTopBar(
                     .padding(horizontal = 2.dp)
             )
 
-            // Zoom % Readout (Tapping resets view to 100%)
+            // Zoom Lock Toggle Button (Clicking toggles zoom lock)
             Surface(
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .clickable { onResetCanvas() }
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                    .clickable { onToggleZoomLock() }
+                    .background(if (isZoomLocked) Color(0x2FFF9800) else Color.Transparent)
+                    .border(
+                        width = 1.dp,
+                        color = if (isZoomLocked) Color(0xFFFFB74D) else Color(0x20FFFFFF),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 7.dp, vertical = 5.dp),
                 color = Color.Transparent
             ) {
-                val zoomPct = (zoomLevel * 100).roundToInt()
-                Text(
-                    text = "$zoomPct%",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color(0xDDFFFFFF)
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isZoomLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                        contentDescription = if (isZoomLocked) "Zoom Locked" else "Zoom Unlocked",
+                        tint = if (isZoomLocked) Color(0xFFFFB74D) else Color(0x88FFFFFF),
+                        modifier = Modifier.size(13.dp)
+                    )
+                    val zoomPct = (zoomLevel * 100).roundToInt()
+                    Text(
+                        text = "$zoomPct%",
+                        fontSize = 12.sp,
+                        fontWeight = if (isZoomLocked) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isZoomLocked) Color(0xFFFFB74D) else Color(0xDDFFFFFF)
+                    )
+                }
             }
 
-            // Reset View Button
+            // Rotation Lock Toggle Button (Clicking toggles rotation lock)
+            Surface(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onToggleRotationLock() }
+                    .background(if (isRotationLocked) Color(0x2F42A5F5) else Color.Transparent)
+                    .border(
+                        width = 1.dp,
+                        color = if (isRotationLocked) Color(0xFF64B5F6) else Color(0x20FFFFFF),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 7.dp, vertical = 5.dp),
+                color = Color.Transparent
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isRotationLocked) Icons.Default.Lock else Icons.Default.ScreenRotation,
+                        contentDescription = if (isRotationLocked) "Rotation Locked" else "Rotation Unlocked",
+                        tint = if (isRotationLocked) Color(0xFF64B5F6) else Color(0x88FFFFFF),
+                        modifier = Modifier.size(13.dp)
+                    )
+                    val rotDeg = (rotationDegrees.roundToInt() % 360).let { if (it < 0) it + 360 else it }
+                    Text(
+                        text = "$rotDeg°",
+                        fontSize = 12.sp,
+                        fontWeight = if (isRotationLocked) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isRotationLocked) Color(0xFF64B5F6) else Color(0xDDFFFFFF)
+                    )
+                }
+            }
+
+            // Dedicated Reset View Button
             IconButton(
                 onClick = onResetCanvas,
                 modifier = Modifier.size(36.dp)
@@ -675,13 +748,18 @@ private enum class WheelTouchMode {
 }
 
 /**
- * HSV Color Wheel with circular rainbow Hue ring and inner Saturation-Value square.
+ * Draggable Floating Color Palette Window.
+ * Confined strictly to container bounds.
+ * Changes to hue / saturation / value update brush color live.
  */
 @Composable
-private fun ColorWheelDialog(
+private fun ColorPaletteFloatingWindow(
     currentColorRgb: Int,
     onColorSelected: (Int) -> Unit,
-    onDismiss: () -> Unit
+    onClose: () -> Unit,
+    containerWidth: Int,
+    containerHeight: Int,
+    state: FloatingWindowState
 ) {
     val initialHsv = remember(currentColorRgb) {
         val hsv = FloatArray(3)
@@ -697,287 +775,264 @@ private fun ColorWheelDialog(
         android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, value))
     }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            modifier = Modifier
-                .width(320.dp)
-                .wrapContentHeight()
-                .shadow(20.dp, RoundedCornerShape(22.dp))
-                .clip(RoundedCornerShape(22.dp)),
-            color = Color(0xF8181A20)
+    DraggableFloatingWindow(
+        title = "Color Palette",
+        onClose = onClose,
+        containerWidth = containerWidth,
+        containerHeight = containerHeight,
+        state = state,
+        modifier = Modifier.width(300.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            // --- HSV Color Wheel Canvas ---
+            var touchMode by remember { mutableStateOf(WheelTouchMode.NONE) }
+
+            androidx.compose.foundation.Canvas(
+                modifier = Modifier
+                    .size(210.dp)
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val w = size.width.toFloat()
+                            val h = size.height.toFloat()
+                            val cx = w / 2f
+                            val cy = h / 2f
+                            val ringThickness = 20.dp.toPx()
+                            val rOuter = minOf(cx, cy) - 2.dp.toPx()
+                            val rInner = rOuter - ringThickness
+                            val rSafe = rInner - 6.dp.toPx()
+                            val sqSize = (rSafe * sqrt(2.0)).toFloat()
+                            val sqLeft = cx - sqSize / 2f
+                            val sqTop = cy - sqSize / 2f
+
+                            val dx = down.position.x - cx
+                            val dy = down.position.y - cy
+                            val dist = hypot(dx, dy)
+
+                            touchMode = if (dist >= rInner - 8.dp.toPx()) {
+                                WheelTouchMode.HUE
+                            } else {
+                                WheelTouchMode.SV
+                            }
+
+                            if (touchMode == WheelTouchMode.HUE) {
+                                var angle = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
+                                if (angle < 0f) angle += 360f
+                                hue = angle
+                            } else {
+                                saturation = ((down.position.x - sqLeft) / sqSize).coerceIn(0f, 1f)
+                                value = (1f - (down.position.y - sqTop) / sqSize).coerceIn(0f, 1f)
+                            }
+                            val newCol = android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, value))
+                            onColorSelected(newCol)
+                            down.consume()
+
+                            do {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull()
+                                if (change != null && change.pressed) {
+                                    if (touchMode == WheelTouchMode.HUE) {
+                                        val curDx = change.position.x - cx
+                                        val curDy = change.position.y - cy
+                                        var angle = Math.toDegrees(atan2(curDy.toDouble(), curDx.toDouble())).toFloat()
+                                        if (angle < 0f) angle += 360f
+                                        hue = angle
+                                    } else {
+                                        saturation = ((change.position.x - sqLeft) / sqSize).coerceIn(0f, 1f)
+                                        value = (1f - (change.position.y - sqTop) / sqSize).coerceIn(0f, 1f)
+                                    }
+                                    val moveCol = android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, value))
+                                    onColorSelected(moveCol)
+                                    change.consume()
+                                }
+                            } while (event.changes.any { it.pressed })
+
+                            touchMode = WheelTouchMode.NONE
+                        }
+                    }
+            ) {
+                val w = size.width
+                val h = size.height
+                val cx = w / 2f
+                val cy = h / 2f
+                val ringThickness = 20.dp.toPx()
+                val rOuter = minOf(cx, cy) - 2.dp.toPx()
+                val rInner = rOuter - ringThickness
+                val rMid = (rOuter + rInner) / 2f
+
+                // 1. Outer Hue Ring
+                val hueColors = listOf(
+                    Color.Red, Color.Yellow, Color.Green,
+                    Color.Cyan, Color.Blue, Color.Magenta, Color.Red
+                )
+                drawCircle(
+                    brush = Brush.sweepGradient(hueColors, center = Offset(cx, cy)),
+                    radius = rMid,
+                    center = Offset(cx, cy),
+                    style = Stroke(width = ringThickness)
+                )
+
+                // Hue Thumb Indicator
+                val hueRad = Math.toRadians(hue.toDouble())
+                val thumbX = cx + rMid * cos(hueRad).toFloat()
+                val thumbY = cy + rMid * sin(hueRad).toFloat()
+
+                drawCircle(
+                    color = Color(0x66000000),
+                    radius = 8.dp.toPx(),
+                    center = Offset(thumbX, thumbY),
+                    style = Stroke(width = 2.5.dp.toPx())
+                )
+                drawCircle(
+                    color = Color.White,
+                    radius = 7.dp.toPx(),
+                    center = Offset(thumbX, thumbY),
+                    style = Stroke(width = 2.dp.toPx())
+                )
+
+                // 2. Inner Saturation-Value Square
+                val rSafe = rInner - 6.dp.toPx()
+                val sqSize = (rSafe * sqrt(2.0)).toFloat()
+                val sqLeft = cx - sqSize / 2f
+                val sqTop = cy - sqSize / 2f
+                val sqRight = cx + sqSize / 2f
+                val sqBottom = cy + sqSize / 2f
+                val topLeft = Offset(sqLeft, sqTop)
+                val rectSize = Size(sqSize, sqSize)
+
+                // Pure Hue base fill
+                val pureHueColor = Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 1f, 1f)))
+                drawRect(
+                    color = pureHueColor,
+                    topLeft = topLeft,
+                    size = rectSize
+                )
+
+                // Horizontal White (S=0) to Transparent (S=1)
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(Color.White, Color.White.copy(alpha = 0f)),
+                        startX = sqLeft,
+                        endX = sqRight
+                    ),
+                    topLeft = topLeft,
+                    size = rectSize
+                )
+
+                // Vertical Transparent (V=1) to Black (V=0)
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Color.Black),
+                        startY = sqTop,
+                        endY = sqBottom
+                    ),
+                    topLeft = topLeft,
+                    size = rectSize
+                )
+
+                // Square border
+                drawRect(
+                    color = Color(0x44000000),
+                    topLeft = topLeft,
+                    size = rectSize,
+                    style = Stroke(width = 1.dp.toPx())
+                )
+
+                // SV Crosshair Indicator
+                val svX = sqLeft + saturation * sqSize
+                val svY = sqTop + (1f - value) * sqSize
+
+                drawCircle(
+                    color = Color(0x66000000),
+                    radius = 6.dp.toPx(),
+                    center = Offset(svX, svY),
+                    style = Stroke(width = 2.dp.toPx())
+                )
+                drawCircle(
+                    color = Color.White,
+                    radius = 5.dp.toPx(),
+                    center = Offset(svX, svY),
+                    style = Stroke(width = 1.5.dp.toPx())
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Quick Palette Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                QUICK_PALETTE_COLORS.forEach { col ->
+                    val isSelected = (col == activeColorInt)
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(Color(col))
+                            .border(
+                                width = if (isSelected) 2.dp else 1.dp,
+                                color = if (isSelected) Color.White else Color(0x33FFFFFF),
+                                shape = CircleShape
+                            )
+                            .clickable {
+                                val hsv = FloatArray(3)
+                                android.graphics.Color.colorToHSV(col, hsv)
+                                hue = hsv[0]
+                                saturation = hsv[1]
+                                value = hsv[2]
+                                onColorSelected(col)
+                            }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+            HorizontalDivider(color = Color(0x25FFFFFF), thickness = 1.dp)
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Preview & Done Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color(activeColorInt))
+                            .border(1.5.dp, Color.White, CircleShape)
+                    )
+                    Text(
+                        text = String.format("#%06X", (0xFFFFFF and activeColorInt)),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xCCFFFFFF)
+                    )
+                }
+
+                Surface(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onClose() },
+                    color = Color(0xFF3949AB),
+                    shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
-                        text = "Color Wheel",
-                        fontSize = 16.sp,
+                        text = "Done",
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = Color(0x88FFFFFF),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // --- HSV Color Wheel Canvas ---
-                var touchMode by remember { mutableStateOf(WheelTouchMode.NONE) }
-
-                androidx.compose.foundation.Canvas(
-                    modifier = Modifier
-                        .size(220.dp)
-                        .pointerInput(Unit) {
-                            awaitEachGesture {
-                                val down = awaitFirstDown(requireUnconsumed = false)
-                                val w = size.width.toFloat()
-                                val h = size.height.toFloat()
-                                val cx = w / 2f
-                                val cy = h / 2f
-                                val ringThickness = 22.dp.toPx()
-                                val rOuter = minOf(cx, cy) - 2.dp.toPx()
-                                val rInner = rOuter - ringThickness
-                                val rSafe = rInner - 6.dp.toPx()
-                                val sqSize = (rSafe * sqrt(2.0)).toFloat()
-                                val sqLeft = cx - sqSize / 2f
-                                val sqTop = cy - sqSize / 2f
-
-                                val dx = down.position.x - cx
-                                val dy = down.position.y - cy
-                                val dist = hypot(dx, dy)
-
-                                touchMode = if (dist >= rInner - 8.dp.toPx()) {
-                                    WheelTouchMode.HUE
-                                } else {
-                                    WheelTouchMode.SV
-                                }
-
-                                if (touchMode == WheelTouchMode.HUE) {
-                                    var angle = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
-                                    if (angle < 0f) angle += 360f
-                                    hue = angle
-                                } else {
-                                    saturation = ((down.position.x - sqLeft) / sqSize).coerceIn(0f, 1f)
-                                    value = (1f - (down.position.y - sqTop) / sqSize).coerceIn(0f, 1f)
-                                }
-                                down.consume()
-
-                                do {
-                                    val event = awaitPointerEvent()
-                                    val change = event.changes.firstOrNull()
-                                    if (change != null && change.pressed) {
-                                        if (touchMode == WheelTouchMode.HUE) {
-                                            val curDx = change.position.x - cx
-                                            val curDy = change.position.y - cy
-                                            var angle = Math.toDegrees(atan2(curDy.toDouble(), curDx.toDouble())).toFloat()
-                                            if (angle < 0f) angle += 360f
-                                            hue = angle
-                                        } else {
-                                            saturation = ((change.position.x - sqLeft) / sqSize).coerceIn(0f, 1f)
-                                            value = (1f - (change.position.y - sqTop) / sqSize).coerceIn(0f, 1f)
-                                        }
-                                        change.consume()
-                                    }
-                                } while (event.changes.any { it.pressed })
-
-                                touchMode = WheelTouchMode.NONE
-                            }
-                        }
-                ) {
-                    val w = size.width
-                    val h = size.height
-                    val cx = w / 2f
-                    val cy = h / 2f
-                    val ringThickness = 22.dp.toPx()
-                    val rOuter = minOf(cx, cy) - 2.dp.toPx()
-                    val rInner = rOuter - ringThickness
-                    val rMid = (rOuter + rInner) / 2f
-
-                    // 1. Outer Hue Ring
-                    val hueColors = listOf(
-                        Color.Red, Color.Yellow, Color.Green,
-                        Color.Cyan, Color.Blue, Color.Magenta, Color.Red
-                    )
-                    drawCircle(
-                        brush = Brush.sweepGradient(hueColors, center = Offset(cx, cy)),
-                        radius = rMid,
-                        center = Offset(cx, cy),
-                        style = Stroke(width = ringThickness)
-                    )
-
-                    // Hue Thumb Indicator
-                    val hueRad = Math.toRadians(hue.toDouble())
-                    val thumbX = cx + rMid * cos(hueRad).toFloat()
-                    val thumbY = cy + rMid * sin(hueRad).toFloat()
-
-                    drawCircle(
-                        color = Color(0x66000000),
-                        radius = 8.dp.toPx(),
-                        center = Offset(thumbX, thumbY),
-                        style = Stroke(width = 2.5.dp.toPx())
-                    )
-                    drawCircle(
                         color = Color.White,
-                        radius = 7.dp.toPx(),
-                        center = Offset(thumbX, thumbY),
-                        style = Stroke(width = 2.dp.toPx())
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
                     )
-
-                    // 2. Inner Saturation-Value Square
-                    val rSafe = rInner - 6.dp.toPx()
-                    val sqSize = (rSafe * sqrt(2.0)).toFloat()
-                    val sqLeft = cx - sqSize / 2f
-                    val sqTop = cy - sqSize / 2f
-                    val sqRight = cx + sqSize / 2f
-                    val sqBottom = cy + sqSize / 2f
-                    val topLeft = Offset(sqLeft, sqTop)
-                    val rectSize = Size(sqSize, sqSize)
-
-                    // Pure Hue base fill
-                    val pureHueColor = Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 1f, 1f)))
-                    drawRect(
-                        color = pureHueColor,
-                        topLeft = topLeft,
-                        size = rectSize
-                    )
-
-                    // Horizontal White (S=0) to Transparent (S=1)
-                    drawRect(
-                        brush = Brush.horizontalGradient(
-                            colors = listOf(Color.White, Color.White.copy(alpha = 0f)),
-                            startX = sqLeft,
-                            endX = sqRight
-                        ),
-                        topLeft = topLeft,
-                        size = rectSize
-                    )
-
-                    // Vertical Transparent (V=1) to Black (V=0)
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color.Black),
-                            startY = sqTop,
-                            endY = sqBottom
-                        ),
-                        topLeft = topLeft,
-                        size = rectSize
-                    )
-
-                    // Square border
-                    drawRect(
-                        color = Color(0x44000000),
-                        topLeft = topLeft,
-                        size = rectSize,
-                        style = Stroke(width = 1.dp.toPx())
-                    )
-
-                    // SV Crosshair Indicator
-                    val svX = sqLeft + saturation * sqSize
-                    val svY = sqTop + (1f - value) * sqSize
-
-                    drawCircle(
-                        color = Color(0x66000000),
-                        radius = 6.dp.toPx(),
-                        center = Offset(svX, svY),
-                        style = Stroke(width = 2.dp.toPx())
-                    )
-                    drawCircle(
-                        color = Color.White,
-                        radius = 5.dp.toPx(),
-                        center = Offset(svX, svY),
-                        style = Stroke(width = 1.5.dp.toPx())
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Quick Palette Row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    QUICK_PALETTE_COLORS.forEach { col ->
-                        val isSelected = (col == activeColorInt)
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(Color(col))
-                                .border(
-                                    width = if (isSelected) 2.dp else 1.dp,
-                                    color = if (isSelected) Color.White else Color(0x33FFFFFF),
-                                    shape = CircleShape
-                                )
-                                .clickable {
-                                    val hsv = FloatArray(3)
-                                    android.graphics.Color.colorToHSV(col, hsv)
-                                    hue = hsv[0]
-                                    saturation = hsv[1]
-                                    value = hsv[2]
-                                }
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider(color = Color(0x25FFFFFF), thickness = 1.dp)
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Preview & Apply Row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(Color(activeColorInt))
-                                .border(1.5.dp, Color.White, CircleShape)
-                        )
-                        Text(
-                            text = String.format("#%06X", (0xFFFFFF and activeColorInt)),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color(0xCCFFFFFF)
-                        )
-                    }
-
-                    Surface(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { onColorSelected(activeColorInt) },
-                        color = Color(0xFF3949AB),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text(
-                            text = "Apply",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)
-                        )
-                    }
                 }
             }
         }

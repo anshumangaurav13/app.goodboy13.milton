@@ -41,21 +41,21 @@ data class BrushProperties(
     private val savedSizes = mutableMapOf(
         BrushType.PEN to 16.0f,
         BrushType.PENCIL to 12.0f,
-        BrushType.PAINTBRUSH to 50.0f,
+        BrushType.PAINTBRUSH to 250.0f,
         BrushType.ERASER to 64.0f
     )
 
     private val savedOpacities = mutableMapOf(
         BrushType.PEN to 1.0f,
         BrushType.PENCIL to 0.50f,
-        BrushType.PAINTBRUSH to 0.80f,
+        BrushType.PAINTBRUSH to 0.60f,
         BrushType.ERASER to 1.0f
     )
 
     private val savedBeziers = mutableMapOf(
         BrushType.PEN to PressureCurveDefaults.STANDARD,
         BrushType.PENCIL to PressureCurveDefaults.SOFT,
-        BrushType.PAINTBRUSH to PressureCurveDefaults.STANDARD,
+        BrushType.PAINTBRUSH to PressureCurveDefaults.STANDARD.copy(minPercent = 0.45f),
         BrushType.ERASER to PressureCurveDefaults.LINEAR
     )
 

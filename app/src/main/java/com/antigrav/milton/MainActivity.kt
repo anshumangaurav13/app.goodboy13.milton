@@ -67,6 +67,9 @@ class MainActivity : ComponentActivity() {
                 var canUndo by remember { mutableStateOf(false) }
                 var canRedo by remember { mutableStateOf(false) }
                 var zoomLevel by remember { mutableFloatStateOf(0.5f) }
+                var rotationDegrees by remember { mutableFloatStateOf(0f) }
+                var isZoomLocked by remember { mutableStateOf(false) }
+                var isRotationLocked by remember { mutableStateOf(false) }
                 var isZenMode by remember { mutableStateOf(false) }
                 var bezierConfig by remember { mutableStateOf(canvasView.bezierConfig) }
 
@@ -78,9 +81,10 @@ class MainActivity : ComponentActivity() {
                             canRedo = canvasView.renderer.undoManager.canRedo
                         }
                     }
-                    canvasView.onViewportChanged = { zoom ->
+                    canvasView.onViewportChanged = { zoom, rot ->
                         handler.post {
                             zoomLevel = zoom
+                            rotationDegrees = rot
                         }
                     }
                     onDispose {
@@ -129,6 +133,17 @@ class MainActivity : ComponentActivity() {
                         canRedo = canRedo,
                         onRedo = { canvasView.redo() },
                         zoomLevel = zoomLevel,
+                        isZoomLocked = isZoomLocked,
+                        onToggleZoomLock = {
+                            isZoomLocked = !isZoomLocked
+                            canvasView.isZoomLocked = isZoomLocked
+                        },
+                        rotationDegrees = rotationDegrees,
+                        isRotationLocked = isRotationLocked,
+                        onToggleRotationLock = {
+                            isRotationLocked = !isRotationLocked
+                            canvasView.isRotationLocked = isRotationLocked
+                        },
                         onResetCanvas = { canvasView.resetCanvas() },
                         isZenMode = isZenMode,
                         onToggleZenMode = { isZenMode = it }

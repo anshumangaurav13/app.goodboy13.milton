@@ -69,7 +69,9 @@ class BrushEngineTest {
         assertTrue(props.hardness == 0.70f)
         assertTrue(!props.isEraser)
         assertTrue(props.brushMode == 2)
-        assertTrue(props.size == 50.0f)
+        assertTrue(props.size == 250.0f)
+        assertTrue(props.opacity == 0.60f)
+        assertTrue(props.bezierConfig.minPercent == 0.45f)
 
         props.applyPreset(com.antigrav.milton.core.brush.BrushType.ERASER)
         assertTrue(props.isEraser)

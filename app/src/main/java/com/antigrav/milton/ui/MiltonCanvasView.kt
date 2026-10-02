@@ -61,7 +61,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                 zoomFactor, angleDelta
             )
             frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
-            post { onViewportChanged?.invoke(renderer.viewport.zoom) }
+            post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
         }
 
         override fun onGestureStart() {
@@ -86,10 +86,21 @@ class MiltonCanvasView @JvmOverloads constructor(
         }
     })
 
-    var onViewportChanged: ((zoom: Float) -> Unit)? = null
+    var onViewportChanged: ((zoom: Float, rotationDegrees: Float) -> Unit)? = null
+
+    var isZoomLocked: Boolean
+        get() = gestureDetector.isZoomLocked
+        set(value) { gestureDetector.isZoomLocked = value }
+
+    var isRotationLocked: Boolean
+        get() = gestureDetector.isRotationLocked
+        set(value) { gestureDetector.isRotationLocked = value }
 
     val currentZoom: Float
         get() = renderer.viewport.zoom
+
+    val currentRotation: Float
+        get() = renderer.viewport.rotationDegrees
 
     var brushType: com.antigrav.milton.core.brush.BrushType
         get() = brushEngine.properties.brushType
@@ -150,7 +161,7 @@ class MiltonCanvasView @JvmOverloads constructor(
     fun resetCanvas() {
         renderer.viewport.reset()
         frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
-        post { onViewportChanged?.invoke(renderer.viewport.zoom) }
+        post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
     }
 
     override fun onAttachedToWindow() {
@@ -175,7 +186,7 @@ class MiltonCanvasView @JvmOverloads constructor(
             renderer.viewport.reset()
         }
         frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
-        post { onViewportChanged?.invoke(renderer.viewport.zoom) }
+        post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
         Log.i(TAG, "onSizeChanged: width=$w, height=$h")
     }
 

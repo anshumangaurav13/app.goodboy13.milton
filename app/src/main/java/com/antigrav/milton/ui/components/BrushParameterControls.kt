@@ -107,12 +107,8 @@ fun ValueDragControl(
                             val delta = dx + dy
 
                             val factor = if (span > 150f) {
-                                // Brush size range 1..500px: fine at small sizes, swift at large
-                                when {
-                                    accumulatedValue < 20f -> 0.35f
-                                    accumulatedValue < 60f -> 0.65f
-                                    else -> 1.0f
-                                }
+                                // Continuous proportional sensitivity: slow & precise in low range, swift in large range
+                                (0.05f + 0.0055f * accumulatedValue).coerceIn(0.05f, 3.0f)
                             } else {
                                 // Percentage ranges (e.g. 1..100%): responsive sweep
                                 (span / 300f).coerceAtLeast(0.25f)
