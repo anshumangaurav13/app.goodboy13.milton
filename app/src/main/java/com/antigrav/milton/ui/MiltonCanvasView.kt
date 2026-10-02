@@ -14,6 +14,13 @@ import com.antigrav.milton.core.gl.DabPacket
 import com.antigrav.milton.core.gl.MiltonCanvasRenderer
 import com.antigrav.milton.input.CanvasGestureDetector
 
+data class EyedropperReticleState(
+    val screenX: Float = 0f,
+    val screenY: Float = 0f,
+    val color: Int = 0,
+    val isVisible: Boolean = false
+)
+
 /**
  * Pure Infinite Canvas View:
  * - Stylus-only drawing (rejects fingers/palm for drawing).
@@ -165,9 +172,22 @@ class MiltonCanvasView @JvmOverloads constructor(
             brushEngine.properties.sizeBezierConfig = value
         }
 
+    var backgroundColorRgb: Int
+        get() = renderer.backgroundColorRgb
+        set(value) {
+            renderer.backgroundColorRgb = value
+            requestRedraw()
+        }
+
     var isEyedropperMode: Boolean = false
     var onColorPicked: ((Int) -> Unit)? = null
+    var onEyedropperReticleChanged: ((EyedropperReticleState) -> Unit)? = null
     var onStrokeCompleted: ((Int) -> Unit)? = null
+
+    private var lastSampledColor: Int = 0xFF000000.toInt()
+    private var lastEyedropperScreenX: Float = 0f
+    private var lastEyedropperScreenY: Float = 0f
+    private var isEyedropperTouching: Boolean = false
 
     fun undo() {
         renderer.requestUndo()
@@ -192,7 +212,19 @@ class MiltonCanvasView @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         renderer.onColorPicked = { color ->
-            post { onColorPicked?.invoke(color) }
+            post {
+                lastSampledColor = color
+                if (isEyedropperTouching) {
+                    onEyedropperReticleChanged?.invoke(
+                        EyedropperReticleState(
+                            screenX = lastEyedropperScreenX,
+                            screenY = lastEyedropperScreenY,
+                            color = color,
+                            isVisible = true
+                        )
+                    )
+                }
+            }
         }
         frontBufferedRenderer = GLFrontBufferedRenderer(this, renderer)
         Log.i(TAG, "GLFrontBufferedRenderer attached to window")
@@ -229,18 +261,51 @@ class MiltonCanvasView @JvmOverloads constructor(
         if (isEyedropperMode) {
             parent?.requestDisallowInterceptTouchEvent(true)
             val worldPos = renderer.viewport.screenToWorld(event.x, event.y)
+            lastEyedropperScreenX = event.x
+            lastEyedropperScreenY = event.y
+
             when (action) {
-                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                MotionEvent.ACTION_DOWN -> {
+                    isEyedropperTouching = true
                     renderer.requestColorPick(worldPos.x, worldPos.y)
                     requestRedraw()
+                    onEyedropperReticleChanged?.invoke(
+                        EyedropperReticleState(
+                            screenX = event.x,
+                            screenY = event.y,
+                            color = lastSampledColor,
+                            isVisible = true
+                        )
+                    )
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    isEyedropperTouching = true
+                    renderer.requestColorPick(worldPos.x, worldPos.y)
+                    requestRedraw()
+                    onEyedropperReticleChanged?.invoke(
+                        EyedropperReticleState(
+                            screenX = event.x,
+                            screenY = event.y,
+                            color = lastSampledColor,
+                            isVisible = true
+                        )
+                    )
                 }
                 MotionEvent.ACTION_UP -> {
-                    renderer.requestColorPick(worldPos.x, worldPos.y)
-                    requestRedraw()
+                    isEyedropperTouching = false
                     isEyedropperMode = false
+                    onEyedropperReticleChanged?.invoke(
+                        EyedropperReticleState(isVisible = false)
+                    )
+                    // Commit color only upon lift
+                    onColorPicked?.invoke(lastSampledColor)
                 }
                 MotionEvent.ACTION_CANCEL -> {
+                    isEyedropperTouching = false
                     isEyedropperMode = false
+                    onEyedropperReticleChanged?.invoke(
+                        EyedropperReticleState(isVisible = false)
+                    )
                 }
             }
             return true

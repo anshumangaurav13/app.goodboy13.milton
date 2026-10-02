@@ -252,11 +252,13 @@ fun StrokePreviewBox(
 }
 
 /**
- * Compact Tool Parameters Menu appearing upon holding (or tapping active) tool button.
+ * Draggable Floating Tool Parameters Window.
+ * Confined within app bounds, width 204dp to match other floating windows.
+ * Switching the active tool updates this window in place.
  * Bezier pressure curves are neatly collapsed under Size and Opacity.
  */
 @Composable
-fun ToolParametersPopup(
+fun ToolParametersFloatingWindow(
     brushType: BrushType,
     brushSize: Float,
     onBrushSizeChange: (Float) -> Unit,
@@ -267,63 +269,35 @@ fun ToolParametersPopup(
     onSizeBezierConfigChange: (BezierControlPoints) -> Unit,
     opacityBezierConfig: BezierControlPoints,
     onOpacityBezierConfigChange: (BezierControlPoints) -> Unit,
-    onDismiss: () -> Unit,
+    onClose: () -> Unit,
+    containerWidth: Int,
+    containerHeight: Int,
+    state: FloatingWindowState,
     modifier: Modifier = Modifier
 ) {
     var showSizeDynamics by remember { mutableStateOf(false) }
     var showOpacityDynamics by remember { mutableStateOf(false) }
 
-    Surface(
-        modifier = modifier
-            .width(264.dp)
-            .shadow(elevation = 16.dp, shape = RoundedCornerShape(16.dp))
-            .clip(RoundedCornerShape(16.dp)),
-        color = Color(0xF2181A1F),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x35FFFFFF)),
-        tonalElevation = 8.dp
+    DraggableFloatingWindow(
+        title = brushType.displayName,
+        onClose = onClose,
+        containerWidth = containerWidth,
+        containerHeight = containerHeight,
+        state = state,
+        modifier = modifier.width(204.dp),
+        headerActions = {
+            when (brushType) {
+                BrushType.PEN -> PenIcon(tint = Color(0xFF90CAF9), modifier = Modifier.size(16.dp))
+                BrushType.PENCIL -> PencilIcon(tint = Color(0xFFFFCC80), modifier = Modifier.size(16.dp))
+                BrushType.PAINTBRUSH -> PaintbrushIcon(tint = Color(0xFFA5D6A7), modifier = Modifier.size(16.dp))
+                BrushType.ERASER -> EraserIcon(tint = Color(0xFFEF9A9A), modifier = Modifier.size(16.dp))
+            }
+        }
     ) {
         Column(
-            modifier = Modifier
-                .padding(10.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            // Header Row: Tool Icon + Name + Close Button
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(7.dp)
-                ) {
-                    when (brushType) {
-                        BrushType.PEN -> PenIcon(tint = Color(0xFF90CAF9), modifier = Modifier.size(18.dp))
-                        BrushType.PENCIL -> PencilIcon(tint = Color(0xFFFFCC80), modifier = Modifier.size(18.dp))
-                        BrushType.PAINTBRUSH -> PaintbrushIcon(tint = Color(0xFFA5D6A7), modifier = Modifier.size(18.dp))
-                        BrushType.ERASER -> EraserIcon(tint = Color(0xFFEF9A9A), modifier = Modifier.size(18.dp))
-                    }
-                    Text(
-                        text = brushType.displayName,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                }
-
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.size(24.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = Color.White.copy(alpha = 0.70f),
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
-
             // Live S-curve stroke preview
             StrokePreviewBox(
                 brushType = brushType,

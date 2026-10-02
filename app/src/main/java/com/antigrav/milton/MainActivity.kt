@@ -79,6 +79,8 @@ class MainActivity : ComponentActivity() {
                 var sizeBezierConfig by remember { mutableStateOf(canvasView.sizeBezierConfig) }
                 var opacityBezierConfig by remember { mutableStateOf(canvasView.opacityBezierConfig) }
                 var isEyedropperActive by remember { mutableStateOf(false) }
+                var canvasBackgroundColor by remember { mutableIntStateOf(canvasView.backgroundColorRgb) }
+                var eyedropperReticleState by remember { mutableStateOf(com.antigrav.milton.ui.EyedropperReticleState()) }
 
                 var recentColors by remember {
                     mutableStateOf(
@@ -131,6 +133,11 @@ class MainActivity : ComponentActivity() {
                             canvasView.isEyedropperMode = false
                         }
                     }
+                    canvasView.onEyedropperReticleChanged = { state ->
+                        handler.post {
+                            eyedropperReticleState = state
+                        }
+                    }
                     canvasView.onStrokeCompleted = { strokeColor ->
                         handler.post {
                             addRecentColor(strokeColor)
@@ -142,6 +149,7 @@ class MainActivity : ComponentActivity() {
                         layerManager.onLayersChangedListener = null
                         canvasView.onViewportChanged = null
                         canvasView.onColorPicked = null
+                        canvasView.onEyedropperReticleChanged = null
                         canvasView.onStrokeCompleted = null
                     }
                 }
@@ -230,11 +238,17 @@ class MainActivity : ComponentActivity() {
                             layerManager.moveLayerDown(id)
                         },
                         recentColors = recentColors,
+                        canvasBackgroundColor = canvasBackgroundColor,
+                        onCanvasBackgroundColorChange = { color ->
+                            canvasBackgroundColor = color
+                            canvasView.backgroundColorRgb = color
+                        },
                         isEyedropperActive = isEyedropperActive,
                         onToggleEyedropper = {
                             isEyedropperActive = !isEyedropperActive
                             canvasView.isEyedropperMode = isEyedropperActive
-                        }
+                        },
+                        eyedropperReticleState = eyedropperReticleState
                     )
                 }
             }

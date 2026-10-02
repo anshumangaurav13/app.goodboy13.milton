@@ -18,7 +18,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -73,6 +75,8 @@ fun LayersFloatingWindow(
     onOpacityChange: (Long, Float) -> Unit,
     onMoveLayerUp: (Long) -> Unit,
     onMoveLayerDown: (Long) -> Unit,
+    backgroundColorRgb: Int = 0xFFFFFFFF.toInt(),
+    onChangeBackgroundColor: (Int) -> Unit = {},
     onClose: () -> Unit,
     containerWidth: Int,
     containerHeight: Int,
@@ -110,7 +114,7 @@ fun LayersFloatingWindow(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 380.dp),
+                    .heightIn(max = 340.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 itemsIndexed(
@@ -136,6 +140,76 @@ fun LayersFloatingWindow(
                         onMoveDown = { onMoveLayerDown(layer.id) }
                     )
                 }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(color = Color(0x25FFFFFF), thickness = 1.dp)
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Canvas Background Color Row
+            CanvasBackgroundRow(
+                currentColorRgb = backgroundColorRgb,
+                onColorChange = onChangeBackgroundColor
+            )
+        }
+    }
+}
+
+@Composable
+private fun CanvasBackgroundRow(
+    currentColorRgb: Int,
+    onColorChange: (Int) -> Unit
+) {
+    val bgPresets = listOf(
+        0xFFFFFFFF.toInt(), // Pure White
+        0xFFF6F4ED.toInt(), // Warm Paper
+        0xFFDDD9CE.toInt(), // Kraft Cream
+        0xFF32353B.toInt(), // Charcoal Slate
+        0xFF181A1F.toInt()  // Deep Black
+    )
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Background",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xBBFFFFFF)
+            )
+            Text(
+                text = String.format("#%06X", 0xFFFFFF and currentColorRgb),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0x88FFFFFF)
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            bgPresets.forEach { colorInt ->
+                val isSelected = (colorInt == currentColorRgb)
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(Color(colorInt))
+                        .border(
+                            width = if (isSelected) 2.dp else 1.dp,
+                            color = if (isSelected) Color(0xFF64B5F6) else Color(0x35FFFFFF),
+                            shape = CircleShape
+                        )
+                        .clickable { onColorChange(colorInt) }
+                )
             }
         }
     }

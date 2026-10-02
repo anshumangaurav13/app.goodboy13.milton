@@ -56,7 +56,7 @@ import com.antigrav.milton.ui.components.LayersFloatingWindow
 import com.antigrav.milton.ui.components.PaintbrushIcon
 import com.antigrav.milton.ui.components.PenIcon
 import com.antigrav.milton.ui.components.PencilIcon
-import com.antigrav.milton.ui.components.ToolParametersPopup
+import com.antigrav.milton.ui.components.ToolParametersFloatingWindow
 import com.antigrav.milton.ui.components.rememberFloatingWindowState
 import java.util.Locale
 import androidx.compose.runtime.Composable
@@ -140,19 +140,23 @@ fun MiltonTabletUi(
     onMoveLayerUp: (Long) -> Unit,
     onMoveLayerDown: (Long) -> Unit,
     recentColors: List<Int>,
+    canvasBackgroundColor: Int = 0xFFFFFFFF.toInt(),
+    onCanvasBackgroundColorChange: (Int) -> Unit = {},
     isEyedropperActive: Boolean = false,
     onToggleEyedropper: () -> Unit = {},
+    eyedropperReticleState: EyedropperReticleState = EyedropperReticleState(),
     modifier: Modifier = Modifier
 ) {
     var showColorPaletteWindow by remember { mutableStateOf(false) }
     var showLayersWindow by remember { mutableStateOf(false) }
-    var showToolParametersMenu by remember { mutableStateOf(false) }
-    val colorWindowState = rememberFloatingWindowState(initialX = 84f, initialY = 120f)
-    val layersWindowState = rememberFloatingWindowState(initialX = 1400f, initialY = 80f)
+    var showToolParametersWindow by remember { mutableStateOf(false) }
+    val toolParamsWindowState = rememberFloatingWindowState(initialX = 64f, initialY = 100f)
+    val colorWindowState = rememberFloatingWindowState(initialX = 64f, initialY = 120f)
+    val layersWindowState = rememberFloatingWindowState(initialX = 1400f, initialY = 40f)
 
     LaunchedEffect(isZenMode) {
         if (isZenMode) {
-            showToolParametersMenu = false
+            showToolParametersWindow = false
             showColorPaletteWindow = false
             showLayersWindow = false
         }
@@ -162,19 +166,19 @@ fun MiltonTabletUi(
         val containerW = constraints.maxWidth
         val containerH = constraints.maxHeight
 
-        // 1. Left Vertical Tool Rail
+        // 1. Left Vertical Tool Rail (docked to left screen edge)
         AnimatedVisibility(
             visible = !isZenMode,
             enter = fadeIn() + slideInHorizontally { -it },
             exit = fadeOut() + slideOutHorizontally { -it },
             modifier = Modifier
                 .align(Alignment.CenterStart)
-                .padding(start = 16.dp, top = 24.dp, bottom = 24.dp)
+                .padding(start = 0.dp)
         ) {
             TabletToolRail(
                 activeBrush = brushType,
                 onSelectBrush = onBrushTypeChange,
-                onOpenToolParameters = { showToolParametersMenu = !showToolParametersMenu },
+                onOpenToolParameters = { showToolParametersWindow = !showToolParametersWindow },
                 size = brushSize,
                 onSizeChange = onBrushSizeChange,
                 opacity = brushOpacity,
@@ -184,16 +188,9 @@ fun MiltonTabletUi(
             )
         }
 
-        // 2. Tool Parameters Menu Popup (anchored next to rail)
-        AnimatedVisibility(
-            visible = !isZenMode && showToolParametersMenu,
-            enter = fadeIn() + slideInHorizontally { -30 },
-            exit = fadeOut() + slideOutHorizontally { -30 },
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .padding(start = 88.dp, top = 24.dp, bottom = 24.dp)
-        ) {
-            ToolParametersPopup(
+        // 2. Floating Draggable Tool Parameters Window (confined within app bounds)
+        if (!isZenMode && showToolParametersWindow) {
+            ToolParametersFloatingWindow(
                 brushType = brushType,
                 brushSize = brushSize,
                 onBrushSizeChange = onBrushSizeChange,
@@ -204,15 +201,18 @@ fun MiltonTabletUi(
                 onSizeBezierConfigChange = onSizeBezierConfigChange,
                 opacityBezierConfig = opacityBezierConfig,
                 onOpacityBezierConfigChange = onOpacityBezierConfigChange,
-                onDismiss = { showToolParametersMenu = false }
+                onClose = { showToolParametersWindow = false },
+                containerWidth = containerW,
+                containerHeight = containerH,
+                state = toolParamsWindowState
             )
         }
 
-        // 3. Top Right Header Bar (Undo, Redo, Zoom Lock, Rotation Lock, Layers, Reset View, Single Fullscreen Toggle)
+        // 3. Top Right Header Bar (docked to top edge, flat on top, rounded on bottom)
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = 16.dp, end = 16.dp)
+                .padding(top = 0.dp, end = 20.dp)
         ) {
             if (!isZenMode) {
                 TabletTopBar(
@@ -232,15 +232,15 @@ fun MiltonTabletUi(
                     onToggleZenMode = { onToggleZenMode(true) }
                 )
             } else {
-                // When in Zen / Fullscreen mode, the single button in the top right reverses fullscreen
+                val zenExitShape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 14.dp, bottomEnd = 14.dp)
                 Surface(
                     modifier = Modifier
                         .size(42.dp)
-                        .clip(CircleShape)
+                        .clip(zenExitShape)
                         .clickable { onToggleZenMode(false) },
                     color = Color(0xD0181A1F),
                     shadowElevation = 8.dp,
-                    shape = CircleShape,
+                    shape = zenExitShape,
                     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x44FFFFFF))
                 ) {
                     Box(contentAlignment = Alignment.Center) {
@@ -248,7 +248,7 @@ fun MiltonTabletUi(
                             imageVector = Icons.Default.FullscreenExit,
                             contentDescription = "Exit Fullscreen",
                             tint = Color.White,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
@@ -282,17 +282,26 @@ fun MiltonTabletUi(
                 onOpacityChange = onLayerOpacityChange,
                 onMoveLayerUp = onMoveLayerUp,
                 onMoveLayerDown = onMoveLayerDown,
+                backgroundColorRgb = canvasBackgroundColor,
+                onChangeBackgroundColor = onCanvasBackgroundColorChange,
                 onClose = { showLayersWindow = false },
                 containerWidth = containerW,
                 containerHeight = containerH,
                 state = layersWindowState
             )
         }
+
+        // 6. Live Eyedropper Reticle Overlay
+        if (eyedropperReticleState.isVisible) {
+            EyedropperReticleOverlay(
+                state = eyedropperReticleState
+            )
+        }
     }
 }
 
 /**
- * Left-docked vertical rail: 4 core brushes with distinct vector icons, quick drag scrubbers, and color swatch.
+ * Left-docked vertical rail: Attached directly to left edge, flat on left and rounded on right.
  */
 @Composable
 private fun TabletToolRail(
@@ -306,19 +315,22 @@ private fun TabletToolRail(
     colorRgb: Int,
     onOpenColorPicker: () -> Unit
 ) {
+    val railShape = RoundedCornerShape(topStart = 0.dp, bottomStart = 0.dp, topEnd = 16.dp, bottomEnd = 16.dp)
     Surface(
         modifier = Modifier
-            .width(62.dp)
-            .shadow(elevation = 14.dp, shape = RoundedCornerShape(22.dp))
-            .clip(RoundedCornerShape(22.dp)),
+            .width(56.dp)
+            .shadow(elevation = 12.dp, shape = railShape)
+            .clip(railShape),
         color = Color(0xF2181A1F),
+        shape = railShape,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x35FFFFFF)),
         tonalElevation = 6.dp
     ) {
         Column(
             modifier = Modifier
-                .padding(vertical = 12.dp, horizontal = 7.dp),
+                .padding(vertical = 10.dp, horizontal = 5.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             // 4 Core Tools with Custom Distinct Vector Logos
             ToolButton(
@@ -349,7 +361,7 @@ private fun TabletToolRail(
             HorizontalDivider(
                 color = Color(0x28FFFFFF),
                 thickness = 1.dp,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp)
             )
 
             // Quick Rail Size Drag Scrubber (1px..500px)
@@ -369,16 +381,16 @@ private fun TabletToolRail(
             HorizontalDivider(
                 color = Color(0x28FFFFFF),
                 thickness = 1.dp,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp)
             )
 
             // Active Color Swatch Disc
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(38.dp)
                     .clip(CircleShape)
                     .background(Color(colorRgb))
-                    .border(2.5.dp, Color.White.copy(alpha = 0.85f), CircleShape)
+                    .border(2.dp, Color.White.copy(alpha = 0.85f), CircleShape)
                     .clickable { onOpenColorPicker() }
             )
         }
@@ -394,8 +406,8 @@ private fun ToolButton(
 ) {
     Surface(
         modifier = Modifier
-            .size(46.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .size(42.dp)
+            .clip(RoundedCornerShape(10.dp))
             .pointerInput(brushType, isSelected) {
                 detectTapGestures(
                     onTap = {
@@ -412,16 +424,16 @@ private fun ToolButton(
                 )
             },
         color = if (isSelected) Color(0xFF3949AB) else Color.Transparent,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(10.dp),
         border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF90CAF9)) else null
     ) {
         Box(contentAlignment = Alignment.Center) {
             val tint = if (isSelected) Color.White else Color(0x88FFFFFF)
             when (brushType) {
-                BrushType.PEN -> PenIcon(tint = tint, modifier = Modifier.size(24.dp))
-                BrushType.PENCIL -> PencilIcon(tint = tint, modifier = Modifier.size(24.dp))
-                BrushType.PAINTBRUSH -> PaintbrushIcon(tint = tint, modifier = Modifier.size(24.dp))
-                BrushType.ERASER -> EraserIcon(tint = tint, modifier = Modifier.size(24.dp))
+                BrushType.PEN -> PenIcon(tint = tint, modifier = Modifier.size(22.dp))
+                BrushType.PENCIL -> PencilIcon(tint = tint, modifier = Modifier.size(22.dp))
+                BrushType.PAINTBRUSH -> PaintbrushIcon(tint = tint, modifier = Modifier.size(22.dp))
+                BrushType.ERASER -> EraserIcon(tint = tint, modifier = Modifier.size(22.dp))
             }
         }
     }
@@ -647,11 +659,14 @@ private fun TabletTopBar(
     onResetCanvas: () -> Unit,
     onToggleZenMode: () -> Unit
 ) {
+    val topBarShape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 14.dp, bottomEnd = 14.dp)
     Surface(
         modifier = Modifier
-            .shadow(elevation = 10.dp, shape = RoundedCornerShape(20.dp))
-            .clip(RoundedCornerShape(20.dp)),
+            .shadow(elevation = 10.dp, shape = topBarShape)
+            .clip(topBarShape),
+        shape = topBarShape,
         color = Color(0xF0181A1F),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x35FFFFFF)),
         tonalElevation = 6.dp
     ) {
         Row(
@@ -861,7 +876,7 @@ private fun ColorPaletteFloatingWindow(
         containerWidth = containerWidth,
         containerHeight = containerHeight,
         state = state,
-        modifier = Modifier.width(230.dp)
+        modifier = Modifier.width(204.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -1045,13 +1060,13 @@ private fun ColorPaletteFloatingWindow(
             if (recentColors.isNotEmpty()) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterHorizontally)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)
                 ) {
-                    recentColors.take(8).forEach { col ->
+                    recentColors.take(6).forEach { col ->
                         val isSelected = (col == activeColorInt)
                         Box(
                             modifier = Modifier
-                                .size(22.dp)
+                                .size(20.dp)
                                 .clip(CircleShape)
                                 .background(Color(col))
                                 .border(
@@ -1122,6 +1137,79 @@ private fun ColorPaletteFloatingWindow(
                         modifier = Modifier.size(16.dp)
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Floating Eyedropper Reticle:
+ * Follows stylus / finger while dragging, showing target crosshair and live sampled color loupe.
+ */
+@Composable
+private fun EyedropperReticleOverlay(
+    state: EyedropperReticleState
+) {
+    if (!state.isVisible) return
+
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val xDp = with(density) { state.screenX.toDp() }
+    val yDp = with(density) { state.screenY.toDp() }
+
+    // Offset loupe above the contact point so finger/stylus tip doesn't block the sampled preview
+    val loupeOffsetY = if (state.screenY < 140f) 52.dp else (-52).dp
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // 1. Center target crosshairs at exact sampled point
+        Box(
+            modifier = Modifier
+                .offset(x = xDp - 10.dp, y = yDp - 10.dp)
+                .size(20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                // Center dot
+                drawCircle(color = Color.White, radius = 2.dp.toPx())
+                drawCircle(color = Color.Black, radius = 2.dp.toPx(), style = Stroke(width = 0.8.dp.toPx()))
+                // 4 Crosshairs
+                drawLine(Color.White, Offset(cx - 8.dp.toPx(), cy), Offset(cx - 4.dp.toPx(), cy), strokeWidth = 1.5.dp.toPx())
+                drawLine(Color.White, Offset(cx + 4.dp.toPx(), cy), Offset(cx + 8.dp.toPx(), cy), strokeWidth = 1.5.dp.toPx())
+                drawLine(Color.White, Offset(cx, cy - 8.dp.toPx()), Offset(cx, cy - 4.dp.toPx()), strokeWidth = 1.5.dp.toPx())
+                drawLine(Color.White, Offset(cx, cy + 4.dp.toPx()), Offset(cx, cy + 8.dp.toPx()), strokeWidth = 1.5.dp.toPx())
+            }
+        }
+
+        // 2. Magnified circular color loupe
+        Column(
+            modifier = Modifier
+                .offset(x = xDp - 24.dp, y = yDp + loupeOffsetY - 24.dp)
+                .width(48.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .shadow(elevation = 12.dp, shape = CircleShape)
+                    .clip(CircleShape)
+                    .background(Color(state.color))
+                    .border(2.5.dp, Color.White, CircleShape)
+                    .border(4.dp, Color(0x55000000), CircleShape)
+            )
+            Surface(
+                color = Color(0xD0181A1F),
+                shape = RoundedCornerShape(4.dp),
+                border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0x44FFFFFF))
+            ) {
+                Text(
+                    text = String.format("#%06X", 0xFFFFFF and state.color),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                )
             }
         }
     }

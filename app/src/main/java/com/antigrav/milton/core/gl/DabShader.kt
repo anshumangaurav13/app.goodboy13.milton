@@ -81,14 +81,17 @@ class DabShader {
                 float alpha = 0.0;
 
                 if (uBrushMode == 1) {
-                    // --- PENCIL (Graphite texture with paper tooth grain) ---
-                    float edge = smoothstep(1.0, 0.20, dist);
-                    float tooth1 = paperTooth(vWorldPos * 0.40);
-                    float tooth2 = paperTooth(vWorldPos * 0.85);
-                    float tooth = tooth1 * 0.65 + tooth2 * 0.35;
+                    // --- PENCIL (Dense realistic graphite texture with multi-scale paper tooth) ---
+                    float edge = smoothstep(1.0, 0.15, dist);
+                    float t1 = paperTooth(vWorldPos * 0.70);
+                    float t2 = paperTooth(vWorldPos * 1.65);
+                    float t3 = paperTooth(vWorldPos * 3.60);
+                    float fineGrain = hash(floor(vWorldPos * 2.4));
+                    float tooth = t1 * 0.40 + t2 * 0.35 + t3 * 0.25;
+                    tooth = mix(tooth, fineGrain, 0.18);
 
-                    float threshold = mix(0.58, 0.22, clamp(uPressure, 0.0, 1.0));
-                    float toothBite = smoothstep(threshold - 0.20, threshold + 0.20, tooth);
+                    float threshold = mix(0.56, 0.18, clamp(uPressure, 0.0, 1.0));
+                    float toothBite = smoothstep(threshold - 0.18, threshold + 0.22, tooth);
                     alpha = edge * toothBite * uColor.a;
                 } else if (uBrushMode == 2) {
                     // --- PAINTBRUSH (Feathered Edge) ---
