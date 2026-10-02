@@ -14,6 +14,7 @@ import android.util.Log
 import androidx.core.content.FileProvider
 import com.antigrav.milton.core.layer.LayerManager
 import com.antigrav.milton.core.viewport.Viewport
+import com.antigrav.milton.core.memory.DirectBufferPool
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
@@ -58,56 +59,57 @@ object CanvasExportEngine {
         // 1. Fill background with canvas paper color
         canvas.drawColor(backgroundColorRgb)
 
-        val tileBuffer = ByteBuffer.allocateDirect(512 * 512 * 4)
         val tempTileBitmap = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
         val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
 
-        // 2. Composite visible layers bottom-to-top
-        val allLayers = layerManager.layers
-        for (layer in allLayers) {
-            if (!layer.isVisible || layer.opacity <= 0.001f) continue
+        DirectBufferPool.useBuffer { tileBuffer ->
+            // 2. Composite visible layers bottom-to-top
+            val allLayers = layerManager.layers
+            for (layer in allLayers) {
+                if (!layer.isVisible || layer.opacity <= 0.001f) continue
 
-            val visibleTiles = layer.tileMap.getVisibleTiles(bounds)
-            if (visibleTiles.isEmpty()) continue
+                val visibleTiles = layer.tileMap.getVisibleTiles(bounds)
+                if (visibleTiles.isEmpty()) continue
 
-            paint.alpha = (layer.opacity.coerceIn(0f, 1f) * 255).roundToInt()
+                paint.alpha = (layer.opacity.coerceIn(0f, 1f) * 255).roundToInt()
 
-            for (tile in visibleTiles) {
-                if (!tile.hasContent) continue
+                for (tile in visibleTiles) {
+                    if (!tile.hasContent) continue
 
-                val rawPixels: ByteArray? = try {
-                    storageManager?.getTileBytes(layer.id, tile.coord.tx, tile.coord.ty, layer.tileMap.cacheDir)
-                        ?: if (tile.isOnDisk) {
-                            val swap = File(layer.tileMap.cacheDir, "tile_${tile.coord.tx}_${tile.coord.ty}.bin")
-                            if (swap.exists()) {
-                                com.antigrav.milton.core.history.UndoManager.decompress(swap.readBytes())
+                    val rawPixels: ByteArray? = try {
+                        storageManager?.getTileBytes(layer.id, tile.coord.tx, tile.coord.ty, layer.tileMap.cacheDir)
+                            ?: if (tile.isOnDisk) {
+                                val swap = File(layer.tileMap.cacheDir, "tile_${tile.coord.tx}_${tile.coord.ty}.bin")
+                                if (swap.exists()) {
+                                    com.antigrav.milton.core.history.UndoManager.decompress(swap.readBytes())
+                                } else null
+                            } else if (tile.isInitialized) {
+                                tile.readPixels()
                             } else null
-                        } else if (tile.isInitialized) {
-                            tile.readPixels()
-                        } else null
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to read pixels for tile ${tile.coord}: ${e.message}")
-                    null
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to read pixels for tile ${tile.coord}: ${e.message}")
+                        null
+                    }
+
+                    if (rawPixels == null || rawPixels.isEmpty()) continue
+
+                    // Vertically flip OpenGL rows so row 0 aligns with Bitmap top
+                    val flipped = flipPixelsVertically(rawPixels, 512, 512)
+
+                    tileBuffer.position(0)
+                    tileBuffer.put(flipped)
+                    tileBuffer.position(0)
+                    tempTileBitmap.copyPixelsFromBuffer(tileBuffer)
+
+                    val destLeft = (tile.coord.worldLeft - bounds.left) * scale
+                    val destTop = (tile.coord.worldTop - bounds.top) * scale
+                    val destRight = destLeft + 512f * scale
+                    val destBottom = destTop + 512f * scale
+
+                    val destRect = android.graphics.RectF(destLeft, destTop, destRight, destBottom)
+                    val srcRect = android.graphics.Rect(0, 0, 512, 512)
+                    canvas.drawBitmap(tempTileBitmap, srcRect, destRect, paint)
                 }
-
-                if (rawPixels == null || rawPixels.isEmpty()) continue
-
-                // Vertically flip OpenGL rows so row 0 aligns with Bitmap top
-                val flipped = flipPixelsVertically(rawPixels, 512, 512)
-
-                tileBuffer.position(0)
-                tileBuffer.put(flipped)
-                tileBuffer.position(0)
-                tempTileBitmap.copyPixelsFromBuffer(tileBuffer)
-
-                val destLeft = (tile.coord.worldLeft - bounds.left) * scale
-                val destTop = (tile.coord.worldTop - bounds.top) * scale
-                val destRight = destLeft + 512f * scale
-                val destBottom = destTop + 512f * scale
-
-                val destRect = android.graphics.RectF(destLeft, destTop, destRight, destBottom)
-                val srcRect = android.graphics.Rect(0, 0, 512, 512)
-                canvas.drawBitmap(tempTileBitmap, srcRect, destRect, paint)
             }
         }
 

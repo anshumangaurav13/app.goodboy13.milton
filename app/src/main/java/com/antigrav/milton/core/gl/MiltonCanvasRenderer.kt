@@ -17,6 +17,7 @@ import com.antigrav.milton.core.history.StrokeCommand
 import com.antigrav.milton.core.history.TileDelta
 import com.antigrav.milton.core.history.UndoManager
 import com.antigrav.milton.core.viewport.Viewport
+import com.antigrav.milton.core.memory.DirectBufferPool
 import com.antigrav.milton.ui.MiltonCanvasView
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -51,6 +52,7 @@ class MiltonCanvasRenderer(
 
     private var scratchFboId: Int = 0
     private var scratchTextureId: Int = 0
+    private val pickPixelBuf = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder())
 
     private val tileOrthoMatrix = FloatArray(16)
     private val screenOrthoMatrix = FloatArray(16)
@@ -395,7 +397,7 @@ class MiltonCanvasRenderer(
 
         var accColor = backgroundColorRgb
 
-        val pixelBuf = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder())
+        val pixelBuf = pickPixelBuf
 
         for (layer in layerManager.layers) {
             if (!layer.isVisible || layer.opacity <= 0.001f) continue
@@ -636,6 +638,8 @@ class MiltonCanvasRenderer(
             tileBlitShader.releaseGl()
             thumbnailRenderer.releaseGl()
             layerManager.releaseAll()
+            GlTexturePool.clear()
+            DirectBufferPool.clear()
             isGlInitialized = false
         }
     }
