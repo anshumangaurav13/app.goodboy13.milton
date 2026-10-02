@@ -82,7 +82,7 @@ fun LayersFloatingWindow(
     val canDelete = layers.size > LayerManager.MIN_LAYERS
 
     // Visual stacking order: Top layer shown first at the top of the UI list
-    val reversedLayers = remember(layers) { layers.reversed() }
+    val reversedLayers = layers.reversed()
 
     DraggableFloatingWindow(
         title = "Layers (${layers.size}/${LayerManager.MAX_LAYERS})",

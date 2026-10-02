@@ -97,6 +97,10 @@ class MiltonCanvasView @JvmOverloads constructor(
         get() = gestureDetector.isRotationLocked
         set(value) { gestureDetector.isRotationLocked = value }
 
+    var isThumbnailCaptureEnabled: Boolean
+        get() = renderer.isThumbnailCaptureEnabled
+        set(value) { renderer.isThumbnailCaptureEnabled = value }
+
     val currentZoom: Float
         get() = renderer.viewport.zoom
 

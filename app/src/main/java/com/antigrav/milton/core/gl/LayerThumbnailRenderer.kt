@@ -62,7 +62,10 @@ class LayerThumbnailRenderer(
     fun captureLayerThumbnail(
         layer: Layer,
         visibleBounds: WorldRect,
-        tileBlitShader: TileBlitShader
+        tileBlitShader: TileBlitShader,
+        restoreFboId: Int = 0,
+        restoreWidth: Int = 0,
+        restoreHeight: Int = 0
     ): Bitmap? {
         if (fboId == 0) initGl()
 
@@ -107,7 +110,12 @@ class LayerThumbnailRenderer(
             0, 0, thumbWidth, thumbHeight,
             GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, pixelBuffer
         )
-        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+
+        // Restore target surface FBO and viewport
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, restoreFboId)
+        if (restoreWidth > 0 && restoreHeight > 0) {
+            GLES30.glViewport(0, 0, restoreWidth, restoreHeight)
+        }
 
         val bitmap = Bitmap.createBitmap(thumbWidth, thumbHeight, Bitmap.Config.ARGB_8888)
         pixelBuffer.position(0)

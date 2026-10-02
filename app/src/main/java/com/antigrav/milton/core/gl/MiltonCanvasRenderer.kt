@@ -53,6 +53,9 @@ class MiltonCanvasRenderer(
     private val pendingRedoCount = java.util.concurrent.atomic.AtomicInteger(0)
     private val pendingTrimBudget = AtomicBoolean(false)
 
+    var onLayerThumbnailUpdated: ((layerId: Long, bitmap: android.graphics.Bitmap?) -> Unit)? = null
+    var isThumbnailCaptureEnabled: Boolean = true
+
     fun requestUndo() {
         pendingUndoCount.incrementAndGet()
     }
@@ -181,11 +184,13 @@ class MiltonCanvasRenderer(
 
         // 0. Handle requested undo / redo on the GL thread
         var undos = pendingUndoCount.getAndSet(0)
+        val hadUndo = undos > 0
         while (undos > 0) {
             undoManager.undo(layerManager)
             undos--
         }
         var redos = pendingRedoCount.getAndSet(0)
+        val hadRedo = redos > 0
         while (redos > 0) {
             undoManager.redo(layerManager)
             redos--
@@ -197,8 +202,13 @@ class MiltonCanvasRenderer(
             val dab = pendingDabsForCommit.poll() ?: break
             dabsToStamp.add(dab)
         }
+        var capturedLayerId = 0L
+        if (hadUndo || hadRedo) {
+            capturedLayerId = layerManager.activeLayer.id
+        }
         if (dabsToStamp.isNotEmpty()) {
             val activeLayer = layerManager.activeLayer
+            capturedLayerId = activeLayer.id
             val affectedTiles = mutableSetOf<RasterTile>()
             val tileSize = TileCoord.TILE_SIZE.toFloat()
             for (dab in dabsToStamp) {
@@ -218,16 +228,6 @@ class MiltonCanvasRenderer(
             undoManager.capturePreStrokeTiles(activeLayer.id, affectedTiles)
             stampDabsIntoTiles(activeLayer.tileMap, dabsToStamp)
             undoManager.commitStroke(activeLayer.id, activeLayer.tileMap)
-
-            // Capture updated thumbnail for active layer
-            val visibleBounds = viewport.getVisibleWorldBounds()
-            activeLayer.thumbnailBitmap = thumbnailRenderer.captureLayerThumbnail(
-                activeLayer,
-                visibleBounds,
-                tileBlitShader
-            )
-            layerManager.onLayersChangedListener?.invoke()
-
             requestTrimBudget()
         }
 
@@ -268,7 +268,23 @@ class MiltonCanvasRenderer(
         }
         tileBlitShader.end()
 
-        // 4. Enforce VRAM tile budget only when requested (stroke committed or gesture ended)
+        // 4. Capture thumbnail offscreen only if Layers UI is open and stroke was committed
+        if (capturedLayerId != 0L && isThumbnailCaptureEnabled) {
+            val layer = layerManager.getLayer(capturedLayerId)
+            if (layer != null) {
+                val thumb = thumbnailRenderer.captureLayerThumbnail(
+                    layer = layer,
+                    visibleBounds = visibleBounds,
+                    tileBlitShader = tileBlitShader,
+                    restoreFboId = bufferInfo.frameBufferId,
+                    restoreWidth = bufferInfo.width,
+                    restoreHeight = bufferInfo.height
+                )
+                onLayerThumbnailUpdated?.invoke(capturedLayerId, thumb)
+            }
+        }
+
+        // 5. Enforce VRAM tile budget only when requested (stroke committed or gesture ended)
         if (pendingTrimBudget.compareAndSet(true, false)) {
             layerManager.trimAllToBudget(visibleBounds)
         }

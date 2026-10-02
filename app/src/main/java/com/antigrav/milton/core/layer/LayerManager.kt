@@ -1,5 +1,9 @@
 package com.antigrav.milton.core.layer
 
+import android.graphics.Bitmap
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.setValue
 import com.antigrav.milton.core.model.WorldRect
 import com.antigrav.milton.core.tile.TileMap
 import java.io.File
@@ -25,7 +29,10 @@ class LayerManager(
     private val _layers = CopyOnWriteArrayList<Layer>()
     val layers: List<Layer> get() = _layers
 
-    var activeLayerId: Long = 1L
+    var structuralRevision by mutableLongStateOf(0L)
+        private set
+
+    var activeLayerId by mutableLongStateOf(1L)
         private set
 
     val activeLayer: Layer
@@ -46,9 +53,9 @@ class LayerManager(
         val tileMap = TileMap(cacheDir = layerCacheDir, maxResidentTiles = maxResidentTilesPerLayer)
         return Layer(
             id = id,
-            name = name,
-            opacity = 1.0f,
-            isVisible = true,
+            initialName = name,
+            initialOpacity = 1.0f,
+            initialIsVisible = true,
             tileMap = tileMap
         )
     }
@@ -77,6 +84,7 @@ class LayerManager(
 
         _layers.add(insertIdx, newLayer)
         activeLayerId = newLayer.id
+        structuralRevision++
         notifyChanged()
         return newLayer
     }
@@ -98,6 +106,7 @@ class LayerManager(
             activeLayerId = _layers[newActiveIndex].id
         }
 
+        structuralRevision++
         notifyChanged()
         return true
     }
@@ -127,6 +136,11 @@ class LayerManager(
         notifyChanged()
     }
 
+    fun updateLayerThumbnail(layerId: Long, bitmap: Bitmap?) {
+        val layer = _layers.find { it.id == layerId } ?: return
+        layer.thumbnailBitmap = bitmap
+    }
+
     /**
      * Reorders a layer from fromIndex to toIndex in bottom-to-top storage order.
      */
@@ -136,6 +150,7 @@ class LayerManager(
         }
         val layer = _layers.removeAt(fromIndex)
         _layers.add(toIndex, layer)
+        structuralRevision++
         notifyChanged()
         return true
     }
@@ -178,6 +193,7 @@ class LayerManager(
     }
 
     private fun notifyChanged() {
+        structuralRevision++
         onLayersChangedListener?.invoke()
     }
 }
