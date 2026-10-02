@@ -89,31 +89,29 @@ class DabShader {
 
                 float dabAlpha = 0.0;
                 if (uBrushMode == 1) {
-                    // Pencil: canvas weave & cold-press paper tooth strictly aligned to canvas pixels
-                    vec2 canvasCoord = floor(vWorldPos);
+                    // Pencil: continuous canvas weave & paper tooth matching canvas resolution
+                    vec2 canvasCoord = vWorldPos;
 
-                    // 1. Canvas weave pattern (~4.5 canvas pixels per thread cycle)
-                    vec2 threadGrid = canvasCoord * 0.22;
+                    // 1. Canvas weave pattern (~4.2 canvas pixels per thread cycle)
+                    vec2 threadGrid = canvasCoord * 0.24;
                     float warp = sin(threadGrid.x * 3.14159265);
                     float weft = sin(threadGrid.y * 3.14159265);
                     float crossWeave = warp * weft;
                     float threadCrown = (cos(threadGrid.x * 6.2831853) + cos(threadGrid.y * 6.2831853)) * 0.25;
                     float canvasPattern = clamp(0.5 + 0.35 * crossWeave + 0.15 * threadCrown, 0.0, 1.0);
 
-                    // 2. Organic paper fibers (cold-press cellulose undulations)
+                    // 2. Continuous multi-scale paper fibers (cold-press cellulose undulations)
                     float fiberLarge = paperTooth(canvasCoord * 0.12);
                     float fiberMed = paperTooth(canvasCoord * 0.24 + vec2(17.3, 43.7));
+                    float fiberFine = paperTooth(canvasCoord * 0.44 + vec2(53.1, 29.7));
 
-                    // 3. Crisp graphite speckles matched 1:1 to canvas pixel grid
-                    float pixelTooth = hash(canvasCoord);
+                    // 3. Composite paper/canvas surface tooth (fully continuous and anti-aliased)
+                    float tooth = canvasPattern * 0.36 + fiberLarge * 0.26 + fiberMed * 0.22 + fiberFine * 0.16;
 
-                    // 4. Composite paper/canvas surface tooth
-                    float tooth = canvasPattern * 0.38 + fiberLarge * 0.28 + fiberMed * 0.20 + pixelTooth * 0.14;
-
-                    // 5. Responsive graphite transfer: less dense, clean paper valleys at light pressure
+                    // 4. Responsive graphite transfer: denser tooth bite with rich paper texture
                     float p = clamp(uPressure, 0.0, 1.0);
-                    float threshold = mix(0.70, 0.28, p);
-                    float toothBite = smoothstep(threshold - 0.06, threshold + 0.12, tooth);
+                    float threshold = mix(0.50, 0.15, p);
+                    float toothBite = smoothstep(threshold - 0.10, threshold + 0.14, tooth);
 
                     // Brush tip radial feather
                     float edge = smoothstep(1.0, 0.15, dist);
@@ -214,31 +212,29 @@ class DabShader {
 
                 float dabAlpha = 0.0;
                 if (uBrushMode == 1) {
-                    // Pencil: canvas weave & cold-press paper tooth strictly aligned to canvas pixels
-                    vec2 canvasCoord = floor(vWorldPos);
+                    // Pencil: continuous canvas weave & paper tooth matching canvas resolution
+                    vec2 canvasCoord = vWorldPos;
 
-                    // 1. Canvas weave pattern (~4.5 canvas pixels per thread cycle)
-                    vec2 threadGrid = canvasCoord * 0.22;
+                    // 1. Canvas weave pattern (~4.2 canvas pixels per thread cycle)
+                    vec2 threadGrid = canvasCoord * 0.24;
                     float warp = sin(threadGrid.x * 3.14159265);
                     float weft = sin(threadGrid.y * 3.14159265);
                     float crossWeave = warp * weft;
                     float threadCrown = (cos(threadGrid.x * 6.2831853) + cos(threadGrid.y * 6.2831853)) * 0.25;
                     float canvasPattern = clamp(0.5 + 0.35 * crossWeave + 0.15 * threadCrown, 0.0, 1.0);
 
-                    // 2. Organic paper fibers (cold-press cellulose undulations)
+                    // 2. Continuous multi-scale paper fibers (cold-press cellulose undulations)
                     float fiberLarge = paperTooth(canvasCoord * 0.12);
                     float fiberMed = paperTooth(canvasCoord * 0.24 + vec2(17.3, 43.7));
+                    float fiberFine = paperTooth(canvasCoord * 0.44 + vec2(53.1, 29.7));
 
-                    // 3. Crisp graphite speckles matched 1:1 to canvas pixel grid
-                    float pixelTooth = hash(canvasCoord);
+                    // 3. Composite paper/canvas surface tooth (fully continuous and anti-aliased)
+                    float tooth = canvasPattern * 0.36 + fiberLarge * 0.26 + fiberMed * 0.22 + fiberFine * 0.16;
 
-                    // 4. Composite paper/canvas surface tooth
-                    float tooth = canvasPattern * 0.38 + fiberLarge * 0.28 + fiberMed * 0.20 + pixelTooth * 0.14;
-
-                    // 5. Responsive graphite transfer: less dense, clean paper valleys at light pressure
+                    // 4. Responsive graphite transfer: denser tooth bite with rich paper texture
                     float p = clamp(uPressure, 0.0, 1.0);
-                    float threshold = mix(0.70, 0.28, p);
-                    float toothBite = smoothstep(threshold - 0.06, threshold + 0.12, tooth);
+                    float threshold = mix(0.50, 0.15, p);
+                    float toothBite = smoothstep(threshold - 0.10, threshold + 0.14, tooth);
 
                     // Brush tip radial feather
                     float edge = smoothstep(1.0, 0.15, dist);
