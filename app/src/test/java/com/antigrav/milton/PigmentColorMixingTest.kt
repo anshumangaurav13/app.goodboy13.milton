@@ -8,6 +8,15 @@ import org.junit.Test
 class PigmentColorMixingTest {
 
     @Test
+    fun testUserSkyBlueAndCoralRed() {
+        val blue = Vec3(85f/255f, 183f/255f, 252f/255f)
+        val red = Vec3(253f/255f, 63f/255f, 73f/255f)
+        val mixed = PigmentColorMixing.mixPigment(blue, red, 0.5f)
+        assertTrue("Red must dominate green: r=${mixed.r}, g=${mixed.g}", mixed.r > mixed.g)
+        assertTrue("Blue must dominate green: b=${mixed.b}, g=${mixed.g}", mixed.b > mixed.g)
+    }
+
+    @Test
     fun testBlueOverYellowProducesGreen() {
         val yellow = Vec3(1.0f, 1.0f, 0.0f)
         val blue = Vec3(0.0f, 0.0f, 1.0f)
