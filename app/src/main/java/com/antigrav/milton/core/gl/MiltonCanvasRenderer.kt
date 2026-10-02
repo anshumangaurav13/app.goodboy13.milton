@@ -3,6 +3,7 @@ package com.antigrav.milton.core.gl
 import android.graphics.Color
 import android.opengl.GLES30
 import android.opengl.Matrix
+import android.util.Log
 import androidx.graphics.lowlatency.BufferInfo
 import androidx.graphics.lowlatency.GLFrontBufferedRenderer
 import androidx.graphics.opengl.egl.EGLManager
@@ -11,6 +12,7 @@ import com.antigrav.milton.core.tile.RasterTile
 import com.antigrav.milton.core.tile.TileCoord
 import com.antigrav.milton.core.tile.TileMap
 import com.antigrav.milton.core.viewport.Viewport
+import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.math.floor
 
 data class DabPacket(
@@ -26,6 +28,10 @@ class MiltonCanvasRenderer(
     val tileMap: TileMap = TileMap()
 ) : GLFrontBufferedRenderer.Callback<DabPacket> {
 
+    companion object {
+        private const val TAG = "MiltonCanvasRenderer"
+    }
+
     private val dabShader = DabShader()
     private val tileBlitShader = TileBlitShader()
 
@@ -35,13 +41,15 @@ class MiltonCanvasRenderer(
     private val worldToViewMatrix = FloatArray(16)
     private val finalMvpMatrix = FloatArray(16)
 
+    private val pendingDabsForCommit = ConcurrentLinkedQueue<BrushDab>()
+
     private var isGlInitialized = false
 
     // Clean neutral canvas background color (Leonardo default)
     var backgroundColorRgb: Int = Color.rgb(248, 248, 247)
 
     init {
-        // Tile FBO orthographic projection: [0..512, 0..512] -> NDC with top-left origin
+        // Tile FBO orthographic projection: [0..512, 0..512] -> NDC with top-left origin (Y down)
         Matrix.orthoM(
             tileOrthoMatrix, 0,
             0f, TileCoord.TILE_SIZE.toFloat(),
@@ -55,6 +63,7 @@ class MiltonCanvasRenderer(
             dabShader.initGl()
             tileBlitShader.initGl()
             isGlInitialized = true
+            Log.d(TAG, "OpenGL ES shaders and VAOs initialized successfully")
         }
     }
 
@@ -72,14 +81,18 @@ class MiltonCanvasRenderer(
         // 3. worldToViewMatrix: maps canvas world coordinates -> view pixels
         Matrix.setIdentityM(worldToViewMatrix, 0)
         Matrix.translateM(worldToViewMatrix, 0, viewport.panX, viewport.panY, 0f)
+        Matrix.scaleM(worldToViewMatrix, 0, viewport.zoom, viewport.zoom, 1.0f)
         if (viewport.rotationDegrees != 0f) {
             Matrix.rotateM(worldToViewMatrix, 0, viewport.rotationDegrees, 0f, 0f, 1f)
         }
-        Matrix.scaleM(worldToViewMatrix, 0, viewport.zoom, viewport.zoom, 1.0f)
 
         // 4. Final MVP: world coordinates -> buffer NDC
         Matrix.multiplyMM(finalMvpMatrix, 0, screenProjectionMatrix, 0, worldToViewMatrix, 0)
         return finalMvpMatrix
+    }
+
+    fun queueDabs(dabs: List<BrushDab>) {
+        pendingDabsForCommit.addAll(dabs)
     }
 
     override fun onDrawFrontBufferedLayer(
@@ -94,16 +107,19 @@ class MiltonCanvasRenderer(
         if (param.dabs.isEmpty()) return
 
         viewport.updateScreenSize(width, height)
+        pendingDabsForCommit.addAll(param.dabs)
 
-        // 1. Stamp dabs into affected RasterTile FBOs
-        stampDabsIntoTiles(param.dabs)
-
-        // 2. Render dabs directly to the front buffer for instantaneous visual feedback
+        // Render dabs directly to the low-latency front buffer for instantaneous visual feedback
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, bufferInfo.frameBufferId)
         GLES30.glViewport(0, 0, bufferInfo.width, bufferInfo.height)
 
         GLES30.glEnable(GLES30.GL_BLEND)
-        GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        GLES30.glBlendFuncSeparate(
+            GLES30.GL_ONE,
+            GLES30.GL_ONE_MINUS_SRC_ALPHA,
+            GLES30.GL_ONE,
+            GLES30.GL_ONE_MINUS_SRC_ALPHA
+        )
 
         val mvp = computeFinalMvpMatrix(bufferInfo, transform)
         for (dab in param.dabs) {
@@ -130,14 +146,23 @@ class MiltonCanvasRenderer(
         ensureGlInitialized()
         viewport.updateScreenSize(width, height)
 
-        // Stamp any remaining in-flight dabs into tiles
         for (packet in params) {
             if (packet.dabs.isNotEmpty()) {
-                stampDabsIntoTiles(packet.dabs)
+                pendingDabsForCommit.addAll(packet.dabs)
             }
         }
 
-        // 1. Clear backbuffer with background paper color
+        // 1. Drain and stamp all accumulated stroke dabs into the tile FBOs on this render thread
+        val dabsToStamp = mutableListOf<BrushDab>()
+        while (true) {
+            val dab = pendingDabsForCommit.poll() ?: break
+            dabsToStamp.add(dab)
+        }
+        if (dabsToStamp.isNotEmpty()) {
+            stampDabsIntoTiles(dabsToStamp)
+        }
+
+        // 2. Clear backbuffer with background paper color
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, bufferInfo.frameBufferId)
         GLES30.glViewport(0, 0, bufferInfo.width, bufferInfo.height)
 
@@ -147,7 +172,7 @@ class MiltonCanvasRenderer(
         GLES30.glClearColor(r, g, b, 1.0f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
 
-        // 2. Query and blit all visible tiles
+        // 3. Query and blit all visible tiles
         val visibleBounds = viewport.getVisibleWorldBounds()
         val visibleTiles = tileMap.getVisibleTiles(visibleBounds)
 
@@ -163,8 +188,6 @@ class MiltonCanvasRenderer(
                 tileBlitShader.renderTile(
                     worldLeft = tile.coord.worldLeft,
                     worldTop = tile.coord.worldTop,
-                    worldRight = tile.coord.worldRight,
-                    worldBottom = tile.coord.worldBottom,
                     textureId = tile.textureId
                 )
             }

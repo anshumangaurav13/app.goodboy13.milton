@@ -2,6 +2,7 @@ package com.antigrav.milton.ui
 
 import android.content.Context
 import android.util.AttributeSet
+import android.util.Log
 import android.view.MotionEvent
 import android.view.SurfaceView
 import androidx.graphics.lowlatency.GLFrontBufferedRenderer
@@ -22,6 +23,10 @@ class MiltonCanvasView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
 ) : SurfaceView(context, attrs, defStyleAttr) {
+
+    companion object {
+        private const val TAG = "MiltonCanvasView"
+    }
 
     val renderer = MiltonCanvasRenderer()
     val brushEngine = BrushEngine()
@@ -61,6 +66,7 @@ class MiltonCanvasView @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         frontBufferedRenderer = GLFrontBufferedRenderer(this, renderer)
+        Log.d(TAG, "GLFrontBufferedRenderer attached to window")
     }
 
     override fun onDetachedFromWindow() {
@@ -69,6 +75,7 @@ class MiltonCanvasView @JvmOverloads constructor(
         }
         frontBufferedRenderer = null
         super.onDetachedFromWindow()
+        Log.d(TAG, "GLFrontBufferedRenderer released")
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -78,6 +85,7 @@ class MiltonCanvasView @JvmOverloads constructor(
             renderer.viewport.reset()
         }
         frontBufferedRenderer?.commit()
+        Log.d(TAG, "onSizeChanged: width=$w, height=$h")
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -139,7 +147,10 @@ class MiltonCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_UP -> {
-                brushEngine.endStroke()
+                val endDabs = brushEngine.endStroke()
+                if (endDabs.isNotEmpty()) {
+                    renderer.queueDabs(endDabs)
+                }
                 frontBufferedRenderer?.commit()
             }
 

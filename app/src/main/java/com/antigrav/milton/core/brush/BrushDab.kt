@@ -12,10 +12,10 @@ data class BrushDab(
 )
 
 data class BrushProperties(
-    var size: Float = 14.0f,
-    var colorRgb: Int = 0xFF1E1E1E.toInt(),
+    var size: Float = 24.0f,
+    var colorRgb: Int = 0xFF111111.toInt(),
     var opacity: Float = 1.0f,
     var spacing: Float = 0.15f,
     var hardness: Float = 0.85f,
-    var minRadius: Float = 1.0f
+    var minRadius: Float = 3.0f
 )
