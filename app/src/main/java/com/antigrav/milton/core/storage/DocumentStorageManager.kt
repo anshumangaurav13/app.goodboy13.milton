@@ -31,6 +31,7 @@ class DocumentStorageManager(private val context: Context) {
         private const val AUTOSAVE_DIR_NAME = "autosave_project"
         private const val MANIFEST_FILE_NAME = "manifest.json"
         private const val TILES_DIR_NAME = "tiles"
+        private val CLEARED_TILE_SENTINEL = ByteArray(0)
     }
 
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -42,9 +43,9 @@ class DocumentStorageManager(private val context: Context) {
 
     /**
      * Staging queue of compressed dirty tile bytes extracted during stroke commits.
-     * Key: Pair(layerId, Pair(tx, ty)), Value: Compressed ByteArray or null if cleared.
+     * Key: Pair(layerId, Pair(tx, ty)), Value: Compressed ByteArray or CLEARED_TILE_SENTINEL if cleared.
      */
-    val pendingCompressedTiles = ConcurrentHashMap<Pair<Long, Pair<Int, Int>>, ByteArray?>()
+    val pendingCompressedTiles = ConcurrentHashMap<Pair<Long, Pair<Int, Int>>, ByteArray>()
 
     /**
      * Enqueues committed tile deltas from UndoManager without re-reading or re-compressing pixels.
@@ -56,7 +57,7 @@ class DocumentStorageManager(private val context: Context) {
     ) {
         for (delta in deltas) {
             val key = delta.layerId to (delta.coord.tx to delta.coord.ty)
-            pendingCompressedTiles[key] = delta.afterCompressed
+            pendingCompressedTiles[key] = delta.afterCompressed ?: CLEARED_TILE_SENTINEL
         }
         scheduleAutosave(documentTitle, canvasView)
     }
