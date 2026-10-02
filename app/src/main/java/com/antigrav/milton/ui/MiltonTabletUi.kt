@@ -53,6 +53,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -368,6 +369,8 @@ private fun QuickRailSizeScrubber(
     onOpenMenu: () -> Unit
 ) {
     var isDragging by remember { mutableStateOf(false) }
+    val currentSizeState = rememberUpdatedState(size)
+    val onSizeChangeState = rememberUpdatedState(onSizeChange)
 
     Box(
         modifier = Modifier
@@ -386,6 +389,7 @@ private fun QuickRailSizeScrubber(
                     var lastX = down.position.x
                     var lastY = down.position.y
                     var totalMoved = 0f
+                    var accumulatedSize = currentSizeState.value
                     isDragging = true
                     down.consume()
 
@@ -396,20 +400,19 @@ private fun QuickRailSizeScrubber(
                             val curX = change.position.x
                             val curY = change.position.y
                             val dx = curX - lastX
-                            val dy = -(curY - lastY)
+                            val dy = -(curY - lastY) // up is positive
                             lastX = curX
                             lastY = curY
-                            val delta = if (kotlin.math.abs(dx) >= kotlin.math.abs(dy)) dx else dy
+                            val delta = dx + dy
                             totalMoved += kotlin.math.abs(dx) + kotlin.math.abs(dy)
 
                             val factor = when {
-                                size < 15f -> 0.20f
-                                size < 50f -> 0.45f
-                                size < 150f -> 0.90f
-                                else -> 1.80f
+                                accumulatedSize < 20f -> 0.35f
+                                accumulatedSize < 60f -> 0.65f
+                                else -> 1.0f
                             }
-                            val newSize = (size + delta * factor).coerceIn(1f, 500f)
-                            onSizeChange(newSize)
+                            accumulatedSize = (accumulatedSize + delta * factor).coerceIn(1f, 500f)
+                            onSizeChangeState.value(accumulatedSize)
                             change.consume()
                         }
                     } while (event.changes.any { it.pressed })
@@ -475,6 +478,8 @@ private fun QuickRailOpacityScrubber(
     onOpenMenu: () -> Unit
 ) {
     var isDragging by remember { mutableStateOf(false) }
+    val currentOpacityState = rememberUpdatedState(opacity)
+    val onOpacityChangeState = rememberUpdatedState(onOpacityChange)
 
     Box(
         modifier = Modifier
@@ -493,6 +498,7 @@ private fun QuickRailOpacityScrubber(
                     var lastX = down.position.x
                     var lastY = down.position.y
                     var totalMoved = 0f
+                    var accumulatedOpacity = currentOpacityState.value
                     isDragging = true
                     down.consume()
 
@@ -503,14 +509,16 @@ private fun QuickRailOpacityScrubber(
                             val curX = change.position.x
                             val curY = change.position.y
                             val dx = curX - lastX
-                            val dy = -(curY - lastY)
+                            val dy = -(curY - lastY) // up is positive
                             lastX = curX
                             lastY = curY
-                            val delta = if (kotlin.math.abs(dx) >= kotlin.math.abs(dy)) dx else dy
+                            val delta = dx + dy
                             totalMoved += kotlin.math.abs(dx) + kotlin.math.abs(dy)
 
-                            val newOpacity = (opacity + delta * 0.003f).coerceIn(0.01f, 1.0f)
-                            onOpacityChange(newOpacity)
+                            // ~300px drag sweeps 0% to 100%
+                            val factor = 0.0035f
+                            accumulatedOpacity = (accumulatedOpacity + delta * factor).coerceIn(0.01f, 1.0f)
+                            onOpacityChangeState.value(accumulatedOpacity)
                             change.consume()
                         }
                     } while (event.changes.any { it.pressed })

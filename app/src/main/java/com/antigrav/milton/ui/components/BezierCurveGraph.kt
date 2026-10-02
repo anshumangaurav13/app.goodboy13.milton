@@ -44,6 +44,7 @@ import com.antigrav.milton.core.model.PressureCurveDefaults
 import java.util.Locale
 import kotlin.math.hypot
 import kotlin.math.round
+import kotlin.math.roundToInt
 
 val DEFAULT_PRESSURE_PRESETS = listOf(
     "Standard" to PressureCurveDefaults.STANDARD,
@@ -137,6 +138,9 @@ fun BezierCurveGraph(
             val graphW = (graphRight - graphLeft).coerceAtLeast(1f)
             val graphH = (graphBottom - graphTop).coerceAtLeast(1f)
 
+            val minP = config.minPercent.coerceIn(0f, 1f)
+            val maxP = config.maxPercent.coerceIn(minP, 1f)
+
             fun toScreen(nx: Float, ny: Float): Offset {
                 val sx = graphLeft + nx.coerceIn(0f, 1f) * graphW
                 val sy = graphBottom - ny.coerceIn(0f, 1f) * graphH
@@ -153,27 +157,36 @@ fun BezierCurveGraph(
             val diagonalColor = Color.White.copy(alpha = 0.20f)
             val anchorColor = Color.White.copy(alpha = 0.50f)
 
+            val startPos = toScreen(0f, minP)
+            val endPos = toScreen(1f, maxP)
+            val cp1ScreenY = minP + (maxP - minP) * config.cp1y
+            val cp2ScreenY = minP + (maxP - minP) * config.cp2y
+            val cp1Pos = toScreen(config.cp1x, cp1ScreenY)
+            val cp2Pos = toScreen(config.cp2x, cp2ScreenY)
+
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(Unit) {
                         detectDragGestures(
                             onDragStart = { offset ->
-                                val cfg = currentConfig
-                                val p1Screen = toScreen(cfg.cp1x, cfg.cp1y)
-                                val p2Screen = toScreen(cfg.cp2x, cfg.cp2y)
-                                val d1 = hypot((offset.x - p1Screen.x).toDouble(), (offset.y - p1Screen.y).toDouble()).toFloat()
-                                val d2 = hypot((offset.x - p2Screen.x).toDouble(), (offset.y - p2Screen.y).toDouble()).toFloat()
+                                val d1 = hypot((offset.x - cp1Pos.x).toDouble(), (offset.y - cp1Pos.y).toDouble()).toFloat()
+                                val d2 = hypot((offset.x - cp2Pos.x).toDouble(), (offset.y - cp2Pos.y).toDouble()).toFloat()
                                 activeHandle = if (d1 <= d2) 1 else 2
                             },
                             onDrag = { change, _ ->
                                 change.consume()
                                 val (nx, ny) = toNormalized(change.position.x, change.position.y)
                                 val cfg = currentConfig
+                                val curMinP = cfg.minPercent.coerceIn(0f, 1f)
+                                val curMaxP = cfg.maxPercent.coerceIn(curMinP, 1f)
+                                val yRange = (curMaxP - curMinP).coerceAtLeast(0.01f)
+                                val mappedY = ((ny - curMinP) / yRange).coerceIn(0f, 1f)
+
                                 if (activeHandle == 1) {
-                                    currentOnConfigChange(cfg.copy(cp1x = nx, cp1y = ny))
+                                    currentOnConfigChange(cfg.copy(cp1x = nx, cp1y = mappedY))
                                 } else if (activeHandle == 2) {
-                                    currentOnConfigChange(cfg.copy(cp2x = nx, cp2y = ny))
+                                    currentOnConfigChange(cfg.copy(cp2x = nx, cp2y = mappedY))
                                 }
                             },
                             onDragEnd = { activeHandle = 0 },
@@ -216,12 +229,29 @@ fun BezierCurveGraph(
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
                 )
 
-                val startPos = Offset(graphLeft, graphBottom)
-                val endPos = Offset(graphRight, graphTop)
-                val cp1Pos = toScreen(config.cp1x, config.cp1y)
-                val cp2Pos = toScreen(config.cp2x, config.cp2y)
+                // 3. Min % and Max % Guideline thresholds if non-trivial
+                if (minP > 0.01f) {
+                    val y = toScreen(0f, minP).y
+                    drawLine(
+                        color = Color(0x6626A69A),
+                        start = Offset(graphLeft, y),
+                        end = Offset(graphRight, y),
+                        strokeWidth = 1.0f,
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
+                    )
+                }
+                if (maxP < 0.99f) {
+                    val y = toScreen(0f, maxP).y
+                    drawLine(
+                        color = Color(0x66AB47BC),
+                        start = Offset(graphLeft, y),
+                        end = Offset(graphRight, y),
+                        strokeWidth = 1.0f,
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
+                    )
+                }
 
-                // 3. Tangent handle lines
+                // 4. Tangent handle lines
                 drawLine(
                     color = handle1Color.copy(alpha = 0.65f),
                     start = startPos,
@@ -235,7 +265,7 @@ fun BezierCurveGraph(
                     strokeWidth = 1.6f
                 )
 
-                // 4. Continuous Cubic Bezier Curve
+                // 5. Continuous Cubic Bezier Curve (scaled to minPercent..maxPercent)
                 val curvePath = Path().apply {
                     moveTo(startPos.x, startPos.y)
                     cubicTo(
@@ -250,7 +280,7 @@ fun BezierCurveGraph(
                     style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round)
                 )
 
-                // 5. Anchors at (0,0) and (1,1)
+                // 6. Anchors at (0, minPercent) and (1, maxPercent)
                 drawCircle(
                     color = anchorColor,
                     radius = 3.5.dp.toPx(),
@@ -262,7 +292,7 @@ fun BezierCurveGraph(
                     center = endPos
                 )
 
-                // 6. Control point draggable handles (knobs)
+                // 7. Control point draggable handles (knobs)
                 // Handle 1 (CP1)
                 drawCircle(
                     color = handle1Color,
@@ -289,6 +319,42 @@ fun BezierCurveGraph(
             }
         }
 
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Min % and Max % percentage controls
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            ValueDragControl(
+                label = "Min",
+                value = (config.minPercent * 100f).roundToInt().toFloat(),
+                onValueChange = { newMin ->
+                    val minVal = (newMin / 100f).coerceIn(0f, config.maxPercent)
+                    onConfigChange(config.copy(minPercent = minVal))
+                },
+                valueRange = 0f..100f,
+                unit = "%",
+                displayDecimals = 0,
+                fillColor = Color(0xFF26A69A),
+                modifier = Modifier.weight(1f)
+            )
+
+            ValueDragControl(
+                label = "Max",
+                value = (config.maxPercent * 100f).roundToInt().toFloat(),
+                onValueChange = { newMax ->
+                    val maxVal = (newMax / 100f).coerceIn(config.minPercent, 1f)
+                    onConfigChange(config.copy(maxPercent = maxVal))
+                },
+                valueRange = 0f..100f,
+                unit = "%",
+                displayDecimals = 0,
+                fillColor = Color(0xFFAB47BC),
+                modifier = Modifier.weight(1f)
+            )
+        }
+
         // Preset Chips (2x2 grid for clean, uncrowded layout)
         if (presets.isNotEmpty()) {
             Spacer(modifier = Modifier.height(6.dp))
@@ -311,7 +377,14 @@ fun BezierCurveGraph(
                                 shape = RoundedCornerShape(6.dp),
                                 color = if (isSelected) Color(0xFF3949AB) else Color(0xFF232730),
                                 border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF90CAF9)) else null,
-                                onClick = { onConfigChange(presetConfig) },
+                                onClick = {
+                                    onConfigChange(
+                                        presetConfig.copy(
+                                            minPercent = config.minPercent,
+                                            maxPercent = config.maxPercent
+                                        )
+                                    )
+                                },
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(26.dp)

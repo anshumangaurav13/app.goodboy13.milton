@@ -62,15 +62,19 @@ class BrushEngineTest {
         assertTrue(props.spacing <= 0.08f)
         assertTrue(!props.isEraser)
         assertTrue(props.brushMode == 1)
+        assertTrue(props.size == 12.0f)
+        assertTrue(props.opacity == 0.50f)
 
         props.applyPreset(com.antigrav.milton.core.brush.BrushType.PAINTBRUSH)
-        assertTrue(props.hardness <= 0.30f)
+        assertTrue(props.hardness == 0.70f)
         assertTrue(!props.isEraser)
         assertTrue(props.brushMode == 2)
+        assertTrue(props.size == 50.0f)
 
         props.applyPreset(com.antigrav.milton.core.brush.BrushType.ERASER)
         assertTrue(props.isEraser)
         assertTrue(props.brushMode == 0)
+        assertTrue(props.size == 64.0f)
     }
 
     @Test

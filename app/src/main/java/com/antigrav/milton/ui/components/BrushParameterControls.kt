@@ -32,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,9 +52,8 @@ import kotlin.math.roundToInt
 
 /**
  * Value drag control:
- * Dragging right / up increases value (up to 500px for size or 100% for opacity).
+ * Dragging right / up increases value relative to current value.
  * Dragging left / down decreases value.
- * Uses dynamic scaling for high precision at small values and fast sweeping for large values.
  */
 @Composable
 fun ValueDragControl(
@@ -67,6 +67,8 @@ fun ValueDragControl(
     modifier: Modifier = Modifier
 ) {
     var isDragging by remember { mutableStateOf(false) }
+    val currentValueState = rememberUpdatedState(value)
+    val onValueChangeState = rememberUpdatedState(onValueChange)
 
     Box(
         modifier = modifier
@@ -85,7 +87,10 @@ fun ValueDragControl(
                     isDragging = true
                     var lastX = down.position.x
                     var lastY = down.position.y
+                    var accumulatedValue = currentValueState.value
                     down.consume()
+
+                    val span = valueRange.endInclusive - valueRange.start
 
                     do {
                         val event = awaitPointerEvent()
@@ -98,24 +103,24 @@ fun ValueDragControl(
                             lastX = curX
                             lastY = curY
 
-                            val delta = if (kotlin.math.abs(dx) >= kotlin.math.abs(dy)) dx else dy
+                            // Dragging right (dx > 0) or up (dy > 0) increases value; left / down decreases
+                            val delta = dx + dy
 
-                            // Dynamic sensitivity
-                            val factor = if (valueRange.endInclusive > 100f) {
-                                // Size range 1..500px
+                            val factor = if (span > 150f) {
+                                // Brush size range 1..500px: fine at small sizes, swift at large
                                 when {
-                                    value < 15f -> 0.15f
-                                    value < 50f -> 0.35f
-                                    value < 150f -> 0.75f
-                                    else -> 1.50f
+                                    accumulatedValue < 20f -> 0.35f
+                                    accumulatedValue < 60f -> 0.65f
+                                    else -> 1.0f
                                 }
                             } else {
-                                // Opacity range 0.01..1.0
-                                0.003f
+                                // Percentage ranges (e.g. 1..100%): responsive sweep
+                                (span / 300f).coerceAtLeast(0.25f)
                             }
 
-                            val nextVal = (value + delta * factor).coerceIn(valueRange.start, valueRange.endInclusive)
-                            onValueChange(nextVal)
+                            accumulatedValue = (accumulatedValue + delta * factor)
+                                .coerceIn(valueRange.start, valueRange.endInclusive)
+                            onValueChangeState.value(accumulatedValue)
                             change.consume()
                         }
                     } while (event.changes.any { it.pressed })

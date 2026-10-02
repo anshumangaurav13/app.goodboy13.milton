@@ -28,7 +28,7 @@ enum class BrushType(val displayName: String) {
 
 data class BrushProperties(
     var brushType: BrushType = BrushType.PEN,
-    var size: Float = 8.0f,
+    var size: Float = 16.0f,
     var colorRgb: Int = 0xFF111111.toInt(),
     var opacity: Float = 1.0f,
     var spacing: Float = 0.10f,
@@ -39,15 +39,15 @@ data class BrushProperties(
     var bezierConfig: BezierControlPoints = PressureCurveDefaults.LINEAR
 ) {
     private val savedSizes = mutableMapOf(
-        BrushType.PEN to 8.0f,
-        BrushType.PENCIL to 5.0f,
-        BrushType.PAINTBRUSH to 24.0f,
-        BrushType.ERASER to 32.0f
+        BrushType.PEN to 16.0f,
+        BrushType.PENCIL to 12.0f,
+        BrushType.PAINTBRUSH to 50.0f,
+        BrushType.ERASER to 64.0f
     )
 
     private val savedOpacities = mutableMapOf(
         BrushType.PEN to 1.0f,
-        BrushType.PENCIL to 0.65f,
+        BrushType.PENCIL to 0.50f,
         BrushType.PAINTBRUSH to 0.80f,
         BrushType.ERASER to 1.0f
     )
@@ -66,7 +66,7 @@ data class BrushProperties(
         savedBeziers[brushType] = bezierConfig
 
         brushType = type
-        size = savedSizes[type] ?: 10f
+        size = savedSizes[type] ?: 16f
         opacity = savedOpacities[type] ?: 1.0f
         bezierConfig = savedBeziers[type] ?: PressureCurveDefaults.STANDARD
         minRadius = (size * 0.12f).coerceAtLeast(1.2f)
@@ -85,7 +85,7 @@ data class BrushProperties(
                 brushMode = 1
             }
             BrushType.PAINTBRUSH -> {
-                hardness = 0.25f
+                hardness = 0.70f
                 spacing = 0.08f
                 isEraser = false
                 brushMode = 2

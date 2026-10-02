@@ -91,10 +91,9 @@ class DabShader {
                     float toothBite = smoothstep(threshold - 0.20, threshold + 0.20, tooth);
                     alpha = edge * toothBite * uColor.a;
                 } else if (uBrushMode == 2) {
-                    // --- PAINTBRUSH (Soft Feathered Radial Falloff) ---
+                    // --- PAINTBRUSH (Feathered Edge) ---
                     float edge = smoothstep(1.0, uHardness, dist);
-                    float inner = 1.0 - dist * dist;
-                    alpha = mix(edge, inner * edge, 0.4) * uColor.a;
+                    alpha = edge * uColor.a;
                 } else {
                     // --- PEN / ERASER (Clean sub-pixel anti-aliased edge) ---
                     alpha = smoothstep(1.0, uHardness, dist) * uColor.a;

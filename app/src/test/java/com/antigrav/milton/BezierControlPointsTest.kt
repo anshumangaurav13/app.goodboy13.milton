@@ -58,4 +58,13 @@ class BezierControlPointsTest {
             }
         }
     }
+
+    @Test
+    fun testMinMaxPercentScaling() {
+        val curve = BezierControlPoints(minPercent = 0.20f, maxPercent = 0.80f)
+        assertEquals(0.20f, curve.solveY(0.0f), 0.001f)
+        assertEquals(0.80f, curve.solveY(1.0f), 0.001f)
+        val mid = curve.solveY(0.5f)
+        assertTrue("Output at 0.5 should be within [0.20, 0.80], got $mid", mid in 0.20f..0.80f)
+    }
 }
