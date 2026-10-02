@@ -115,7 +115,7 @@ fun BezierCurveGraph(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1.2f)
+                .aspectRatio(1.35f)
                 .background(
                     Color(0xFF14171D),
                     RoundedCornerShape(10.dp)
@@ -355,48 +355,51 @@ fun BezierCurveGraph(
             )
         }
 
-        // Preset Chips (2x2 grid for clean, uncrowded layout)
+        // Preset Chips: single horizontal row of mini curve icons
         if (presets.isNotEmpty()) {
             Spacer(modifier = Modifier.height(6.dp))
-            Column(
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                for (chunk in presets.chunked(2)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        for ((label, presetConfig) in chunk) {
-                            val isSelected = kotlin.math.abs(config.cp1x - presetConfig.cp1x) < 0.04f &&
-                                    kotlin.math.abs(config.cp1y - presetConfig.cp1y) < 0.04f &&
-                                    kotlin.math.abs(config.cp2x - presetConfig.cp2x) < 0.04f &&
-                                    kotlin.math.abs(config.cp2y - presetConfig.cp2y) < 0.04f
+                for ((label, presetConfig) in presets) {
+                    val isSelected = kotlin.math.abs(config.cp1x - presetConfig.cp1x) < 0.04f &&
+                            kotlin.math.abs(config.cp1y - presetConfig.cp1y) < 0.04f &&
+                            kotlin.math.abs(config.cp2x - presetConfig.cp2x) < 0.04f &&
+                            kotlin.math.abs(config.cp2y - presetConfig.cp2y) < 0.04f
 
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = if (isSelected) Color(0xFF3949AB) else Color(0xFF232730),
-                                border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF90CAF9)) else null,
-                                onClick = {
-                                    onConfigChange(
-                                        presetConfig.copy(
-                                            minPercent = config.minPercent,
-                                            maxPercent = config.maxPercent
-                                        )
-                                    )
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(26.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = label,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        fontSize = 11.sp,
-                                        color = if (isSelected) Color.White else Color(0xCCFFFFFF)
-                                    )
-                                }
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (isSelected) Color(0xFF3949AB) else Color(0xFF232730),
+                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF90CAF9)) else null,
+                        onClick = {
+                            onConfigChange(
+                                presetConfig.copy(
+                                    minPercent = config.minPercent,
+                                    maxPercent = config.maxPercent
+                                )
+                            )
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(26.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Canvas(modifier = Modifier.size(width = 20.dp, height = 14.dp)) {
+                                val w = size.width
+                                val h = size.height
+                                val path = Path()
+                                path.moveTo(0f, h)
+                                path.cubicTo(
+                                    w * presetConfig.cp1x, h * (1f - presetConfig.cp1y),
+                                    w * presetConfig.cp2x, h * (1f - presetConfig.cp2y),
+                                    w, 0f
+                                )
+                                drawPath(
+                                    path = path,
+                                    color = if (isSelected) Color.White else Color(0xAAFFFFFF),
+                                    style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
+                                )
                             }
                         }
                     }

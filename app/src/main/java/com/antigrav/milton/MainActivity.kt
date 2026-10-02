@@ -76,7 +76,9 @@ class MainActivity : ComponentActivity() {
                 var isZoomLocked by remember { mutableStateOf(false) }
                 var isRotationLocked by remember { mutableStateOf(false) }
                 var isZenMode by remember { mutableStateOf(false) }
-                var bezierConfig by remember { mutableStateOf(canvasView.bezierConfig) }
+                var sizeBezierConfig by remember { mutableStateOf(canvasView.sizeBezierConfig) }
+                var opacityBezierConfig by remember { mutableStateOf(canvasView.opacityBezierConfig) }
+                var isEyedropperActive by remember { mutableStateOf(false) }
 
                 var recentColors by remember {
                     mutableStateOf(
@@ -121,11 +123,26 @@ class MainActivity : ComponentActivity() {
                             rotationDegrees = rot
                         }
                     }
+                    canvasView.onColorPicked = { pickedColor ->
+                        handler.post {
+                            brushColor = pickedColor
+                            canvasView.brushColorRgb = pickedColor
+                            isEyedropperActive = false
+                            canvasView.isEyedropperMode = false
+                        }
+                    }
+                    canvasView.onStrokeCompleted = { strokeColor ->
+                        handler.post {
+                            addRecentColor(strokeColor)
+                        }
+                    }
                     onDispose {
                         canvasView.renderer.undoManager.onStateChangedListener = null
                         canvasView.renderer.onLayerThumbnailUpdated = null
                         layerManager.onLayersChangedListener = null
                         canvasView.onViewportChanged = null
+                        canvasView.onColorPicked = null
+                        canvasView.onStrokeCompleted = null
                     }
                 }
 
@@ -142,7 +159,8 @@ class MainActivity : ComponentActivity() {
                             canvasView.brushType = type
                             brushSize = canvasView.brushSize
                             brushOpacity = canvasView.brushOpacity
-                            bezierConfig = canvasView.bezierConfig
+                            sizeBezierConfig = canvasView.sizeBezierConfig
+                            opacityBezierConfig = canvasView.opacityBezierConfig
                         },
                         brushSize = brushSize,
                         onBrushSizeChange = { size ->
@@ -159,10 +177,15 @@ class MainActivity : ComponentActivity() {
                             brushColor = color
                             canvasView.brushColorRgb = color
                         },
-                        bezierConfig = bezierConfig,
-                        onBezierConfigChange = { cfg ->
-                            bezierConfig = cfg
-                            canvasView.bezierConfig = cfg
+                        sizeBezierConfig = sizeBezierConfig,
+                        onSizeBezierConfigChange = { cfg ->
+                            sizeBezierConfig = cfg
+                            canvasView.sizeBezierConfig = cfg
+                        },
+                        opacityBezierConfig = opacityBezierConfig,
+                        onOpacityBezierConfigChange = { cfg ->
+                            opacityBezierConfig = cfg
+                            canvasView.opacityBezierConfig = cfg
                         },
                         canUndo = canUndo,
                         onUndo = { canvasView.undo() },
@@ -207,7 +230,11 @@ class MainActivity : ComponentActivity() {
                             layerManager.moveLayerDown(id)
                         },
                         recentColors = recentColors,
-                        onAddRecentColor = { addRecentColor(it) }
+                        isEyedropperActive = isEyedropperActive,
+                        onToggleEyedropper = {
+                            isEyedropperActive = !isEyedropperActive
+                            canvasView.isEyedropperMode = isEyedropperActive
+                        }
                     )
                 }
             }

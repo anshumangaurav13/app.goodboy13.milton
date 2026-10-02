@@ -13,7 +13,7 @@ import java.nio.ByteOrder
  * Extracts a lightweight (72x48) Bitmap preview of the visible layer contents.
  */
 class LayerThumbnailRenderer(
-    val thumbWidth: Int = 72,
+    val thumbWidth: Int = 48,
     val thumbHeight: Int = 48
 ) {
     private var fboId: Int = 0

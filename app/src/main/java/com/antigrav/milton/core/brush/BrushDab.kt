@@ -36,8 +36,14 @@ data class BrushProperties(
     var minRadius: Float = 1.5f,
     var isEraser: Boolean = false,
     var brushMode: Int = 0,
-    var bezierConfig: BezierControlPoints = PressureCurveDefaults.LINEAR
+    var sizeBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD,
+    var opacityBezierConfig: BezierControlPoints = PressureCurveDefaults.LINEAR
 ) {
+    // Legacy alias
+    var bezierConfig: BezierControlPoints
+        get() = sizeBezierConfig
+        set(value) { sizeBezierConfig = value }
+
     private val savedSizes = mutableMapOf(
         BrushType.PEN to 16.0f,
         BrushType.PENCIL to 12.0f,
@@ -52,23 +58,32 @@ data class BrushProperties(
         BrushType.ERASER to 1.0f
     )
 
-    private val savedBeziers = mutableMapOf(
+    private val savedSizeBeziers = mutableMapOf(
         BrushType.PEN to PressureCurveDefaults.STANDARD,
         BrushType.PENCIL to PressureCurveDefaults.SOFT,
         BrushType.PAINTBRUSH to PressureCurveDefaults.STANDARD.copy(minPercent = 0.45f),
         BrushType.ERASER to PressureCurveDefaults.LINEAR
     )
 
+    private val savedOpacityBeziers = mutableMapOf(
+        BrushType.PEN to PressureCurveDefaults.LINEAR.copy(minPercent = 1.0f, maxPercent = 1.0f),
+        BrushType.PENCIL to PressureCurveDefaults.SOFT.copy(minPercent = 0.20f, maxPercent = 1.0f),
+        BrushType.PAINTBRUSH to PressureCurveDefaults.STANDARD.copy(minPercent = 0.25f, maxPercent = 1.0f),
+        BrushType.ERASER to PressureCurveDefaults.LINEAR.copy(minPercent = 1.0f, maxPercent = 1.0f)
+    )
+
     fun applyPreset(type: BrushType) {
         // Save current tool's settings before switching
         savedSizes[brushType] = size
         savedOpacities[brushType] = opacity
-        savedBeziers[brushType] = bezierConfig
+        savedSizeBeziers[brushType] = sizeBezierConfig
+        savedOpacityBeziers[brushType] = opacityBezierConfig
 
         brushType = type
         size = savedSizes[type] ?: 16f
         opacity = savedOpacities[type] ?: 1.0f
-        bezierConfig = savedBeziers[type] ?: PressureCurveDefaults.STANDARD
+        sizeBezierConfig = savedSizeBeziers[type] ?: PressureCurveDefaults.STANDARD
+        opacityBezierConfig = savedOpacityBeziers[type] ?: PressureCurveDefaults.LINEAR
         minRadius = (size * 0.12f).coerceAtLeast(1.2f)
 
         when (type) {

@@ -20,8 +20,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -166,7 +169,7 @@ fun ValueDragControl(
 }
 
 /**
- * Dynamic S-curve stroke preview box matching active brush parameters and pressure curve.
+ * Dynamic S-curve stroke preview box matching active brush parameters and pressure curves.
  */
 @Composable
 fun StrokePreviewBox(
@@ -174,17 +177,18 @@ fun StrokePreviewBox(
     brushSize: Float,
     brushOpacity: Float,
     brushColorRgb: Int,
-    bezierConfig: BezierControlPoints,
+    sizeBezierConfig: BezierControlPoints,
+    opacityBezierConfig: BezierControlPoints,
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(64.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .height(46.dp)
+            .clip(RoundedCornerShape(10.dp))
             .background(Color(0xFF101216))
-            .border(1.dp, Color(0x25FFFFFF), RoundedCornerShape(12.dp))
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .border(1.dp, Color(0x25FFFFFF), RoundedCornerShape(10.dp))
+            .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width
@@ -200,7 +204,7 @@ fun StrokePreviewBox(
             val cp2X = w * 0.65f
             val cp2Y = h * 0.88f
 
-            val steps = 70
+            val steps = 60
             var prevX = startX
             var prevY = startY
 
@@ -219,15 +223,17 @@ fun StrokePreviewBox(
 
                 // Tapered pressure profile across the S-curve
                 val rawP = kotlin.math.sin(t * Math.PI.toFloat()).coerceIn(0.05f, 1.0f)
-                val mappedP = bezierConfig.solveY(rawP)
+                val mappedSizeP = sizeBezierConfig.solveY(rawP)
+                val mappedOpacityP = opacityBezierConfig.solveY(rawP)
 
                 // Scaled stroke thickness for preview box
-                val previewWidth = (1.5f + (brushSize / 500f).coerceIn(0f, 1f) * 22f) * (0.30f + 0.70f * mappedP)
+                val previewWidth = (1.5f + (brushSize / 500f).coerceIn(0f, 1f) * 18f) * (0.30f + 0.70f * mappedSizeP)
+                val strokeAlpha = (brushOpacity * mappedOpacityP).coerceIn(0.08f, 1.0f)
 
                 val strokeColor = if (brushType == BrushType.ERASER) {
-                    Color(0xFFB0BEC5)
+                    Color(0xFFB0BEC5).copy(alpha = strokeAlpha)
                 } else {
-                    Color(brushColorRgb).copy(alpha = brushOpacity.coerceIn(0.15f, 1.0f))
+                    Color(brushColorRgb).copy(alpha = strokeAlpha)
                 }
 
                 drawLine(
@@ -246,7 +252,8 @@ fun StrokePreviewBox(
 }
 
 /**
- * Floating Tool Parameters Menu appearing upon holding (or tapping active) tool button.
+ * Compact Tool Parameters Menu appearing upon holding (or tapping active) tool button.
+ * Bezier pressure curves are neatly collapsed under Size and Opacity.
  */
 @Composable
 fun ToolParametersPopup(
@@ -256,24 +263,29 @@ fun ToolParametersPopup(
     brushOpacity: Float,
     onBrushOpacityChange: (Float) -> Unit,
     brushColorRgb: Int,
-    bezierConfig: BezierControlPoints,
-    onBezierConfigChange: (BezierControlPoints) -> Unit,
+    sizeBezierConfig: BezierControlPoints,
+    onSizeBezierConfigChange: (BezierControlPoints) -> Unit,
+    opacityBezierConfig: BezierControlPoints,
+    onOpacityBezierConfigChange: (BezierControlPoints) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var showSizeDynamics by remember { mutableStateOf(false) }
+    var showOpacityDynamics by remember { mutableStateOf(false) }
+
     Surface(
         modifier = modifier
-            .width(284.dp)
-            .shadow(elevation = 18.dp, shape = RoundedCornerShape(20.dp))
-            .clip(RoundedCornerShape(20.dp)),
+            .width(264.dp)
+            .shadow(elevation = 16.dp, shape = RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(16.dp)),
         color = Color(0xF2181A1F),
         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x35FFFFFF)),
         tonalElevation = 8.dp
     ) {
         Column(
             modifier = Modifier
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             // Header Row: Tool Icon + Name + Close Button
             Row(
@@ -283,17 +295,17 @@ fun ToolParametersPopup(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
                     when (brushType) {
-                        BrushType.PEN -> PenIcon(tint = Color(0xFF90CAF9), modifier = Modifier.size(20.dp))
-                        BrushType.PENCIL -> PencilIcon(tint = Color(0xFFFFCC80), modifier = Modifier.size(20.dp))
-                        BrushType.PAINTBRUSH -> PaintbrushIcon(tint = Color(0xFFA5D6A7), modifier = Modifier.size(20.dp))
-                        BrushType.ERASER -> EraserIcon(tint = Color(0xFFEF9A9A), modifier = Modifier.size(20.dp))
+                        BrushType.PEN -> PenIcon(tint = Color(0xFF90CAF9), modifier = Modifier.size(18.dp))
+                        BrushType.PENCIL -> PencilIcon(tint = Color(0xFFFFCC80), modifier = Modifier.size(18.dp))
+                        BrushType.PAINTBRUSH -> PaintbrushIcon(tint = Color(0xFFA5D6A7), modifier = Modifier.size(18.dp))
+                        BrushType.ERASER -> EraserIcon(tint = Color(0xFFEF9A9A), modifier = Modifier.size(18.dp))
                     }
                     Text(
                         text = brushType.displayName,
-                        fontSize = 16.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
@@ -301,13 +313,13 @@ fun ToolParametersPopup(
 
                 IconButton(
                     onClick = onDismiss,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(24.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
                         tint = Color.White.copy(alpha = 0.70f),
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
@@ -318,15 +330,8 @@ fun ToolParametersPopup(
                 brushSize = brushSize,
                 brushOpacity = brushOpacity,
                 brushColorRgb = brushColorRgb,
-                bezierConfig = bezierConfig
-            )
-
-            // Parameters Section
-            Text(
-                text = "Parameters",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White.copy(alpha = 0.65f)
+                sizeBezierConfig = sizeBezierConfig,
+                opacityBezierConfig = opacityBezierConfig
             )
 
             // Size Scrubber (1px .. 500px)
@@ -340,6 +345,37 @@ fun ToolParametersPopup(
                 fillColor = Color(0xFF64B5F6)
             )
 
+            // Collapsible Size Dynamics Accordion
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { showSizeDynamics = !showSizeDynamics }
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Size Pressure Curve",
+                    fontSize = 11.sp,
+                    color = if (showSizeDynamics) Color(0xFF64B5F6) else Color.White.copy(alpha = 0.65f),
+                    fontWeight = FontWeight.Medium
+                )
+                Icon(
+                    imageVector = if (showSizeDynamics) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = if (showSizeDynamics) Color(0xFF64B5F6) else Color.White.copy(alpha = 0.5f),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            AnimatedVisibility(visible = showSizeDynamics) {
+                BezierCurveGraph(
+                    config = sizeBezierConfig,
+                    onConfigChange = onSizeBezierConfigChange,
+                    curveColor = Color(0xFF64B5F6)
+                )
+            }
+
             // Opacity Scrubber (1% .. 100%)
             ValueDragControl(
                 label = "Opacity",
@@ -351,24 +387,36 @@ fun ToolParametersPopup(
                 fillColor = Color(0xFFFFB74D)
             )
 
-            HorizontalDivider(
-                color = Color(0x25FFFFFF),
-                thickness = 1.dp,
-                modifier = Modifier.padding(vertical = 2.dp)
-            )
-
-            // Pressure Response Section with Bezier Curve Editor
-            Text(
-                text = "Pressure Response",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White.copy(alpha = 0.65f)
-            )
-
-            BezierCurveGraph(
-                config = bezierConfig,
-                onConfigChange = onBezierConfigChange
-            )
+            // Collapsible Opacity Dynamics Accordion
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { showOpacityDynamics = !showOpacityDynamics }
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Opacity Pressure Curve",
+                    fontSize = 11.sp,
+                    color = if (showOpacityDynamics) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.65f),
+                    fontWeight = FontWeight.Medium
+                )
+                Icon(
+                    imageVector = if (showOpacityDynamics) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = if (showOpacityDynamics) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.5f),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            AnimatedVisibility(visible = showOpacityDynamics) {
+                BezierCurveGraph(
+                    config = opacityBezierConfig,
+                    onConfigChange = onOpacityBezierConfigChange,
+                    curveColor = Color(0xFFFFB74D)
+                )
+            }
         }
     }
 }

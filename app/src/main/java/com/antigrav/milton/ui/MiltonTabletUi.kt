@@ -33,6 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Colorize
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Layers
@@ -43,6 +44,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import com.antigrav.milton.core.layer.Layer
@@ -109,8 +111,12 @@ fun MiltonTabletUi(
     onBrushOpacityChange: (Float) -> Unit,
     brushColorRgb: Int,
     onBrushColorChange: (Int) -> Unit,
-    bezierConfig: BezierControlPoints,
-    onBezierConfigChange: (BezierControlPoints) -> Unit,
+    sizeBezierConfig: BezierControlPoints = BezierControlPoints(),
+    onSizeBezierConfigChange: (BezierControlPoints) -> Unit = {},
+    opacityBezierConfig: BezierControlPoints = BezierControlPoints(),
+    onOpacityBezierConfigChange: (BezierControlPoints) -> Unit = {},
+    bezierConfig: BezierControlPoints = sizeBezierConfig,
+    onBezierConfigChange: (BezierControlPoints) -> Unit = onSizeBezierConfigChange,
     canUndo: Boolean,
     onUndo: () -> Unit,
     canRedo: Boolean,
@@ -134,7 +140,8 @@ fun MiltonTabletUi(
     onMoveLayerUp: (Long) -> Unit,
     onMoveLayerDown: (Long) -> Unit,
     recentColors: List<Int>,
-    onAddRecentColor: (Int) -> Unit,
+    isEyedropperActive: Boolean = false,
+    onToggleEyedropper: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showColorPaletteWindow by remember { mutableStateOf(false) }
@@ -193,8 +200,10 @@ fun MiltonTabletUi(
                 brushOpacity = brushOpacity,
                 onBrushOpacityChange = onBrushOpacityChange,
                 brushColorRgb = brushColorRgb,
-                bezierConfig = bezierConfig,
-                onBezierConfigChange = onBezierConfigChange,
+                sizeBezierConfig = sizeBezierConfig,
+                onSizeBezierConfigChange = onSizeBezierConfigChange,
+                opacityBezierConfig = opacityBezierConfig,
+                onOpacityBezierConfigChange = onOpacityBezierConfigChange,
                 onDismiss = { showToolParametersMenu = false }
             )
         }
@@ -252,7 +261,8 @@ fun MiltonTabletUi(
                 currentColorRgb = brushColorRgb,
                 onColorSelected = onBrushColorChange,
                 recentColors = recentColors,
-                onAddRecentColor = onAddRecentColor,
+                isEyedropperActive = isEyedropperActive,
+                onToggleEyedropper = onToggleEyedropper,
                 onClose = { showColorPaletteWindow = false },
                 containerWidth = containerW,
                 containerHeight = containerH,
@@ -755,36 +765,19 @@ private fun TabletTopBar(
             }
 
             // Layers Window Toggle Button
-            Surface(
+            IconButton(
+                onClick = onToggleLayers,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { onToggleLayers() }
+                    .size(36.dp)
+                    .clip(CircleShape)
                     .background(if (isLayersOpen) Color(0x3564B5F6) else Color.Transparent)
-                    .border(
-                        width = 1.dp,
-                        color = if (isLayersOpen) Color(0xFF64B5F6) else Color(0x20FFFFFF),
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .padding(horizontal = 7.dp, vertical = 5.dp),
-                color = Color.Transparent
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Layers,
-                        contentDescription = "Layers",
-                        tint = if (isLayersOpen) Color(0xFF64B5F6) else Color(0x88FFFFFF),
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Text(
-                        text = "Layers",
-                        fontSize = 12.sp,
-                        fontWeight = if (isLayersOpen) FontWeight.Bold else FontWeight.Medium,
-                        color = if (isLayersOpen) Color(0xFF64B5F6) else Color(0xDDFFFFFF)
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.Layers,
+                    contentDescription = "Layers",
+                    tint = if (isLayersOpen) Color(0xFF64B5F6) else Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(20.dp)
+                )
             }
 
             // Dedicated Reset View Button
@@ -833,7 +826,8 @@ private fun ColorPaletteFloatingWindow(
     currentColorRgb: Int,
     onColorSelected: (Int) -> Unit,
     recentColors: List<Int>,
-    onAddRecentColor: (Int) -> Unit,
+    isEyedropperActive: Boolean,
+    onToggleEyedropper: () -> Unit,
     onClose: () -> Unit,
     containerWidth: Int,
     containerHeight: Int,
@@ -848,6 +842,14 @@ private fun ColorPaletteFloatingWindow(
     var hue by remember { mutableFloatStateOf(initialHsv[0]) }
     var saturation by remember { mutableFloatStateOf(initialHsv[1]) }
     var value by remember { mutableFloatStateOf(initialHsv[2]) }
+
+    LaunchedEffect(currentColorRgb) {
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(currentColorRgb, hsv)
+        hue = hsv[0]
+        saturation = hsv[1]
+        value = hsv[2]
+    }
 
     val activeColorInt = remember(hue, saturation, value) {
         android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, value))
@@ -928,8 +930,6 @@ private fun ColorPaletteFloatingWindow(
                                 }
                             } while (event.changes.any { it.pressed })
 
-                            val committedCol = android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, value))
-                            onAddRecentColor(committedCol)
                             touchMode = WheelTouchMode.NONE
                         }
                     }
@@ -1066,7 +1066,6 @@ private fun ColorPaletteFloatingWindow(
                                     saturation = hsv[1]
                                     value = hsv[2]
                                     onColorSelected(col)
-                                    onAddRecentColor(col)
                                 }
                         )
                     }
@@ -1077,11 +1076,13 @@ private fun ColorPaletteFloatingWindow(
             HorizontalDivider(color = Color(0x25FFFFFF), thickness = 1.dp)
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Preview Row (Swatch + Hex value) - Clean, No "Done" button
+            // Preview & Eyedropper Row - Clean, No "Done" button
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1099,6 +1100,26 @@ private fun ColorPaletteFloatingWindow(
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xEEFFFFFF)
+                    )
+                }
+
+                IconButton(
+                    onClick = onToggleEyedropper,
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(if (isEyedropperActive) Color(0xFF64B5F6).copy(alpha = 0.35f) else Color.Transparent)
+                        .border(
+                            width = 1.dp,
+                            color = if (isEyedropperActive) Color(0xFF64B5F6) else Color(0x33FFFFFF),
+                            shape = CircleShape
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Colorize,
+                        contentDescription = "Eyedropper",
+                        tint = if (isEyedropperActive) Color(0xFF64B5F6) else Color.White,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }

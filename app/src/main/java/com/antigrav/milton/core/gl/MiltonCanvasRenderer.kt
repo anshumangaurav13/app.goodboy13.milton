@@ -14,9 +14,12 @@ import com.antigrav.milton.core.tile.TileCoord
 import com.antigrav.milton.core.tile.TileMap
 import com.antigrav.milton.core.history.UndoManager
 import com.antigrav.milton.core.viewport.Viewport
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.floor
+import kotlin.math.roundToInt
 
 data class DabPacket(
     val dabs: List<BrushDab> = emptyList()
@@ -52,8 +55,11 @@ class MiltonCanvasRenderer(
     private val pendingUndoCount = java.util.concurrent.atomic.AtomicInteger(0)
     private val pendingRedoCount = java.util.concurrent.atomic.AtomicInteger(0)
     private val pendingTrimBudget = AtomicBoolean(false)
+    private val pendingStrokeFinished = AtomicBoolean(false)
+    private val pendingColorPick = java.util.concurrent.atomic.AtomicReference<android.graphics.PointF?>()
 
     var onLayerThumbnailUpdated: ((layerId: Long, bitmap: android.graphics.Bitmap?) -> Unit)? = null
+    var onColorPicked: ((Int) -> Unit)? = null
     var isThumbnailCaptureEnabled: Boolean = true
 
     fun requestUndo() {
@@ -62,6 +68,14 @@ class MiltonCanvasRenderer(
 
     fun requestRedo() {
         pendingRedoCount.incrementAndGet()
+    }
+
+    fun markStrokeFinished() {
+        pendingStrokeFinished.set(true)
+    }
+
+    fun requestColorPick(worldX: Float, worldY: Float) {
+        pendingColorPick.set(android.graphics.PointF(worldX, worldY))
     }
 
     fun requestTrimBudget() {
@@ -156,12 +170,12 @@ class MiltonCanvasRenderer(
         val mvp = computeFinalMvpMatrix(bufferInfo, transform)
         val activeOpacity = activeLayer.opacity
         for (dab in param.dabs) {
-            val dabColor = if (dab.isEraser) backgroundColorRgb else dab.colorRgb
+            if (dab.isEraser) continue // Never draw eraser dabs into front buffer overlay
             dabShader.renderDab(
                 centerX = dab.x,
                 centerY = dab.y,
                 radius = dab.radius,
-                colorRgb = dabColor,
+                colorRgb = dab.colorRgb,
                 alpha = dab.alpha * activeOpacity,
                 hardness = dab.hardness,
                 brushMode = dab.brushMode,
@@ -202,8 +216,9 @@ class MiltonCanvasRenderer(
             val dab = pendingDabsForCommit.poll() ?: break
             dabsToStamp.add(dab)
         }
+        val isStrokeDone = pendingStrokeFinished.compareAndSet(true, false)
         var capturedLayerId = 0L
-        if (hadUndo || hadRedo) {
+        if (hadUndo || hadRedo || isStrokeDone) {
             capturedLayerId = layerManager.activeLayer.id
         }
         if (dabsToStamp.isNotEmpty()) {
@@ -227,6 +242,12 @@ class MiltonCanvasRenderer(
             }
             undoManager.capturePreStrokeTiles(activeLayer.id, affectedTiles)
             stampDabsIntoTiles(activeLayer.tileMap, dabsToStamp)
+            if (isStrokeDone) {
+                undoManager.commitStroke(activeLayer.id, activeLayer.tileMap)
+                requestTrimBudget()
+            }
+        } else if (isStrokeDone) {
+            val activeLayer = layerManager.activeLayer
             undoManager.commitStroke(activeLayer.id, activeLayer.tileMap)
             requestTrimBudget()
         }
@@ -268,8 +289,8 @@ class MiltonCanvasRenderer(
         }
         tileBlitShader.end()
 
-        // 4. Capture thumbnail offscreen only if Layers UI is open and stroke was committed
-        if (capturedLayerId != 0L && isThumbnailCaptureEnabled) {
+        // 4. Capture thumbnail offscreen only when a stroke is fully committed or on undo/redo
+        if (capturedLayerId != 0L && isThumbnailCaptureEnabled && (isStrokeDone || hadUndo || hadRedo)) {
             val layer = layerManager.getLayer(capturedLayerId)
             if (layer != null) {
                 val thumb = thumbnailRenderer.captureLayerThumbnail(
@@ -284,10 +305,59 @@ class MiltonCanvasRenderer(
             }
         }
 
-        // 5. Enforce VRAM tile budget only when requested (stroke committed or gesture ended)
+        // 5. Eyedropper pixel sampling request
+        val pickPt = pendingColorPick.getAndSet(null)
+        if (pickPt != null) {
+            val pickedColor = pickColorAt(pickPt.x, pickPt.y)
+            onColorPicked?.invoke(pickedColor)
+        }
+
+        // 6. Enforce VRAM tile budget only when requested (stroke committed or gesture ended)
         if (pendingTrimBudget.compareAndSet(true, false)) {
             layerManager.trimAllToBudget(visibleBounds)
         }
+    }
+
+    fun pickColorAt(worldX: Float, worldY: Float): Int {
+        val tileSize = TileCoord.TILE_SIZE.toFloat()
+        val tx = floor(worldX / tileSize).toInt()
+        val ty = floor(worldY / tileSize).toInt()
+        val localX = (worldX - tx * tileSize).toInt().coerceIn(0, 511)
+        val localY = (worldY - ty * tileSize).toInt().coerceIn(0, 511)
+        val glY = 511 - localY
+
+        var rAcc = Color.red(backgroundColorRgb).toFloat()
+        var gAcc = Color.green(backgroundColorRgb).toFloat()
+        var bAcc = Color.blue(backgroundColorRgb).toFloat()
+
+        val pixelBuf = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder())
+
+        for (layer in layerManager.layers) {
+            if (!layer.isVisible || layer.opacity <= 0.001f) continue
+            val tile = layer.tileMap.getExistingTile(tx, ty) ?: continue
+            if (!tile.isInitialized || !tile.hasContent) continue
+
+            tile.bindFbo()
+            pixelBuf.position(0)
+            GLES30.glReadPixels(localX, glY, 1, 1, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, pixelBuf)
+            tile.unbindFbo()
+
+            pixelBuf.position(0)
+            val r = pixelBuf.get().toInt() and 0xFF
+            val g = pixelBuf.get().toInt() and 0xFF
+            val b = pixelBuf.get().toInt() and 0xFF
+            val a = ((pixelBuf.get().toInt() and 0xFF) / 255.0f) * layer.opacity
+
+            rAcc = r * a + rAcc * (1f - a)
+            gAcc = g * a + gAcc * (1f - a)
+            bAcc = b * a + bAcc * (1f - a)
+        }
+
+        return Color.rgb(
+            rAcc.roundToInt().coerceIn(0, 255),
+            gAcc.roundToInt().coerceIn(0, 255),
+            bAcc.roundToInt().coerceIn(0, 255)
+        )
     }
 
     private fun stampDabsIntoTiles(targetTileMap: TileMap, dabs: List<BrushDab>) {

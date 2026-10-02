@@ -147,11 +147,27 @@ class MiltonCanvasView @JvmOverloads constructor(
             brushEngine.properties.colorRgb = value
         }
 
-    var bezierConfig: com.antigrav.milton.core.model.BezierControlPoints
-        get() = brushEngine.properties.bezierConfig
+    var sizeBezierConfig: com.antigrav.milton.core.model.BezierControlPoints
+        get() = brushEngine.properties.sizeBezierConfig
         set(value) {
-            brushEngine.properties.bezierConfig = value
+            brushEngine.properties.sizeBezierConfig = value
         }
+
+    var opacityBezierConfig: com.antigrav.milton.core.model.BezierControlPoints
+        get() = brushEngine.properties.opacityBezierConfig
+        set(value) {
+            brushEngine.properties.opacityBezierConfig = value
+        }
+
+    var bezierConfig: com.antigrav.milton.core.model.BezierControlPoints
+        get() = brushEngine.properties.sizeBezierConfig
+        set(value) {
+            brushEngine.properties.sizeBezierConfig = value
+        }
+
+    var isEyedropperMode: Boolean = false
+    var onColorPicked: ((Int) -> Unit)? = null
+    var onStrokeCompleted: ((Int) -> Unit)? = null
 
     fun undo() {
         renderer.requestUndo()
@@ -175,6 +191,9 @@ class MiltonCanvasView @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        renderer.onColorPicked = { color ->
+            post { onColorPicked?.invoke(color) }
+        }
         frontBufferedRenderer = GLFrontBufferedRenderer(this, renderer)
         Log.i(TAG, "GLFrontBufferedRenderer attached to window")
     }
@@ -205,8 +224,29 @@ class MiltonCanvasView @JvmOverloads constructor(
         }
 
         val action = event.actionMasked
+
+        // 0. Eyedropper sampling mode
+        if (isEyedropperMode) {
+            parent?.requestDisallowInterceptTouchEvent(true)
+            val worldPos = renderer.viewport.screenToWorld(event.x, event.y)
+            when (action) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                    renderer.requestColorPick(worldPos.x, worldPos.y)
+                    requestRedraw()
+                }
+                MotionEvent.ACTION_UP -> {
+                    renderer.requestColorPick(worldPos.x, worldPos.y)
+                    requestRedraw()
+                    isEyedropperMode = false
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    isEyedropperMode = false
+                }
+            }
+            return true
+        }
+
         val pointerCount = event.pointerCount
-        val tool0 = event.getToolType(0)
 
         // 1. Identify if any pointer is a hardware stylus
         var stylusIndex = -1
@@ -242,15 +282,21 @@ class MiltonCanvasView @JvmOverloads constructor(
         when (action) {
             MotionEvent.ACTION_DOWN -> {
                 brushEngine.properties.isEraser = isEraserMode || isHardwareEraser
-                Log.i(TAG, "Stylus DOWN at screen=($sx, $sy), world=(${worldPos.x}, ${worldPos.y}), pressure=$pressure, isEraser=${brushEngine.properties.isEraser}")
+                val isEraser = brushEngine.properties.isEraser
+                Log.i(TAG, "Stylus DOWN at screen=($sx, $sy), world=(${worldPos.x}, ${worldPos.y}), pressure=$pressure, isEraser=$isEraser")
                 val initialDabs = brushEngine.startStroke(worldPos.x, worldPos.y, pressure)
                 if (initialDabs.isNotEmpty()) {
                     renderer.queueDabs(initialDabs)
-                    frontBufferedRenderer?.renderFrontBufferedLayer(DabPacket(initialDabs))
+                    if (isEraser) {
+                        frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+                    } else {
+                        frontBufferedRenderer?.renderFrontBufferedLayer(DabPacket(initialDabs))
+                    }
                 }
             }
 
             MotionEvent.ACTION_MOVE -> {
+                val isEraser = brushEngine.properties.isEraser
                 val dabs = mutableListOf<BrushDab>()
 
                 // Unpack sub-frame historical points for maximum curve smoothness
@@ -269,17 +315,27 @@ class MiltonCanvasView @JvmOverloads constructor(
 
                 if (dabs.isNotEmpty()) {
                     renderer.queueDabs(dabs)
-                    frontBufferedRenderer?.renderFrontBufferedLayer(DabPacket(dabs))
+                    if (isEraser) {
+                        frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+                    } else {
+                        frontBufferedRenderer?.renderFrontBufferedLayer(DabPacket(dabs))
+                    }
                 }
             }
 
             MotionEvent.ACTION_UP -> {
                 Log.i(TAG, "Stylus UP at screen=($sx, $sy)")
+                val isEraser = brushEngine.properties.isEraser
                 val endDabs = brushEngine.endStroke()
                 if (endDabs.isNotEmpty()) {
                     renderer.queueDabs(endDabs)
                 }
+                renderer.markStrokeFinished()
                 frontBufferedRenderer?.commit()
+                if (!isEraser) {
+                    val strokeColor = brushEngine.properties.colorRgb
+                    post { onStrokeCompleted?.invoke(strokeColor) }
+                }
                 brushEngine.properties.isEraser = isEraserMode
             }
 

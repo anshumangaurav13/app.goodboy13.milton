@@ -90,7 +90,7 @@ fun LayersFloatingWindow(
         containerWidth = containerWidth,
         containerHeight = containerHeight,
         state = state,
-        modifier = Modifier.width(260.dp),
+        modifier = Modifier.width(204.dp),
         headerActions = {
             IconButton(
                 onClick = onAddLayer,
@@ -170,31 +170,31 @@ private fun LayerCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp)
+                .padding(horizontal = 6.dp, vertical = 5.dp)
         ) {
             // Main Row: Visibility, Thumbnail, Name, Reorder, Delete
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 // Visibility Eye Toggle
                 IconButton(
                     onClick = onToggleVisibility,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(20.dp)
                 ) {
                     Icon(
                         imageVector = if (layer.isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
                         contentDescription = if (layer.isVisible) "Hide Layer" else "Show Layer",
                         tint = if (layer.isVisible) Color.White else Color(0x45FFFFFF),
-                        modifier = Modifier.size(15.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                 }
 
-                // Thumbnail (40x26 dp)
+                // Square Thumbnail (28x28 dp)
                 Box(
                     modifier = Modifier
-                        .size(width = 40.dp, height = 26.dp)
+                        .size(28.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(Color(0xFF14161C))
                         .border(1.dp, Color(0x30FFFFFF), RoundedCornerShape(4.dp)),
@@ -205,15 +205,20 @@ private fun LayerCard(
                         Image(
                             bitmap = thumb.asImageBitmap(),
                             contentDescription = "Thumbnail for ${layer.name}",
-                            modifier = Modifier.size(width = 40.dp, height = 26.dp),
+                            modifier = Modifier.size(28.dp),
                             contentScale = ContentScale.Fit
                         )
                     }
                 }
 
-                // Layer Name
+                // Layer Name: displays concise number (e.g. "13" instead of "Layer 13")
+                val displayName = if (layer.name.startsWith("Layer ", ignoreCase = true)) {
+                    layer.name.substring(6).trim()
+                } else {
+                    layer.name
+                }
                 Text(
-                    text = layer.name,
+                    text = displayName,
                     fontSize = 12.sp,
                     fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
                     color = if (isActive) Color(0xFF90CAF9) else Color(0xDDFFFFFF),

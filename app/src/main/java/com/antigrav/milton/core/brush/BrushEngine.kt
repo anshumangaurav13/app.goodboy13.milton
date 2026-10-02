@@ -10,7 +10,9 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
 
     private var lastX: Float = 0f
     private var lastY: Float = 0f
-    private var lastPressure: Float = 0.1f
+    private var lastSizeP: Float = 0.5f
+    private var lastOpacityP: Float = 1.0f
+    private var lastRawP: Float = 0.5f
     private var distanceFromLastDab: Float = 0f
     private var isStrokeActive: Boolean = false
     private var currentStrokeId: Long = 0L
@@ -21,15 +23,13 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
         lastX = worldX
         lastY = worldY
         val clampedP = if (pressure <= 0.001f) 0.05f else pressure.coerceIn(0.01f, 1.0f)
-        lastPressure = properties.bezierConfig.solveY(clampedP)
+        lastRawP = clampedP
+        lastSizeP = properties.sizeBezierConfig.solveY(clampedP)
+        lastOpacityP = properties.opacityBezierConfig.solveY(clampedP)
         distanceFromLastDab = 0f
 
-        val radius = max(properties.minRadius, (properties.size * 0.5f) * lastPressure)
-        val dabAlpha = if (properties.brushMode == 2) {
-            properties.opacity * (0.35f + 0.65f * lastPressure)
-        } else {
-            properties.opacity
-        }
+        val radius = max(properties.minRadius, (properties.size * 0.5f) * lastSizeP)
+        val dabAlpha = (properties.opacity * lastOpacityP).coerceIn(0.001f, 1.0f)
 
         val initialDab = BrushDab(
             x = worldX,
@@ -40,7 +40,7 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
             isEraser = properties.isEraser,
             hardness = properties.hardness,
             brushMode = properties.brushMode,
-            pressure = lastPressure,
+            pressure = lastSizeP,
             strokeId = currentStrokeId
         )
         return listOf(initialDab)
@@ -51,10 +51,14 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
             return startStroke(worldX, worldY, pressure)
         }
 
-        val rawP = if (pressure <= 0.001f) lastPressure else pressure.coerceIn(0.01f, 1.0f)
-        val currentPressure = properties.bezierConfig.solveY(rawP)
-        val prevP = lastPressure
-        lastPressure = currentPressure
+        val rawP = if (pressure <= 0.001f) lastRawP else pressure.coerceIn(0.01f, 1.0f)
+        val currentSizeP = properties.sizeBezierConfig.solveY(rawP)
+        val currentOpacityP = properties.opacityBezierConfig.solveY(rawP)
+        val prevSizeP = lastSizeP
+        val prevOpacityP = lastOpacityP
+        lastRawP = rawP
+        lastSizeP = currentSizeP
+        lastOpacityP = currentOpacityP
 
         val dx = worldX - lastX
         val dy = worldY - lastY
@@ -66,8 +70,8 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
 
         val dabs = mutableListOf<BrushDab>()
 
-        val avgPressure = (prevP + currentPressure) * 0.5f
-        val radius = max(properties.minRadius, (properties.size * 0.5f) * avgPressure)
+        val avgSizeP = (prevSizeP + currentSizeP) * 0.5f
+        val radius = max(properties.minRadius, (properties.size * 0.5f) * avgSizeP)
         val stepSize = max(0.8f, radius * properties.spacing * 2.0f)
 
         var d = stepSize - distanceFromLastDab
@@ -77,13 +81,10 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
             val t = (d / segmentDist).coerceIn(0f, 1f)
             val ix = lastX + dx * t
             val iy = lastY + dy * t
-            val ip = prevP + (currentPressure - prevP) * t
-            val ir = max(properties.minRadius, (properties.size * 0.5f) * ip)
-            val dabAlpha = if (properties.brushMode == 2) {
-                properties.opacity * (0.35f + 0.65f * ip)
-            } else {
-                properties.opacity
-            }
+            val ipSize = prevSizeP + (currentSizeP - prevSizeP) * t
+            val ipOpacity = prevOpacityP + (currentOpacityP - prevOpacityP) * t
+            val ir = max(properties.minRadius, (properties.size * 0.5f) * ipSize)
+            val dabAlpha = (properties.opacity * ipOpacity).coerceIn(0.001f, 1.0f)
 
             dabs.add(
                 BrushDab(
@@ -95,7 +96,7 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
                     isEraser = properties.isEraser,
                     hardness = properties.hardness,
                     brushMode = properties.brushMode,
-                    pressure = ip,
+                    pressure = ipSize,
                     strokeId = currentStrokeId
                 )
             )
