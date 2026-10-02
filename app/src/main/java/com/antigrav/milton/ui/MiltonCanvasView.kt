@@ -68,6 +68,7 @@ class MiltonCanvasView @JvmOverloads constructor(
         }
 
         override fun onGestureEnd() {
+            renderer.requestTrimBudget()
             frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
         }
 

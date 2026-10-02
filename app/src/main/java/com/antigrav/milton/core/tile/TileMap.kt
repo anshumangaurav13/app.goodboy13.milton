@@ -46,8 +46,13 @@ class TileMap(
         val range = TileCoord.getTileRangeForBounds(bounds)
         val result = mutableListOf<RasterTile>()
         val now = System.nanoTime()
-        range.forEach { tx, ty ->
-            tiles[TileCoord(tx, ty)]?.let { tile ->
+
+        // Iterate actual existing tiles directly instead of empty coordinate space.
+        // This avoids allocating thousands of TileCoord objects and hash lookups when zoomed out.
+        for (tile in tiles.values) {
+            val tx = tile.coord.tx
+            val ty = tile.coord.ty
+            if (tx in range.minTx..range.maxTx && ty in range.minTy..range.maxTy) {
                 tile.lastAccessTime = now
                 if (tile.isOnDisk) {
                     tile.restoreFromDisk(cacheDir)

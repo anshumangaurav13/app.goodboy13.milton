@@ -101,6 +101,7 @@ class TileBlitShader {
         GLES30.glUniformMatrix4fv(uMvpMatrixLoc, 1, false, mvpMatrix, 0)
         GLES30.glUniform1i(uTextureLoc, 0)
         GLES30.glUniform1f(uTileSizeLoc, TileCoord.TILE_SIZE.toFloat())
+        GLES30.glBindVertexArray(vaoId)
     }
 
     fun renderTile(worldLeft: Float, worldTop: Float, textureId: Int) {
@@ -110,9 +111,10 @@ class TileBlitShader {
 
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
-
-        GLES30.glBindVertexArray(vaoId)
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)
+    }
+
+    fun end() {
         GLES30.glBindVertexArray(0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
     }

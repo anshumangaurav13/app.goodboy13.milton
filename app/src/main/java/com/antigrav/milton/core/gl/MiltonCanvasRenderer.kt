@@ -47,6 +47,7 @@ class MiltonCanvasRenderer(
     val undoManager = UndoManager()
     private val pendingUndoCount = java.util.concurrent.atomic.AtomicInteger(0)
     private val pendingRedoCount = java.util.concurrent.atomic.AtomicInteger(0)
+    private val pendingTrimBudget = AtomicBoolean(false)
 
     fun requestUndo() {
         pendingUndoCount.incrementAndGet()
@@ -54,6 +55,10 @@ class MiltonCanvasRenderer(
 
     fun requestRedo() {
         pendingRedoCount.incrementAndGet()
+    }
+
+    fun requestTrimBudget() {
+        pendingTrimBudget.set(true)
     }
 
     private var isGlInitialized = false
@@ -206,6 +211,7 @@ class MiltonCanvasRenderer(
             undoManager.capturePreStrokeTiles(affectedTiles)
             stampDabsIntoTiles(dabsToStamp)
             undoManager.commitStroke(tileMap)
+            requestTrimBudget()
         }
 
         // 2. Clear backbuffer with background paper color
@@ -230,17 +236,20 @@ class MiltonCanvasRenderer(
             tileBlitShader.begin(mvp)
 
             for (tile in visibleTiles) {
-                if (!tile.isInitialized) continue
+                if (!tile.isInitialized || !tile.hasContent) continue
                 tileBlitShader.renderTile(
                     worldLeft = tile.coord.worldLeft,
                     worldTop = tile.coord.worldTop,
                     textureId = tile.textureId
                 )
             }
+            tileBlitShader.end()
         }
 
-        // 4. Enforce VRAM tile budget by paging out cold, non-visible tiles to disk
-        tileMap.trimToBudget(visibleTiles)
+        // 4. Enforce VRAM tile budget only when requested (stroke committed or gesture ended)
+        if (pendingTrimBudget.compareAndSet(true, false)) {
+            tileMap.trimToBudget(visibleTiles)
+        }
     }
 
     private fun stampDabsIntoTiles(dabs: List<BrushDab>) {

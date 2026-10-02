@@ -82,4 +82,24 @@ class TileMapTest {
         assertFalse("Stale bin file 2 should be cleaned up on init", staleFile2.exists())
         assertTrue("Non-bin file should not be touched", nonStaleFile.exists())
     }
+
+    @Test
+    fun testMassiveZoomOutQueryPerformance() {
+        val cacheDir = tempFolder.newFolder("zoom_test")
+        val tileMap = TileMap(cacheDir = cacheDir, maxResidentTiles = 100)
+
+        // User drew 3 tiles
+        tileMap.getOrCreateTile(0, 0)
+        tileMap.getOrCreateTile(1, 1)
+        tileMap.getOrCreateTile(10, 10)
+
+        // Huge zoom out covering 200,000 x 200,000 world coordinates (approx 400x400 = 160,000 virtual tiles)
+        val massiveBounds = WorldRect(-50_000f, -50_000f, 150_000f, 150_000f)
+        val start = System.nanoTime()
+        val visible = tileMap.getVisibleTiles(massiveBounds)
+        val elapsedMs = (System.nanoTime() - start) / 1_000_000.0
+
+        assertEquals(3, visible.size)
+        assertTrue("Massive bounds query should take < 10ms, took ${elapsedMs}ms", elapsedMs < 10.0)
+    }
 }
