@@ -57,24 +57,6 @@ class TileBlitShader {
 
             layout(location = 0) inout vec4 fragColor;
 
-            vec3 mix_pigment_fast(vec3 c1, vec3 c2, float t) {
-                vec3 diff = c1 - c2;
-                if (dot(diff, diff) < 0.0004) {
-                    return c2;
-                }
-
-                vec3 c1cmy = 1.0 - c1;
-                vec3 c2cmy = 1.0 - c2;
-
-                vec3 mix_cmy = mix(c1cmy, c2cmy, clamp(t, 0.0, 1.0));
-
-                float cy_overlap = min(mix_cmy.x, mix_cmy.z);
-                float shared_green_absorption = min(c1cmy.y, c2cmy.y);
-                float can_form_green = max(0.0, 1.0 - 2.0 * shared_green_absorption);
-                mix_cmy.y *= max(0.0, 1.0 - 1.6 * cy_overlap * can_form_green);
-
-                return clamp(1.0 - mix_cmy, 0.0, 1.0);
-            }
 
             void main() {
                 vec4 tex = texture(uTexture, vTexCoord);
@@ -86,19 +68,10 @@ class TileBlitShader {
                 vec3 srcColor = tex.rgb / max(tex.a, 0.001);
                 vec4 dst = fragColor;
 
-                vec3 dstColor = dst.rgb;
-                // Check if the destination is canvas paper
-                vec3 paperDiff = abs(dstColor - uBackgroundColor);
-                bool isPaper = all(lessThan(paperDiff, vec3(0.02)));
-
-                vec3 mixed;
-                if (isPaper) {
-                    // Painting over canvas paper: natural optical transmission over paper
-                    mixed = mix(dstColor, srcColor, alpha);
-                } else {
-                    // Subtractive pigment glaze over previous layer
-                    mixed = mix_pigment_fast(dstColor, srcColor, alpha);
-                }
+                // Multi-layer compositing:
+                // Layers in the canvas composite cleanly onto the screen over the background paper.
+                // Standard layer blending prevents inter-layer distortion across tools.
+                vec3 mixed = mix(dst.rgb, srcColor, alpha);
                 fragColor = vec4(mixed, 1.0);
             }
         """.trimIndent()

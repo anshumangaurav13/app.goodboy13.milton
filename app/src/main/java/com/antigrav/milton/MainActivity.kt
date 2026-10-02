@@ -80,6 +80,7 @@ class MainActivity : ComponentActivity() {
                 var isZoomLocked by remember { mutableStateOf(false) }
                 var isRotationLocked by remember { mutableStateOf(false) }
                 var isZenMode by remember { mutableStateOf(false) }
+                var realisticPigment by remember { mutableStateOf(canvasView.realisticPigment) }
                 var sizeBezierConfig by remember { mutableStateOf(canvasView.sizeBezierConfig) }
                 var opacityBezierConfig by remember { mutableStateOf(canvasView.opacityBezierConfig) }
                 var isEyedropperActive by remember { mutableStateOf(false) }
@@ -172,6 +173,7 @@ class MainActivity : ComponentActivity() {
                             brushSize = canvasView.brushSize
                             brushOpacity = canvasView.brushOpacity
                             brushStabilizer = canvasView.brushStabilizer
+                            realisticPigment = canvasView.realisticPigment
                             sizeBezierConfig = canvasView.sizeBezierConfig
                             opacityBezierConfig = canvasView.opacityBezierConfig
                         },
@@ -189,6 +191,11 @@ class MainActivity : ComponentActivity() {
                         onBrushStabilizerChange = { stab ->
                             brushStabilizer = stab
                             canvasView.brushStabilizer = stab
+                        },
+                        realisticPigment = realisticPigment,
+                        onRealisticPigmentChange = { enabled ->
+                            realisticPigment = enabled
+                            canvasView.realisticPigment = enabled
                         },
                         brushColorRgb = brushColor,
                         onBrushColorChange = { color ->

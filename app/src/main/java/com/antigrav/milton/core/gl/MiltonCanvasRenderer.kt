@@ -359,8 +359,13 @@ class MiltonCanvasRenderer(
             val a = (rawAlpha / 255.0f) * layer.opacity
 
             if (a > 0.001f) {
-                val layerCol = Color.rgb(r, g, b)
-                accColor = PigmentColorMixing.mixColorsInt(accColor, layerCol, a)
+                val dr = Color.red(accColor)
+                val dg = Color.green(accColor)
+                val db = Color.blue(accColor)
+                val outR = kotlin.math.round((dr * (1f - a) + r * a)).toInt().coerceIn(0, 255)
+                val outG = kotlin.math.round((dg * (1f - a) + g * a)).toInt().coerceIn(0, 255)
+                val outB = kotlin.math.round((db * (1f - a) + b * a)).toInt().coerceIn(0, 255)
+                accColor = Color.rgb(outR, outG, outB)
             }
         }
 
@@ -422,7 +427,8 @@ class MiltonCanvasRenderer(
                     worldOffsetX = tx * tileSize,
                     worldOffsetY = ty * tileSize,
                     projectionMatrix = tileOrthoMatrix,
-                    isEraser = dab.isEraser
+                    isEraser = dab.isEraser,
+                    pigmentMixing = dab.pigmentMixing
                 )
             }
             tile.unbindFbo()

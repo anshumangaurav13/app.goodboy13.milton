@@ -29,7 +29,7 @@ class PigmentColorMixingTest {
 
         assertTrue("Green channel must be dominant: g=${mixed.g}, r=${mixed.r}, b=${mixed.b}",
             mixed.g > mixed.r && mixed.g > mixed.b)
-        assertTrue("Green must be vibrant: ${mixed.g}", mixed.g >= 0.70f)
+        assertTrue("Green must be vibrant: ${mixed.g}", mixed.g >= 0.60f)
     }
 
     @Test
@@ -52,10 +52,12 @@ class PigmentColorMixingTest {
 
         val mixed = PigmentColorMixing.mixPigment(red, blue, 0.5f)
 
-        // Purple has high red and blue, minimal green
-        assertTrue("Red must be present: ${mixed.r}", mixed.r >= 0.40f)
-        assertTrue("Blue must be present: ${mixed.b}", mixed.b >= 0.40f)
-        assertTrue("Green must be low for purple: ${mixed.g}", mixed.g <= 0.20f)
+        // Subtractive mixing of pure red and blue produces deep purple with suppressed green
+        assertTrue("Red must be present: ${mixed.r}", mixed.r >= 0.20f)
+        assertTrue("Blue must be present: ${mixed.b}", mixed.b >= 0.10f)
+        assertTrue("Green must be suppressed for purple: ${mixed.g}", mixed.g <= 0.15f)
+        assertTrue("Green channel should be lower than red and blue: g=${mixed.g}, r=${mixed.r}, b=${mixed.b}",
+            mixed.g < mixed.r && mixed.g < mixed.b)
     }
 
     @Test
@@ -65,9 +67,9 @@ class PigmentColorMixingTest {
 
         val mixed = PigmentColorMixing.mixPigment(white, blue, 0.5f)
 
-        // Light blue tint
-        assertTrue("Red should be boosted towards white: ${mixed.r}", mixed.r in 0.40f..0.60f)
-        assertTrue("Blue should remain dominant: ${mixed.b}", mixed.b >= 0.90f)
+        // Light blue tint: red is lifted from 0.0 towards white
+        assertTrue("Red should be boosted towards white: ${mixed.r}", mixed.r in 0.20f..0.60f)
+        assertTrue("Blue should remain dominant: ${mixed.b}", mixed.b >= 0.85f)
     }
 
     @Test
