@@ -9,16 +9,13 @@ data class BezierControlPoints(
     val maxPercent: Float = 1.0f
 ) {
     /**
-     * Maps raw pressure [0.0, 1.0] through the cubic Bezier curve defined by (0,0), cp1, cp2, (1,1),
-     * scaled between [minPercent, maxPercent].
+     * Maps raw pressure [0.0, 1.0] through the cubic Bezier curve defined by (0,0), cp1, cp2, (1,1)
+     * into a normalized [0.0, 1.0] range without applying minPercent / maxPercent scaling.
      */
-    fun solveY(rawPressure: Float): Float {
-        val minP = minPercent.coerceIn(0.0f, 1.0f)
-        val maxP = maxPercent.coerceIn(minP, 1.0f)
-
+    fun solveNormalizedY(rawPressure: Float): Float {
         val clamped = rawPressure.coerceIn(0.0f, 1.0f)
-        if (clamped <= 0.0f) return minP
-        if (clamped >= 1.0f) return maxP
+        if (clamped <= 0.0f) return 0.0f
+        if (clamped >= 1.0f) return 1.0f
 
         var t = clamped
         for (i in 0 until 8) {
@@ -44,7 +41,17 @@ data class BezierControlPoints(
         val normalizedY = 3.0f * oneMinusT * oneMinusT * t * cp1y +
                 3.0f * oneMinusT * t * t * cp2y +
                 t * t * t
-        val clampedY = normalizedY.coerceIn(0.0f, 1.0f)
+        return normalizedY.coerceIn(0.0f, 1.0f)
+    }
+
+    /**
+     * Maps raw pressure [0.0, 1.0] through the cubic Bezier curve defined by (0,0), cp1, cp2, (1,1),
+     * scaled between [minPercent, maxPercent].
+     */
+    fun solveY(rawPressure: Float): Float {
+        val minP = minPercent.coerceIn(0.0f, 1.0f)
+        val maxP = maxPercent.coerceIn(minP, 1.0f)
+        val clampedY = solveNormalizedY(rawPressure)
         return (minP + (maxP - minP) * clampedY).coerceIn(0.0f, 1.0f)
     }
 }

@@ -22,6 +22,7 @@ class Viewport {
             field = value.coerceIn(0.02f, 50.0f)
         }
     var rotationDegrees: Float = 0f
+    var isFlippedHorizontally: Boolean = false
 
     var screenWidth: Int = 1
     var screenHeight: Int = 1
@@ -33,9 +34,11 @@ class Viewport {
 
     /**
      * Converts a 2D screen coordinate (sx, sy) into world coordinate space.
+     * When flipped, reflects the screen X coordinate about the screen center.
      */
     fun screenToWorld(screenX: Float, screenY: Float): Vec2 {
-        val dx = (screenX - panX) / zoom
+        val sx = if (isFlippedHorizontally) (screenWidth.toFloat() - screenX) else screenX
+        val dx = (sx - panX) / zoom
         val dy = (screenY - panY) / zoom
         if (rotationDegrees == 0f) {
             return Vec2(dx, dy)
@@ -50,17 +53,29 @@ class Viewport {
 
     /**
      * Converts a 2D world coordinate (wx, wy) into screen coordinate space.
+     * When flipped, reflects the screen X coordinate about the screen center.
      */
     fun worldToScreen(worldX: Float, worldY: Float): Vec2 {
-        if (rotationDegrees == 0f) {
-            return Vec2(worldX * zoom + panX, worldY * zoom + panY)
+        val sx = if (rotationDegrees == 0f) {
+            worldX * zoom + panX
+        } else {
+            val rad = Math.toRadians(rotationDegrees.toDouble())
+            val c = cos(rad).toFloat()
+            val s = sin(rad).toFloat()
+            val rx = worldX * c - worldY * s
+            rx * zoom + panX
         }
-        val rad = Math.toRadians(rotationDegrees.toDouble())
-        val c = cos(rad).toFloat()
-        val s = sin(rad).toFloat()
-        val rx = worldX * c - worldY * s
-        val ry = worldX * s + worldY * c
-        return Vec2(rx * zoom + panX, ry * zoom + panY)
+        val sy = if (rotationDegrees == 0f) {
+            worldY * zoom + panY
+        } else {
+            val rad = Math.toRadians(rotationDegrees.toDouble())
+            val c = cos(rad).toFloat()
+            val s = sin(rad).toFloat()
+            val ry = worldX * s + worldY * c
+            ry * zoom + panY
+        }
+        val finalSx = if (isFlippedHorizontally) (screenWidth.toFloat() - sx) else sx
+        return Vec2(finalSx, sy)
     }
 
     /**
@@ -84,6 +99,7 @@ class Viewport {
 
     /**
      * Pan, zoom, and rotate anchored at a focal screen point.
+     * Accurately preserves physical finger tracking under horizontal canvas flip.
      */
     fun applyGesture(
         prevFocalX: Float,
@@ -93,29 +109,33 @@ class Viewport {
         zoomFactor: Float,
         angleDelta: Float
     ) {
+        val pFx = if (isFlippedHorizontally) (screenWidth.toFloat() - prevFocalX) else prevFocalX
+        val cFx = if (isFlippedHorizontally) (screenWidth.toFloat() - curFocalX) else curFocalX
+        val effAngle = if (isFlippedHorizontally) -angleDelta else angleDelta
+
         val oldZoom = zoom
         val newZoom = (oldZoom * zoomFactor).coerceIn(0.02f, 50.0f)
         val factor = newZoom / oldZoom
 
-        var newRot = rotationDegrees + angleDelta
+        var newRot = rotationDegrees + effAngle
         while (newRot > 180f) newRot -= 360f
         while (newRot < -180f) newRot += 360f
 
         var deltaAngle = newRot - rotationDegrees
         while (deltaAngle > 180f) deltaAngle -= 360f
-        while (deltaAngle < -180f) deltaAngle += 360f
+        while (deltaAngle < -180f) deltaAngle -= 360f
 
         val deltaRad = Math.toRadians(deltaAngle.toDouble())
         val c = cos(deltaRad).toFloat()
         val s = sin(deltaRad).toFloat()
 
-        val vx = prevFocalX - panX
+        val vx = pFx - panX
         val vy = prevFocalY - panY
 
         val rx = factor * (vx * c - vy * s)
         val ry = factor * (vx * s + vy * c)
 
-        panX = curFocalX - rx
+        panX = cFx - rx
         panY = curFocalY - ry
         zoom = newZoom
         rotationDegrees = newRot
@@ -126,5 +146,6 @@ class Viewport {
         panY = screenHeight * 0.5f
         zoom = 0.5f
         rotationDegrees = 0f
+        isFlippedHorizontally = false
     }
 }

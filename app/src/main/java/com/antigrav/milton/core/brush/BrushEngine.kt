@@ -11,11 +11,17 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
     private var lastX: Float = 0f
     private var lastY: Float = 0f
     private var lastSizeP: Float = 0.5f
-    private var lastOpacityP: Float = 1.0f
+    private var lastNormOpacityY: Float = 1.0f
     private var lastRawP: Float = 0.5f
     private var distanceFromLastDab: Float = 0f
     private var isStrokeActive: Boolean = false
     private var currentStrokeId: Long = 0L
+
+    private fun computeAlpha(normY: Float): Float {
+        val maxAlpha = (properties.opacity * properties.opacityBezierConfig.maxPercent.coerceIn(0f, 1f)).coerceIn(0.001f, 1.0f)
+        val minAlpha = properties.opacityBezierConfig.minPercent.coerceIn(0f, 1f).coerceAtMost(maxAlpha)
+        return (minAlpha + (maxAlpha - minAlpha) * normY).coerceIn(0.001f, 1.0f)
+    }
 
     fun startStroke(worldX: Float, worldY: Float, pressure: Float): List<BrushDab> {
         isStrokeActive = true
@@ -25,11 +31,11 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
         val clampedP = if (pressure <= 0.001f) 0.05f else pressure.coerceIn(0.01f, 1.0f)
         lastRawP = clampedP
         lastSizeP = properties.sizeBezierConfig.solveY(clampedP)
-        lastOpacityP = properties.opacityBezierConfig.solveY(clampedP)
+        lastNormOpacityY = properties.opacityBezierConfig.solveNormalizedY(clampedP)
         distanceFromLastDab = 0f
 
         val radius = max(properties.minRadius, (properties.size * 0.5f) * lastSizeP)
-        val dabAlpha = (properties.opacity * lastOpacityP).coerceIn(0.001f, 1.0f)
+        val dabAlpha = computeAlpha(lastNormOpacityY)
 
         val initialDab = BrushDab(
             x = worldX,
@@ -53,12 +59,12 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
 
         val rawP = if (pressure <= 0.001f) lastRawP else pressure.coerceIn(0.01f, 1.0f)
         val currentSizeP = properties.sizeBezierConfig.solveY(rawP)
-        val currentOpacityP = properties.opacityBezierConfig.solveY(rawP)
+        val currentNormOpacityY = properties.opacityBezierConfig.solveNormalizedY(rawP)
         val prevSizeP = lastSizeP
-        val prevOpacityP = lastOpacityP
+        val prevNormOpacityY = lastNormOpacityY
         lastRawP = rawP
         lastSizeP = currentSizeP
-        lastOpacityP = currentOpacityP
+        lastNormOpacityY = currentNormOpacityY
 
         val dx = worldX - lastX
         val dy = worldY - lastY
@@ -82,9 +88,9 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
             val ix = lastX + dx * t
             val iy = lastY + dy * t
             val ipSize = prevSizeP + (currentSizeP - prevSizeP) * t
-            val ipOpacity = prevOpacityP + (currentOpacityP - prevOpacityP) * t
+            val ipNormOpacityY = prevNormOpacityY + (currentNormOpacityY - prevNormOpacityY) * t
             val ir = max(properties.minRadius, (properties.size * 0.5f) * ipSize)
-            val dabAlpha = (properties.opacity * ipOpacity).coerceIn(0.001f, 1.0f)
+            val dabAlpha = computeAlpha(ipNormOpacityY)
 
             dabs.add(
                 BrushDab(

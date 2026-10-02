@@ -27,17 +27,17 @@ enum class BrushType(val displayName: String) {
 }
 
 data class BrushProperties(
-    var brushType: BrushType = BrushType.PEN,
-    var size: Float = 16.0f,
-    var colorRgb: Int = 0xFF111111.toInt(),
-    var opacity: Float = 1.0f,
-    var spacing: Float = 0.10f,
-    var hardness: Float = 0.94f,
+    var brushType: BrushType = BrushType.PENCIL,
+    var size: Float = 35.0f,
+    var colorRgb: Int = 0xFF333333.toInt(), // Nice graphite default
+    var opacity: Float = 0.40f,
+    var spacing: Float = 0.08f,
+    var hardness: Float = 0.40f,
     var minRadius: Float = 1.5f,
     var isEraser: Boolean = false,
-    var brushMode: Int = 0,
-    var sizeBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD,
-    var opacityBezierConfig: BezierControlPoints = PressureCurveDefaults.LINEAR
+    var brushMode: Int = 1,
+    var sizeBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.20f),
+    var opacityBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.20f)
 ) {
     // Legacy alias
     var bezierConfig: BezierControlPoints
@@ -45,29 +45,29 @@ data class BrushProperties(
         set(value) { sizeBezierConfig = value }
 
     private val savedSizes = mutableMapOf(
-        BrushType.PEN to 16.0f,
-        BrushType.PENCIL to 12.0f,
+        BrushType.PEN to 30.0f,
+        BrushType.PENCIL to 35.0f,
         BrushType.PAINTBRUSH to 250.0f,
         BrushType.ERASER to 64.0f
     )
 
     private val savedOpacities = mutableMapOf(
         BrushType.PEN to 1.0f,
-        BrushType.PENCIL to 0.50f,
+        BrushType.PENCIL to 0.40f,
         BrushType.PAINTBRUSH to 0.60f,
         BrushType.ERASER to 1.0f
     )
 
     private val savedSizeBeziers = mutableMapOf(
-        BrushType.PEN to PressureCurveDefaults.STANDARD,
-        BrushType.PENCIL to PressureCurveDefaults.SOFT,
+        BrushType.PEN to PressureCurveDefaults.STANDARD.copy(minPercent = 0.15f),
+        BrushType.PENCIL to PressureCurveDefaults.STANDARD.copy(minPercent = 0.20f),
         BrushType.PAINTBRUSH to PressureCurveDefaults.STANDARD.copy(minPercent = 0.45f),
         BrushType.ERASER to PressureCurveDefaults.LINEAR
     )
 
     private val savedOpacityBeziers = mutableMapOf(
         BrushType.PEN to PressureCurveDefaults.LINEAR.copy(minPercent = 1.0f, maxPercent = 1.0f),
-        BrushType.PENCIL to PressureCurveDefaults.SOFT.copy(minPercent = 0.20f, maxPercent = 1.0f),
+        BrushType.PENCIL to PressureCurveDefaults.STANDARD.copy(minPercent = 0.20f, maxPercent = 1.0f),
         BrushType.PAINTBRUSH to PressureCurveDefaults.STANDARD.copy(minPercent = 0.25f, maxPercent = 1.0f),
         BrushType.ERASER to PressureCurveDefaults.LINEAR.copy(minPercent = 1.0f, maxPercent = 1.0f)
     )
@@ -80,10 +80,10 @@ data class BrushProperties(
         savedOpacityBeziers[brushType] = opacityBezierConfig
 
         brushType = type
-        size = savedSizes[type] ?: 16f
-        opacity = savedOpacities[type] ?: 1.0f
+        size = savedSizes[type] ?: 35f
+        opacity = savedOpacities[type] ?: 0.40f
         sizeBezierConfig = savedSizeBeziers[type] ?: PressureCurveDefaults.STANDARD
-        opacityBezierConfig = savedOpacityBeziers[type] ?: PressureCurveDefaults.LINEAR
+        opacityBezierConfig = savedOpacityBeziers[type] ?: PressureCurveDefaults.STANDARD
         minRadius = (size * 0.12f).coerceAtLeast(1.2f)
 
         when (type) {

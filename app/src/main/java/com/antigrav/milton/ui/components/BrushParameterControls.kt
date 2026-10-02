@@ -224,11 +224,13 @@ fun StrokePreviewBox(
                 // Tapered pressure profile across the S-curve
                 val rawP = kotlin.math.sin(t * Math.PI.toFloat()).coerceIn(0.05f, 1.0f)
                 val mappedSizeP = sizeBezierConfig.solveY(rawP)
-                val mappedOpacityP = opacityBezierConfig.solveY(rawP)
+                val maxAlpha = (brushOpacity * opacityBezierConfig.maxPercent.coerceIn(0f, 1f)).coerceIn(0.001f, 1.0f)
+                val minAlpha = opacityBezierConfig.minPercent.coerceIn(0f, 1f).coerceAtMost(maxAlpha)
+                val normOpacityY = opacityBezierConfig.solveNormalizedY(rawP)
+                val strokeAlpha = (minAlpha + (maxAlpha - minAlpha) * normOpacityY).coerceIn(0.08f, 1.0f)
 
                 // Scaled stroke thickness for preview box
                 val previewWidth = (1.5f + (brushSize / 500f).coerceIn(0f, 1f) * 18f) * (0.30f + 0.70f * mappedSizeP)
-                val strokeAlpha = (brushOpacity * mappedOpacityP).coerceIn(0.08f, 1.0f)
 
                 val strokeColor = if (brushType == BrushType.ERASER) {
                     Color(0xFFB0BEC5).copy(alpha = strokeAlpha)

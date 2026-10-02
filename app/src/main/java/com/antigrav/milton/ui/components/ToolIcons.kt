@@ -236,3 +236,50 @@ fun EraserIcon(tint: Color, modifier: Modifier = Modifier) {
         )
     }
 }
+
+/**
+ * Custom vector icon for Flip Canvas Horizontally:
+ * Shows mirrored geometric triangles reflected across a central vertical symmetry axis.
+ */
+@Composable
+fun FlipCanvasIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(24.dp)) {
+        val w = size.width
+        val scale = w / 24f
+        val cx = 12f * scale
+
+        // Central vertical reflection axis (dashed)
+        val dashEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(3f * scale, 3f * scale), 0f)
+        drawLine(
+            color = tint.copy(alpha = 0.70f),
+            start = Offset(cx, 3.5f * scale),
+            end = Offset(cx, 20.5f * scale),
+            strokeWidth = 1.2f * scale,
+            pathEffect = dashEffect
+        )
+
+        // Left triangle (solid)
+        val leftPath = Path().apply {
+            moveTo(10f * scale, 5.5f * scale)
+            lineTo(3.5f * scale, 12f * scale)
+            lineTo(10f * scale, 18.5f * scale)
+            close()
+        }
+        drawPath(leftPath, color = tint)
+
+        // Right triangle (mirrored, transparent tint with outline)
+        val rightPath = Path().apply {
+            moveTo(14f * scale, 5.5f * scale)
+            lineTo(20.5f * scale, 12f * scale)
+            lineTo(14f * scale, 18.5f * scale)
+            close()
+        }
+        drawPath(rightPath, color = tint.copy(alpha = 0.40f))
+        drawPath(
+            rightPath,
+            color = tint,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.4f * scale)
+        )
+    }
+}
+

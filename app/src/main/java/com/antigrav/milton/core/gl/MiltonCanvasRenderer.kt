@@ -120,6 +120,12 @@ class MiltonCanvasRenderer(
 
         // 3. worldToViewMatrix: maps canvas world coordinates -> view pixels
         Matrix.setIdentityM(worldToViewMatrix, 0)
+        if (viewport.isFlippedHorizontally) {
+            val cx = viewport.screenWidth * 0.5f
+            Matrix.translateM(worldToViewMatrix, 0, cx, 0f, 0f)
+            Matrix.scaleM(worldToViewMatrix, 0, -1f, 1f, 1f)
+            Matrix.translateM(worldToViewMatrix, 0, -cx, 0f, 0f)
+        }
         Matrix.translateM(worldToViewMatrix, 0, viewport.panX, viewport.panY, 0f)
         Matrix.scaleM(worldToViewMatrix, 0, viewport.zoom, viewport.zoom, 1.0f)
         if (viewport.rotationDegrees != 0f) {

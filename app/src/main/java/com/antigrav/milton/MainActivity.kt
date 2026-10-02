@@ -51,6 +51,8 @@ class MainActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
+            brushType = BrushType.PENCIL
+            brushColorRgb = 0xFF333333.toInt()
             isFocusable = true
             isFocusableInTouchMode = true
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -65,14 +67,15 @@ class MainActivity : ComponentActivity() {
                 val layersList = remember(structuralRevision) { layerManager.layers.toList() }
                 val activeLayerId = layerManager.activeLayerId
 
-                var brushType by remember { mutableStateOf(BrushType.PEN) }
+                var brushType by remember { mutableStateOf(BrushType.PENCIL) }
                 var brushSize by remember { mutableFloatStateOf(canvasView.brushSize) }
                 var brushOpacity by remember { mutableFloatStateOf(canvasView.brushOpacity) }
-                var brushColor by remember { mutableIntStateOf(QUICK_PALETTE_COLORS[0]) }
+                var brushColor by remember { mutableIntStateOf(0xFF333333.toInt()) } // Graphite default
                 var canUndo by remember { mutableStateOf(false) }
                 var canRedo by remember { mutableStateOf(false) }
                 var zoomLevel by remember { mutableFloatStateOf(0.5f) }
                 var rotationDegrees by remember { mutableFloatStateOf(0f) }
+                var isCanvasFlipped by remember { mutableStateOf(canvasView.isCanvasFlipped) }
                 var isZoomLocked by remember { mutableStateOf(false) }
                 var isRotationLocked by remember { mutableStateOf(false) }
                 var isZenMode by remember { mutableStateOf(false) }
@@ -85,14 +88,14 @@ class MainActivity : ComponentActivity() {
                 var recentColors by remember {
                     mutableStateOf(
                         listOf(
+                            0xFF333333.toInt(), // Graphite Default
                             0xFF111111.toInt(), // Ink Black
                             0xFFFFFFFF.toInt(), // Paper White
                             0xFFD32F2F.toInt(), // Crimson Red
                             0xFF1976D2.toInt(), // Cobalt Blue
                             0xFF388E3C.toInt(), // Forest Green
                             0xFFF57C00.toInt(), // Amber Orange
-                            0xFF78909C.toInt(), // Slate Gray
-                            0xFF4A4A4A.toInt()  // Graphite
+                            0xFF78909C.toInt()  // Slate Gray
                         )
                     )
                 }
@@ -236,6 +239,13 @@ class MainActivity : ComponentActivity() {
                         },
                         onMoveLayerDown = { id ->
                             layerManager.moveLayerDown(id)
+                        },
+                        onReorderLayer = { fromStorage, toStorage ->
+                            layerManager.moveLayer(fromStorage, toStorage)
+                        },
+                        isCanvasFlipped = isCanvasFlipped,
+                        onToggleFlipCanvas = {
+                            isCanvasFlipped = canvasView.toggleCanvasFlip()
                         },
                         recentColors = recentColors,
                         canvasBackgroundColor = canvasBackgroundColor,

@@ -2,6 +2,7 @@ package com.antigrav.milton
 
 import com.antigrav.milton.core.brush.BrushEngine
 import com.antigrav.milton.core.brush.BrushProperties
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,14 +57,20 @@ class BrushEngineTest {
         assertTrue(props.hardness > 0.90f)
         assertTrue(!props.isEraser)
         assertTrue(props.brushMode == 0)
+        assertTrue(props.size == 30.0f)
+        assertTrue(props.opacity == 1.0f)
+        assertTrue(props.sizeBezierConfig.minPercent == 0.15f)
+        assertTrue(props.opacityBezierConfig.minPercent == 1.0f)
 
         props.applyPreset(com.antigrav.milton.core.brush.BrushType.PENCIL)
         assertTrue(props.hardness <= 0.45f)
         assertTrue(props.spacing <= 0.08f)
         assertTrue(!props.isEraser)
         assertTrue(props.brushMode == 1)
-        assertTrue(props.size == 12.0f)
-        assertTrue(props.opacity == 0.50f)
+        assertTrue(props.size == 35.0f)
+        assertTrue(props.opacity == 0.40f)
+        assertTrue(props.sizeBezierConfig.minPercent == 0.20f)
+        assertTrue(props.opacityBezierConfig.minPercent == 0.20f)
 
         props.applyPreset(com.antigrav.milton.core.brush.BrushType.PAINTBRUSH)
         assertTrue(props.hardness == 0.70f)
@@ -77,6 +84,22 @@ class BrushEngineTest {
         assertTrue(props.isEraser)
         assertTrue(props.brushMode == 0)
         assertTrue(props.size == 64.0f)
+    }
+
+    @Test
+    fun testLinearOpacityCalculation() {
+        val pencilProps = BrushProperties(
+            opacity = 0.40f,
+            opacityBezierConfig = com.antigrav.milton.core.model.PressureCurveDefaults.LINEAR.copy(minPercent = 0.20f)
+        )
+        val engine = BrushEngine(pencilProps)
+        val dabsLow = engine.startStroke(0f, 0f, 0.01f)
+        // At near zero pressure, opacity should be minPercent (0.20), NOT 0.40 * 0.20 = 0.08
+        assertEquals(0.20f, dabsLow.first().alpha, 0.02f)
+
+        val dabsHigh = engine.startStroke(0f, 0f, 1.0f)
+        // At full pressure, opacity should be max opacity (0.40)
+        assertEquals(0.40f, dabsHigh.first().alpha, 0.02f)
     }
 
     @Test

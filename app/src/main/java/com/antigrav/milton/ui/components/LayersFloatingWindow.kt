@@ -1,10 +1,15 @@
 package com.antigrav.milton.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
@@ -25,6 +31,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Visibility
@@ -36,23 +44,34 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.zIndex
 import com.antigrav.milton.core.layer.Layer
 import com.antigrav.milton.core.layer.LayerManager
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlin.math.roundToInt
 
 /**
@@ -61,8 +80,8 @@ import kotlin.math.roundToInt
  * - Layer thumbnails showing visible portions.
  * - Active layer selection.
  * - Visibility toggle and opacity scrubber.
- * - Drag-and-drop & button reordering.
- * - Add layer (+) and delete layer (trash) controls.
+ * - Physical drag-and-drop reordering with glowing insertion line and auto-scrolling.
+ * - Attached context menu for background color selection with HSV wheel and presets.
  */
 @Composable
 fun LayersFloatingWindow(
@@ -75,6 +94,7 @@ fun LayersFloatingWindow(
     onOpacityChange: (Long, Float) -> Unit,
     onMoveLayerUp: (Long) -> Unit,
     onMoveLayerDown: (Long) -> Unit,
+    onReorderLayer: (fromStorageIndex: Int, toStorageIndex: Int) -> Unit = { _, _ -> },
     backgroundColorRgb: Int = 0xFFFFFFFF.toInt(),
     onChangeBackgroundColor: (Int) -> Unit = {},
     onClose: () -> Unit,
@@ -87,6 +107,50 @@ fun LayersFloatingWindow(
 
     // Visual stacking order: Top layer shown first at the top of the UI list
     val reversedLayers = layers.reversed()
+
+    val listState = rememberLazyListState()
+    var listHeightPx by remember { mutableFloatStateOf(0f) }
+    val density = LocalDensity.current
+    val edgeThreshold = with(density) { 45.dp.toPx() }
+
+    // Physical drag-and-drop states
+    var draggingLayerId by remember { mutableStateOf<Long?>(null) }
+    var dragTouchYInList by remember { mutableFloatStateOf(0f) }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+    var dropSlotIndex by remember { mutableIntStateOf(-1) }
+    var autoScrollSpeed by remember { mutableFloatStateOf(0f) }
+
+    // Proximity auto-scrolling effect
+    LaunchedEffect(draggingLayerId, autoScrollSpeed) {
+        if (draggingLayerId != null && autoScrollSpeed != 0f) {
+            while (isActive) {
+                listState.scrollBy(autoScrollSpeed)
+                delay(16L) // ~60 FPS
+            }
+        }
+    }
+
+    fun computeClosestSlot(touchY: Float, itemCount: Int): Int {
+        val visible = listState.layoutInfo.visibleItemsInfo
+        if (visible.isEmpty()) return -1
+        var bestSlot = 0
+        var bestDist = Float.MAX_VALUE
+        for (item in visible) {
+            val topBoundary = item.offset.toFloat()
+            val bottomBoundary = (item.offset + item.size).toFloat()
+            val dTop = kotlin.math.abs(touchY - topBoundary)
+            if (dTop < bestDist) {
+                bestDist = dTop
+                bestSlot = item.index
+            }
+            val dBottom = kotlin.math.abs(touchY - bottomBoundary)
+            if (dBottom < bestDist) {
+                bestDist = dBottom
+                bestSlot = item.index + 1
+            }
+        }
+        return bestSlot.coerceIn(0, itemCount)
+    }
 
     DraggableFloatingWindow(
         title = "Layers (${layers.size}/${LayerManager.MAX_LAYERS})",
@@ -112,33 +176,97 @@ fun LayersFloatingWindow(
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 340.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                    .heightIn(max = 340.dp)
+                    .onGloballyPositioned { coords ->
+                        listHeightPx = coords.size.height.toFloat()
+                    },
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 itemsIndexed(
                     items = reversedLayers,
                     key = { _, layer -> layer.id }
                 ) { indexInReversed, layer ->
                     val isActive = (layer.id == activeLayerId)
-                    // Visual position: index 0 is top of stack, last index is bottom of stack
                     val isTopmost = (indexInReversed == 0)
                     val isBottommost = (indexInReversed == reversedLayers.size - 1)
+                    val isBeingDragged = (layer.id == draggingLayerId)
 
-                    LayerCard(
-                        layer = layer,
-                        isActive = isActive,
-                        canDelete = canDelete,
-                        canMoveUp = !isTopmost,
-                        canMoveDown = !isBottommost,
-                        onSelect = { onSelectLayer(layer.id) },
-                        onToggleVisibility = { onToggleVisibility(layer.id, !layer.isVisible) },
-                        onOpacityChange = { onOpacityChange(layer.id, it) },
-                        onDelete = { onDeleteLayer(layer.id) },
-                        onMoveUp = { onMoveLayerUp(layer.id) },
-                        onMoveDown = { onMoveLayerDown(layer.id) }
-                    )
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Glowing insertion indicator above this item if drop slot matches
+                        if (draggingLayerId != null && dropSlotIndex == indexInReversed) {
+                            GlowingInsertionLine()
+                        }
+
+                        LayerCard(
+                            layer = layer,
+                            isActive = isActive,
+                            isFloating = isBeingDragged,
+                            floatingOffsetY = if (isBeingDragged) dragOffsetY else 0f,
+                            canDelete = canDelete,
+                            canMoveUp = !isTopmost,
+                            canMoveDown = !isBottommost,
+                            onSelect = { onSelectLayer(layer.id) },
+                            onToggleVisibility = { onToggleVisibility(layer.id, !layer.isVisible) },
+                            onOpacityChange = { onOpacityChange(layer.id, it) },
+                            onDelete = { onDeleteLayer(layer.id) },
+                            onMoveUp = { onMoveLayerUp(layer.id) },
+                            onMoveDown = { onMoveLayerDown(layer.id) },
+                            onDragStart = { startOffset ->
+                                draggingLayerId = layer.id
+                                dragOffsetY = 0f
+                                val itemInfo = listState.layoutInfo.visibleItemsInfo.find { it.key == layer.id }
+                                val initialY = (itemInfo?.offset?.toFloat() ?: 0f) + startOffset.y
+                                dragTouchYInList = initialY
+                                dropSlotIndex = computeClosestSlot(initialY, reversedLayers.size)
+                            },
+                            onDrag = { dragDelta ->
+                                dragOffsetY += dragDelta.y
+                                dragTouchYInList += dragDelta.y
+
+                                if (dragTouchYInList < edgeThreshold) {
+                                    val proximity = ((edgeThreshold - dragTouchYInList) / edgeThreshold).coerceIn(0.2f, 1.0f)
+                                    autoScrollSpeed = -proximity * 14f
+                                } else if (listHeightPx > 0f && dragTouchYInList > listHeightPx - edgeThreshold) {
+                                    val proximity = ((dragTouchYInList - (listHeightPx - edgeThreshold)) / edgeThreshold).coerceIn(0.2f, 1.0f)
+                                    autoScrollSpeed = proximity * 14f
+                                } else {
+                                    autoScrollSpeed = 0f
+                                }
+
+                                dropSlotIndex = computeClosestSlot(dragTouchYInList, reversedLayers.size)
+                            },
+                            onDragEnd = {
+                                autoScrollSpeed = 0f
+                                val fromReversedIdx = reversedLayers.indexOfFirst { it.id == draggingLayerId }
+                                val targetSlot = dropSlotIndex
+                                if (fromReversedIdx >= 0 && targetSlot >= 0) {
+                                    val newReversedIdx = if (targetSlot > fromReversedIdx) targetSlot - 1 else targetSlot
+                                    if (newReversedIdx != fromReversedIdx && newReversedIdx in reversedLayers.indices) {
+                                        val fromStorage = (layers.size - 1) - fromReversedIdx
+                                        val toStorage = (layers.size - 1) - newReversedIdx
+                                        onReorderLayer(fromStorage, toStorage)
+                                    }
+                                }
+                                draggingLayerId = null
+                                dropSlotIndex = -1
+                                dragOffsetY = 0f
+                            },
+                            onDragCancel = {
+                                autoScrollSpeed = 0f
+                                draggingLayerId = null
+                                dropSlotIndex = -1
+                                dragOffsetY = 0f
+                            }
+                        )
+
+                        // Glowing insertion indicator below the very last item if drop slot is at the end
+                        if (draggingLayerId != null && isBottommost && dropSlotIndex == reversedLayers.size) {
+                            GlowingInsertionLine()
+                        }
+                    }
                 }
             }
 
@@ -146,70 +274,241 @@ fun LayersFloatingWindow(
             HorizontalDivider(color = Color(0x25FFFFFF), thickness = 1.dp)
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Canvas Background Color Row
-            CanvasBackgroundRow(
+            // Canvas Background Color Button and Attached Popover
+            CanvasBackgroundButton(
                 currentColorRgb = backgroundColorRgb,
-                onColorChange = onChangeBackgroundColor
+                onColorChange = onChangeBackgroundColor,
+                windowState = state
             )
         }
     }
 }
 
+/**
+ * Neon glowing insertion indicator line showing target drop location.
+ */
 @Composable
-private fun CanvasBackgroundRow(
-    currentColorRgb: Int,
-    onColorChange: (Int) -> Unit
-) {
-    val bgPresets = listOf(
-        0xFFFFFFFF.toInt(), // Pure White
-        0xFFF6F4ED.toInt(), // Warm Paper
-        0xFFDDD9CE.toInt(), // Kraft Cream
-        0xFF32353B.toInt(), // Charcoal Slate
-        0xFF181A1F.toInt()  // Deep Black
-    )
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(5.dp)
+private fun GlowingInsertionLine(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(8.dp)
+            .padding(horizontal = 4.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(3.dp)
+                .clip(RoundedCornerShape(1.5.dp))
+                .background(Color(0xFF64B5F6))
+                .shadow(
+                    elevation = 8.dp,
+                    shape = RoundedCornerShape(1.5.dp),
+                    ambientColor = Color(0xFF64B5F6),
+                    spotColor = Color(0xFF64B5F6)
+                )
+        )
+    }
+}
+
+/**
+ * Attached background color selector with a dedicated button and context popover
+ * reusing the full HSV color wheel and convenient preset swatches.
+ */
+@Composable
+private fun CanvasBackgroundButton(
+    currentColorRgb: Int,
+    onColorChange: (Int) -> Unit,
+    windowState: FloatingWindowState
+) {
+    var showMenu by remember { mutableStateOf(false) }
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { showMenu = !showMenu }
+                .background(Color(0xFF22262E))
+                .border(
+                    width = 1.dp,
+                    color = if (showMenu) Color(0xFF64B5F6) else Color(0x35FFFFFF),
+                    shape = RoundedCornerShape(8.dp)
+                )
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            color = Color.Transparent
         ) {
-            Text(
-                text = "Background",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Color(0xBBFFFFFF)
-            )
-            Text(
-                text = String.format("#%06X", 0xFFFFFF and currentColorRgb),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0x88FFFFFF)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clip(CircleShape)
+                            .background(Color(currentColorRgb))
+                            .border(1.dp, Color(0x66FFFFFF), CircleShape)
+                    )
+                    Text(
+                        text = "Background",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White.copy(alpha = 0.85f)
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = String.format("#%06X", 0xFFFFFF and currentColorRgb),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0x88FFFFFF)
+                    )
+                    Icon(
+                        imageVector = if (showMenu) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                        contentDescription = null,
+                        tint = Color(0x88FFFFFF),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            bgPresets.forEach { colorInt ->
-                val isSelected = (colorInt == currentColorRgb)
-                Box(
+        // Attached Context Popover Menu
+        if (showMenu) {
+            val initialHsv = remember(currentColorRgb) {
+                val hsv = FloatArray(3)
+                android.graphics.Color.colorToHSV(currentColorRgb, hsv)
+                hsv
+            }
+            var hue by remember { mutableFloatStateOf(initialHsv[0]) }
+            var saturation by remember { mutableFloatStateOf(initialHsv[1]) }
+            var value by remember { mutableFloatStateOf(initialHsv[2]) }
+
+            LaunchedEffect(currentColorRgb) {
+                val hsv = FloatArray(3)
+                android.graphics.Color.colorToHSV(currentColorRgb, hsv)
+                hue = hsv[0]
+                saturation = hsv[1]
+                value = hsv[2]
+            }
+
+            val bgPresets = listOf(
+                0xFFFFFFFF.toInt(), // Pure White
+                0xFFF6F4ED.toInt(), // Warm Paper
+                0xFFDDD9CE.toInt(), // Kraft Cream
+                0xFF32353B.toInt(), // Charcoal Slate
+                0xFF181A1F.toInt()  // Deep Black
+            )
+
+            // Attach next to the layers floating window
+            val attachX = if (windowState.offsetX > 214f) -210 else 210
+            val attachY = (-60).coerceAtLeast(-windowState.offsetY.toInt())
+
+            Popup(
+                alignment = Alignment.TopStart,
+                offset = IntOffset(x = attachX, y = attachY),
+                onDismissRequest = { showMenu = false }
+            ) {
+                Surface(
                     modifier = Modifier
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(Color(colorInt))
-                        .border(
-                            width = if (isSelected) 2.dp else 1.dp,
-                            color = if (isSelected) Color(0xFF64B5F6) else Color(0x35FFFFFF),
-                            shape = CircleShape
+                        .width(204.dp)
+                        .shadow(16.dp, RoundedCornerShape(12.dp))
+                        .border(1.dp, Color(0x40FFFFFF), RoundedCornerShape(12.dp)),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xF2181A1F)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // Header
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Background Color",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            IconButton(
+                                onClick = { showMenu = false },
+                                modifier = Modifier.size(20.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Close",
+                                    tint = Color.White.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Full HSV Color Wheel
+                        HsvColorWheel(
+                            hue = hue,
+                            onHueChange = { hue = it },
+                            saturation = saturation,
+                            onSaturationChange = { saturation = it },
+                            value = value,
+                            onValueChange = { value = it },
+                            onColorChanged = { newCol ->
+                                onColorChange(newCol)
+                            },
+                            wheelSize = 145.dp
                         )
-                        .clickable { onColorChange(colorInt) }
-                )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        HorizontalDivider(color = Color(0x25FFFFFF), thickness = 1.dp)
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Presets Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            bgPresets.forEach { colorInt ->
+                                val isSelected = (colorInt == currentColorRgb)
+                                Box(
+                                    modifier = Modifier
+                                        .size(22.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(colorInt))
+                                        .border(
+                                            width = if (isSelected) 2.dp else 1.dp,
+                                            color = if (isSelected) Color(0xFF64B5F6) else Color(0x35FFFFFF),
+                                            shape = CircleShape
+                                        )
+                                        .clickable {
+                                            val hsv = FloatArray(3)
+                                            android.graphics.Color.colorToHSV(colorInt, hsv)
+                                            hue = hsv[0]
+                                            saturation = hsv[1]
+                                            value = hsv[2]
+                                            onColorChange(colorInt)
+                                        }
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -219,6 +518,8 @@ private fun CanvasBackgroundRow(
 private fun LayerCard(
     layer: Layer,
     isActive: Boolean,
+    isFloating: Boolean = false,
+    floatingOffsetY: Float = 0f,
     canDelete: Boolean,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
@@ -227,16 +528,39 @@ private fun LayerCard(
     onOpacityChange: (Float) -> Unit,
     onDelete: () -> Unit,
     onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit
+    onMoveDown: () -> Unit,
+    onDragStart: (androidx.compose.ui.geometry.Offset) -> Unit = {},
+    onDrag: (androidx.compose.ui.geometry.Offset) -> Unit = {},
+    onDragEnd: () -> Unit = {},
+    onDragCancel: () -> Unit = {}
 ) {
     val cardBg = if (isActive) Color(0x283949AB) else Color(0xFF20232B)
-    val borderColor = if (isActive) Color(0xFF64B5F6) else Color(0x22FFFFFF)
+    val borderColor = if (isFloating) {
+        Color(0xFF64B5F6)
+    } else if (isActive) {
+        Color(0xFF64B5F6)
+    } else {
+        Color(0x22FFFFFF)
+    }
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                translationY = floatingOffsetY
+                if (isFloating) {
+                    scaleX = 1.03f
+                    scaleY = 1.03f
+                    shadowElevation = 14.dp.toPx()
+                }
+            }
+            .zIndex(if (isFloating) 10f else 1f)
             .clip(RoundedCornerShape(8.dp))
-            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+            .border(
+                width = if (isFloating) 1.5.dp else 1.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(8.dp)
+            )
             .clickable { onSelect() },
         color = cardBg,
         shape = RoundedCornerShape(8.dp)
@@ -246,11 +570,11 @@ private fun LayerCard(
                 .fillMaxWidth()
                 .padding(horizontal = 6.dp, vertical = 5.dp)
         ) {
-            // Main Row: Visibility, Thumbnail, Name, Reorder, Delete
+            // Main Row: Visibility, Thumbnail, Name, Drag Handle, Reorder Arrows, Delete
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 // Visibility Eye Toggle
                 IconButton(
@@ -285,7 +609,7 @@ private fun LayerCard(
                     }
                 }
 
-                // Layer Name: displays concise number (e.g. "13" instead of "Layer 13")
+                // Layer Name: concise number (e.g. "13" instead of "Layer 13")
                 val displayName = if (layer.name.startsWith("Layer ", ignoreCase = true)) {
                     layer.name.substring(6).trim()
                 } else {
@@ -301,29 +625,19 @@ private fun LayerCard(
                     modifier = Modifier.weight(1f)
                 )
 
-                // Drag handle with drag gesture detection
-                var dragAccumulator by remember { mutableFloatStateOf(0f) }
+                // Drag handle with smooth drag gestures
                 Box(
                     modifier = Modifier
-                        .size(20.dp)
+                        .size(22.dp)
                         .pointerInput(layer.id) {
                             detectDragGestures(
+                                onDragStart = onDragStart,
                                 onDrag = { change, dragAmount ->
                                     change.consume()
-                                    dragAccumulator += dragAmount.y
-                                    val threshold = 32.dp.toPx()
-                                    if (dragAccumulator < -threshold) {
-                                        // Dragged UP
-                                        if (canMoveUp) onMoveUp()
-                                        dragAccumulator = 0f
-                                    } else if (dragAccumulator > threshold) {
-                                        // Dragged DOWN
-                                        if (canMoveDown) onMoveDown()
-                                        dragAccumulator = 0f
-                                    }
+                                    onDrag(dragAmount)
                                 },
-                                onDragEnd = { dragAccumulator = 0f },
-                                onDragCancel = { dragAccumulator = 0f }
+                                onDragEnd = onDragEnd,
+                                onDragCancel = onDragCancel
                             )
                         },
                     contentAlignment = Alignment.Center
@@ -331,8 +645,8 @@ private fun LayerCard(
                     Icon(
                         imageVector = Icons.Default.DragHandle,
                         contentDescription = "Drag to reorder",
-                        tint = Color(0x75FFFFFF),
-                        modifier = Modifier.size(15.dp)
+                        tint = if (isFloating) Color(0xFF64B5F6) else Color(0x75FFFFFF),
+                        modifier = Modifier.size(16.dp)
                     )
                 }
 

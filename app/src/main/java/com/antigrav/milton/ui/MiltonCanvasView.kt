@@ -104,6 +104,21 @@ class MiltonCanvasView @JvmOverloads constructor(
         get() = gestureDetector.isRotationLocked
         set(value) { gestureDetector.isRotationLocked = value }
 
+    var isCanvasFlipped: Boolean
+        get() = renderer.viewport.isFlippedHorizontally
+        set(value) {
+            if (renderer.viewport.isFlippedHorizontally != value) {
+                renderer.viewport.isFlippedHorizontally = value
+                requestRedraw()
+            }
+        }
+
+    fun toggleCanvasFlip(): Boolean {
+        renderer.viewport.isFlippedHorizontally = !renderer.viewport.isFlippedHorizontally
+        requestRedraw()
+        return renderer.viewport.isFlippedHorizontally
+    }
+
     var isThumbnailCaptureEnabled: Boolean
         get() = renderer.isThumbnailCaptureEnabled
         set(value) { renderer.isThumbnailCaptureEnabled = value }
