@@ -3,8 +3,6 @@ package com.antigrav.milton
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -19,7 +17,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -117,69 +114,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Initial binding on startup
-                LaunchedEffect(Unit) {
-                    viewModel.initFromCanvasView(canvasView, storageManager)
-                }
-
-                // CanvasView engine listeners
-                DisposableEffect(canvasView) {
-                    val handler = Handler(Looper.getMainLooper())
-                    canvasView.renderer.undoManager.onStateChangedListener = {
-                        handler.post {
-                            viewModel.setUndoRedoState(
-                                canUndo = canvasView.renderer.undoManager.canUndo,
-                                canRedo = canvasView.renderer.undoManager.canRedo
-                            )
-                        }
-                    }
-                    canvasView.renderer.undoManager.onTilesCommittedListener = { deltas ->
-                        storageManager.onTilesCommitted(deltas, viewModel.uiState.value.document.documentTitle, canvasView)
-                    }
-                    canvasView.renderer.onLayerThumbnailUpdated = { layerId, bitmap ->
-                        handler.post {
-                            layerManager.updateLayerThumbnail(layerId, bitmap)
-                            viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId)
-                        }
-                    }
-                    layerManager.onLayersChangedListener = {
-                        handler.post {
-                            canvasView.requestRedraw()
-                            viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId)
-                            storageManager.scheduleAutosave(viewModel.uiState.value.document.documentTitle, canvasView)
-                        }
-                    }
-                    canvasView.onViewportChanged = { zoom, rot ->
-                        handler.post {
-                            viewModel.onViewportChanged(zoom, rot)
-                        }
-                    }
-                    canvasView.onColorPicked = { pickedColor ->
-                        handler.post {
-                            viewModel.onColorPicked(pickedColor, canvasView)
-                        }
-                    }
-                    canvasView.onEyedropperReticleChanged = { state ->
-                        handler.post {
-                            viewModel.onEyedropperReticleChanged(state)
-                        }
-                    }
-                    canvasView.onStrokeCompleted = { strokeColor ->
-                        handler.post {
-                            viewModel.onStrokeCompleted(strokeColor, storageManager)
-                        }
-                    }
-
-                    onDispose {
-                        canvasView.renderer.undoManager.onStateChangedListener = null
-                        canvasView.renderer.undoManager.onTilesCommittedListener = null
-                        canvasView.renderer.onLayerThumbnailUpdated = null
-                        layerManager.onLayersChangedListener = null
-                        canvasView.onViewportChanged = null
-                        canvasView.onColorPicked = null
-                        canvasView.onEyedropperReticleChanged = null
-                        canvasView.onStrokeCompleted = null
-                    }
+                // Bind canvas engine and events to ViewModel
+                LaunchedEffect(canvasView) {
+                    viewModel.bindCanvasEvents(canvasView, storageManager)
                 }
 
                 val actions = CanvasUiActions(

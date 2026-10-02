@@ -76,6 +76,59 @@ class CanvasViewModel : ViewModel() {
     // Initial Session Binding
     // -------------------------------------------------------------
 
+    fun bindCanvasEvents(canvasView: MiltonCanvasView, storageManager: DocumentStorageManager) {
+        initFromCanvasView(canvasView, storageManager)
+
+        viewModelScope.launch {
+            canvasView.renderer.undoRedoState.collect { state ->
+                setUndoRedoState(state.canUndo, state.canRedo)
+            }
+        }
+
+        canvasView.renderer.undoManager.onTilesCommittedListener = { deltas ->
+            storageManager.onTilesCommitted(deltas, _uiState.value.document.documentTitle, canvasView)
+        }
+
+        canvasView.renderer.onLayerThumbnailUpdated = { layerId, bitmap ->
+            viewModelScope.launch(Dispatchers.Main) {
+                canvasView.layerManager.updateLayerThumbnail(layerId, bitmap)
+                updateLayers(canvasView.layerManager.layers.toList(), canvasView.layerManager.activeLayerId)
+            }
+        }
+
+        canvasView.layerManager.onLayersChangedListener = {
+            viewModelScope.launch(Dispatchers.Main) {
+                canvasView.requestRedraw()
+                updateLayers(canvasView.layerManager.layers.toList(), canvasView.layerManager.activeLayerId)
+                storageManager.scheduleAutosave(_uiState.value.document.documentTitle, canvasView)
+            }
+        }
+
+        canvasView.onViewportChanged = { zoom, rot ->
+            viewModelScope.launch(Dispatchers.Main) {
+                onViewportChanged(zoom, rot)
+            }
+        }
+
+        canvasView.onColorPicked = { pickedColor ->
+            viewModelScope.launch(Dispatchers.Main) {
+                onColorPicked(pickedColor, canvasView)
+            }
+        }
+
+        canvasView.onEyedropperReticleChanged = { state ->
+            viewModelScope.launch(Dispatchers.Main) {
+                onEyedropperReticleChanged(state)
+            }
+        }
+
+        canvasView.onStrokeCompleted = { strokeColor ->
+            viewModelScope.launch(Dispatchers.Main) {
+                onStrokeCompleted(strokeColor, storageManager)
+            }
+        }
+    }
+
     fun initFromCanvasView(canvasView: MiltonCanvasView, storageManager: DocumentStorageManager) {
         _uiState.update { state ->
             state.copy(
