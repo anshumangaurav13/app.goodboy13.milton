@@ -116,7 +116,7 @@ class MiltonCanvasView @JvmOverloads constructor(
         get() = brushEngine.properties.size
         set(value) {
             brushEngine.properties.size = value
-            brushEngine.properties.minRadius = (value * 0.15f).coerceAtLeast(1.5f)
+            brushEngine.properties.minRadius = (value * 0.10f).coerceIn(1.2f, 20f)
         }
 
     var brushOpacity: Float
@@ -129,6 +129,12 @@ class MiltonCanvasView @JvmOverloads constructor(
         get() = brushEngine.properties.colorRgb
         set(value) {
             brushEngine.properties.colorRgb = value
+        }
+
+    var bezierConfig: com.antigrav.milton.core.model.BezierControlPoints
+        get() = brushEngine.properties.bezierConfig
+        set(value) {
+            brushEngine.properties.bezierConfig = value
         }
 
     fun undo() {

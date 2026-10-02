@@ -21,7 +21,7 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
         lastX = worldX
         lastY = worldY
         val clampedP = if (pressure <= 0.001f) 0.05f else pressure.coerceIn(0.01f, 1.0f)
-        lastPressure = clampedP
+        lastPressure = properties.bezierConfig.solveY(clampedP)
         distanceFromLastDab = 0f
 
         val radius = max(properties.minRadius, (properties.size * 0.5f) * lastPressure)
@@ -51,7 +51,8 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
             return startStroke(worldX, worldY, pressure)
         }
 
-        val currentPressure = if (pressure <= 0.001f) lastPressure else pressure.coerceIn(0.01f, 1.0f)
+        val rawP = if (pressure <= 0.001f) lastPressure else pressure.coerceIn(0.01f, 1.0f)
+        val currentPressure = properties.bezierConfig.solveY(rawP)
         val prevP = lastPressure
         lastPressure = currentPressure
 

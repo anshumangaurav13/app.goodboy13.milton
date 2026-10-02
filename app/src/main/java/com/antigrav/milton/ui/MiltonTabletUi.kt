@@ -10,6 +10,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,12 +30,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.AutoFixNormal
-import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Create
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material3.HorizontalDivider
@@ -43,6 +40,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
+import com.antigrav.milton.core.model.BezierControlPoints
+import com.antigrav.milton.ui.components.EraserIcon
+import com.antigrav.milton.ui.components.PaintbrushIcon
+import com.antigrav.milton.ui.components.PenIcon
+import com.antigrav.milton.ui.components.PencilIcon
+import com.antigrav.milton.ui.components.ToolParametersPopup
+import java.util.Locale
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -95,6 +99,8 @@ fun MiltonTabletUi(
     onBrushOpacityChange: (Float) -> Unit,
     brushColorRgb: Int,
     onBrushColorChange: (Int) -> Unit,
+    bezierConfig: BezierControlPoints,
+    onBezierConfigChange: (BezierControlPoints) -> Unit,
     canUndo: Boolean,
     onUndo: () -> Unit,
     canRedo: Boolean,
@@ -106,9 +112,17 @@ fun MiltonTabletUi(
     modifier: Modifier = Modifier
 ) {
     var showColorWheelDialog by remember { mutableStateOf(false) }
+    var showToolParametersMenu by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isZenMode) {
+        if (isZenMode) {
+            showToolParametersMenu = false
+            showColorWheelDialog = false
+        }
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
-        // 1. Left Vertical Tool Rail (Pen, Pencil, Paintbrush, Eraser + Scrubbers + Color)
+        // 1. Left Vertical Tool Rail
         AnimatedVisibility(
             visible = !isZenMode,
             enter = fadeIn() + slideInHorizontally { -it },
@@ -120,6 +134,7 @@ fun MiltonTabletUi(
             TabletToolRail(
                 activeBrush = brushType,
                 onSelectBrush = onBrushTypeChange,
+                onOpenToolParameters = { showToolParametersMenu = !showToolParametersMenu },
                 size = brushSize,
                 onSizeChange = onBrushSizeChange,
                 opacity = brushOpacity,
@@ -129,7 +144,29 @@ fun MiltonTabletUi(
             )
         }
 
-        // 2. Top Right Header Bar (Undo, Redo, Zoom %, Reset View, Single Fullscreen Toggle)
+        // 2. Tool Parameters Menu Popup (anchored next to rail)
+        AnimatedVisibility(
+            visible = !isZenMode && showToolParametersMenu,
+            enter = fadeIn() + slideInHorizontally { -30 },
+            exit = fadeOut() + slideOutHorizontally { -30 },
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 88.dp, top = 24.dp, bottom = 24.dp)
+        ) {
+            ToolParametersPopup(
+                brushType = brushType,
+                brushSize = brushSize,
+                onBrushSizeChange = onBrushSizeChange,
+                brushOpacity = brushOpacity,
+                onBrushOpacityChange = onBrushOpacityChange,
+                brushColorRgb = brushColorRgb,
+                bezierConfig = bezierConfig,
+                onBezierConfigChange = onBezierConfigChange,
+                onDismiss = { showToolParametersMenu = false }
+            )
+        }
+
+        // 3. Top Right Header Bar (Undo, Redo, Zoom %, Reset View, Single Fullscreen Toggle)
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -169,7 +206,7 @@ fun MiltonTabletUi(
             }
         }
 
-        // 3. Color Wheel Dialog (Circular Hue ring + Saturation/Value square)
+        // 4. Color Wheel Dialog (Circular Hue ring + Saturation/Value square)
         if (showColorWheelDialog) {
             ColorWheelDialog(
                 currentColorRgb = brushColorRgb,
@@ -184,12 +221,13 @@ fun MiltonTabletUi(
 }
 
 /**
- * Left-docked vertical rail: 4 core brushes + reliable scrubbers + color swatch.
+ * Left-docked vertical rail: 4 core brushes with distinct vector icons, quick drag scrubbers, and color swatch.
  */
 @Composable
 private fun TabletToolRail(
     activeBrush: BrushType,
     onSelectBrush: (BrushType) -> Unit,
+    onOpenToolParameters: () -> Unit,
     size: Float,
     onSizeChange: (Float) -> Unit,
     opacity: Float,
@@ -211,30 +249,30 @@ private fun TabletToolRail(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // 4 Core Tools: Pen, Pencil, Paintbrush, Eraser
+            // 4 Core Tools with Custom Distinct Vector Logos
             ToolButton(
-                icon = Icons.Default.Edit,
-                label = "Pen",
+                brushType = BrushType.PEN,
                 isSelected = activeBrush == BrushType.PEN,
-                onClick = { onSelectBrush(BrushType.PEN) }
+                onSelect = { onSelectBrush(BrushType.PEN) },
+                onOpenMenu = onOpenToolParameters
             )
             ToolButton(
-                icon = Icons.Default.Create,
-                label = "Pencil",
+                brushType = BrushType.PENCIL,
                 isSelected = activeBrush == BrushType.PENCIL,
-                onClick = { onSelectBrush(BrushType.PENCIL) }
+                onSelect = { onSelectBrush(BrushType.PENCIL) },
+                onOpenMenu = onOpenToolParameters
             )
             ToolButton(
-                icon = Icons.Default.Brush,
-                label = "Paintbrush",
+                brushType = BrushType.PAINTBRUSH,
                 isSelected = activeBrush == BrushType.PAINTBRUSH,
-                onClick = { onSelectBrush(BrushType.PAINTBRUSH) }
+                onSelect = { onSelectBrush(BrushType.PAINTBRUSH) },
+                onOpenMenu = onOpenToolParameters
             )
             ToolButton(
-                icon = Icons.Default.AutoFixNormal,
-                label = "Eraser",
+                brushType = BrushType.ERASER,
                 isSelected = activeBrush == BrushType.ERASER,
-                onClick = { onSelectBrush(BrushType.ERASER) }
+                onSelect = { onSelectBrush(BrushType.ERASER) },
+                onOpenMenu = onOpenToolParameters
             )
 
             HorizontalDivider(
@@ -243,30 +281,18 @@ private fun TabletToolRail(
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
             )
 
-            // Reliably responsive vertical Size scrubber
-            VerticalThumbScrubber(
-                fraction = ((size - 1f) / 119f).coerceIn(0f, 1f),
-                onFractionChange = { frac ->
-                    val newSize = (1f + frac * 119f).coerceIn(1f, 120f)
-                    onSizeChange(newSize)
-                },
-                label = "S",
-                badgeText = "${size.roundToInt()} px",
-                fillColor = Color(0xFF64B5F6),
-                modifier = Modifier.height(105.dp)
+            // Quick Rail Size Drag Scrubber (1px..500px)
+            QuickRailSizeScrubber(
+                size = size,
+                onSizeChange = onSizeChange,
+                onOpenMenu = onOpenToolParameters
             )
 
-            // Reliably responsive vertical Opacity scrubber
-            VerticalThumbScrubber(
-                fraction = ((opacity - 0.05f) / 0.95f).coerceIn(0f, 1f),
-                onFractionChange = { frac ->
-                    val newOpacity = (0.05f + frac * 0.95f).coerceIn(0.05f, 1.0f)
-                    onOpacityChange(newOpacity)
-                },
-                label = "O",
-                badgeText = "${(opacity * 100).roundToInt()}%",
-                fillColor = Color(0xFFFFB74D),
-                modifier = Modifier.height(85.dp)
+            // Quick Rail Opacity Drag Scrubber (1%..100%)
+            QuickRailOpacityScrubber(
+                opacity = opacity,
+                onOpacityChange = onOpacityChange,
+                onOpenMenu = onOpenToolParameters
             )
 
             HorizontalDivider(
@@ -290,109 +316,236 @@ private fun TabletToolRail(
 
 @Composable
 private fun ToolButton(
-    icon: ImageVector,
-    label: String,
+    brushType: BrushType,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onSelect: () -> Unit,
+    onOpenMenu: () -> Unit
 ) {
     Surface(
         modifier = Modifier
-            .size(44.dp)
+            .size(46.dp)
             .clip(RoundedCornerShape(12.dp))
-            .clickable { onClick() },
-        color = if (isSelected) Color(0xFF384353) else Color.Transparent,
+            .pointerInput(brushType, isSelected) {
+                detectTapGestures(
+                    onTap = {
+                        if (isSelected) {
+                            onOpenMenu()
+                        } else {
+                            onSelect()
+                        }
+                    },
+                    onLongPress = {
+                        onSelect()
+                        onOpenMenu()
+                    }
+                )
+            },
+        color = if (isSelected) Color(0xFF3949AB) else Color.Transparent,
         shape = RoundedCornerShape(12.dp),
         border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF90CAF9)) else null
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = if (isSelected) Color.White else Color(0x88FFFFFF),
-                modifier = Modifier.size(22.dp)
-            )
+            val tint = if (isSelected) Color.White else Color(0x88FFFFFF)
+            when (brushType) {
+                BrushType.PEN -> PenIcon(tint = tint, modifier = Modifier.size(24.dp))
+                BrushType.PENCIL -> PencilIcon(tint = tint, modifier = Modifier.size(24.dp))
+                BrushType.PAINTBRUSH -> PaintbrushIcon(tint = tint, modifier = Modifier.size(24.dp))
+                BrushType.ERASER -> EraserIcon(tint = tint, modifier = Modifier.size(24.dp))
+            }
         }
     }
 }
 
 /**
- * Vertical scrubber bar using raw awaitEachGesture for 100% instant, reliable touch tracking.
+ * Compact Size Scrubber on the Rail:
+ * Dragging up / right increases size up to 500px, dragging down / left decreases.
+ * Tapping opens the tool parameters menu.
  */
 @Composable
-private fun VerticalThumbScrubber(
-    fraction: Float,
-    onFractionChange: (Float) -> Unit,
-    label: String,
-    badgeText: String,
-    fillColor: Color,
-    modifier: Modifier = Modifier
+private fun QuickRailSizeScrubber(
+    size: Float,
+    onSizeChange: (Float) -> Unit,
+    onOpenMenu: () -> Unit
 ) {
     var isDragging by remember { mutableStateOf(false) }
 
     Box(
-        modifier = modifier
-            .width(44.dp)
+        modifier = Modifier
+            .width(46.dp)
+            .height(48.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(Color(0xFF22262E))
-            .border(1.dp, Color(0x35FFFFFF), RoundedCornerShape(12.dp))
+            .border(
+                1.dp,
+                if (isDragging) Color(0xFF64B5F6) else Color(0x35FFFFFF),
+                RoundedCornerShape(12.dp)
+            )
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    var lastX = down.position.x
+                    var lastY = down.position.y
+                    var totalMoved = 0f
                     isDragging = true
-                    val h = size.height.toFloat().coerceAtLeast(1f)
-                    val newFrac = (1f - (down.position.y / h)).coerceIn(0f, 1f)
-                    onFractionChange(newFrac)
                     down.consume()
 
                     do {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull()
                         if (change != null && change.pressed) {
-                            val dragFrac = (1f - (change.position.y / h)).coerceIn(0f, 1f)
-                            onFractionChange(dragFrac)
+                            val curX = change.position.x
+                            val curY = change.position.y
+                            val dx = curX - lastX
+                            val dy = -(curY - lastY)
+                            lastX = curX
+                            lastY = curY
+                            val delta = if (kotlin.math.abs(dx) >= kotlin.math.abs(dy)) dx else dy
+                            totalMoved += kotlin.math.abs(dx) + kotlin.math.abs(dy)
+
+                            val factor = when {
+                                size < 15f -> 0.20f
+                                size < 50f -> 0.45f
+                                size < 150f -> 0.90f
+                                else -> 1.80f
+                            }
+                            val newSize = (size + delta * factor).coerceIn(1f, 500f)
+                            onSizeChange(newSize)
                             change.consume()
                         }
                     } while (event.changes.any { it.pressed })
 
+                    if (totalMoved < 10f) {
+                        onOpenMenu()
+                    }
                     isDragging = false
                 }
             },
-        contentAlignment = Alignment.BottomCenter
+        contentAlignment = Alignment.Center
     ) {
-        // Visual fill level (from bottom upwards)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(fraction.coerceIn(0.04f, 1f))
-                .clip(RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp))
-                .background(fillColor.copy(alpha = 0.60f))
-        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            val indicatorRadius = (2.5f + (size / 500f).coerceIn(0f, 1f) * 9f).dp
+            Box(
+                modifier = Modifier
+                    .size(indicatorRadius * 2f)
+                    .clip(CircleShape)
+                    .background(Color(0xFF64B5F6))
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "${size.roundToInt()}",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+        }
 
-        // Center indicator letter
-        Text(
-            text = label,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.White.copy(alpha = 0.90f),
-            modifier = Modifier.align(Alignment.Center)
-        )
-
-        // Live badge tooltip popping to the right of the rail
         if (isDragging) {
             Surface(
                 modifier = Modifier
                     .offset { IntOffset(x = 110, y = 0) }
-                    .shadow(10.dp, RoundedCornerShape(8.dp)),
+                    .shadow(12.dp, RoundedCornerShape(8.dp)),
                 color = Color(0xF5181A1F),
                 shape = RoundedCornerShape(8.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x33FFFFFF))
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF64B5F6))
             ) {
                 Text(
-                    text = badgeText,
+                    text = String.format(Locale.US, "Size: %.1f px", size),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Compact Opacity Scrubber on the Rail:
+ * Dragging up / right increases opacity up to 100%, dragging down / left decreases.
+ * Tapping opens the tool parameters menu.
+ */
+@Composable
+private fun QuickRailOpacityScrubber(
+    opacity: Float,
+    onOpacityChange: (Float) -> Unit,
+    onOpenMenu: () -> Unit
+) {
+    var isDragging by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier
+            .width(46.dp)
+            .height(38.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF22262E))
+            .border(
+                1.dp,
+                if (isDragging) Color(0xFFFFB74D) else Color(0x35FFFFFF),
+                RoundedCornerShape(12.dp)
+            )
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    var lastX = down.position.x
+                    var lastY = down.position.y
+                    var totalMoved = 0f
+                    isDragging = true
+                    down.consume()
+
+                    do {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull()
+                        if (change != null && change.pressed) {
+                            val curX = change.position.x
+                            val curY = change.position.y
+                            val dx = curX - lastX
+                            val dy = -(curY - lastY)
+                            lastX = curX
+                            lastY = curY
+                            val delta = if (kotlin.math.abs(dx) >= kotlin.math.abs(dy)) dx else dy
+                            totalMoved += kotlin.math.abs(dx) + kotlin.math.abs(dy)
+
+                            val newOpacity = (opacity + delta * 0.003f).coerceIn(0.01f, 1.0f)
+                            onOpacityChange(newOpacity)
+                            change.consume()
+                        }
+                    } while (event.changes.any { it.pressed })
+
+                    if (totalMoved < 10f) {
+                        onOpenMenu()
+                    }
+                    isDragging = false
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        val pct = (opacity * 100).roundToInt()
+        Text(
+            text = "$pct%",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFFFFB74D)
+        )
+
+        if (isDragging) {
+            Surface(
+                modifier = Modifier
+                    .offset { IntOffset(x = 110, y = 0) }
+                    .shadow(12.dp, RoundedCornerShape(8.dp)),
+                color = Color(0xF5181A1F),
+                shape = RoundedCornerShape(8.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFB74D))
+            ) {
+                Text(
+                    text = "Opacity: $pct%",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                 )
             }
         }

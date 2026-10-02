@@ -1,5 +1,8 @@
 package com.antigrav.milton.core.brush
 
+import com.antigrav.milton.core.model.BezierControlPoints
+import com.antigrav.milton.core.model.PressureCurveDefaults
+
 /**
  * A single stamped raster dab in world coordinates.
  */
@@ -32,7 +35,8 @@ data class BrushProperties(
     var hardness: Float = 0.94f,
     var minRadius: Float = 1.5f,
     var isEraser: Boolean = false,
-    var brushMode: Int = 0
+    var brushMode: Int = 0,
+    var bezierConfig: BezierControlPoints = PressureCurveDefaults.LINEAR
 ) {
     private val savedSizes = mutableMapOf(
         BrushType.PEN to 8.0f,
@@ -48,14 +52,23 @@ data class BrushProperties(
         BrushType.ERASER to 1.0f
     )
 
+    private val savedBeziers = mutableMapOf(
+        BrushType.PEN to PressureCurveDefaults.STANDARD,
+        BrushType.PENCIL to PressureCurveDefaults.SOFT,
+        BrushType.PAINTBRUSH to PressureCurveDefaults.STANDARD,
+        BrushType.ERASER to PressureCurveDefaults.LINEAR
+    )
+
     fun applyPreset(type: BrushType) {
         // Save current tool's settings before switching
         savedSizes[brushType] = size
         savedOpacities[brushType] = opacity
+        savedBeziers[brushType] = bezierConfig
 
         brushType = type
         size = savedSizes[type] ?: 10f
         opacity = savedOpacities[type] ?: 1.0f
+        bezierConfig = savedBeziers[type] ?: PressureCurveDefaults.STANDARD
         minRadius = (size * 0.12f).coerceAtLeast(1.2f)
 
         when (type) {

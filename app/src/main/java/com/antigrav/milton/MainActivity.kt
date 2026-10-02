@@ -68,6 +68,7 @@ class MainActivity : ComponentActivity() {
                 var canRedo by remember { mutableStateOf(false) }
                 var zoomLevel by remember { mutableFloatStateOf(0.5f) }
                 var isZenMode by remember { mutableStateOf(false) }
+                var bezierConfig by remember { mutableStateOf(canvasView.bezierConfig) }
 
                 DisposableEffect(canvasView) {
                     val handler = Handler(Looper.getMainLooper())
@@ -101,6 +102,7 @@ class MainActivity : ComponentActivity() {
                             canvasView.brushType = type
                             brushSize = canvasView.brushSize
                             brushOpacity = canvasView.brushOpacity
+                            bezierConfig = canvasView.bezierConfig
                         },
                         brushSize = brushSize,
                         onBrushSizeChange = { size ->
@@ -116,6 +118,11 @@ class MainActivity : ComponentActivity() {
                         onBrushColorChange = { color ->
                             brushColor = color
                             canvasView.brushColorRgb = color
+                        },
+                        bezierConfig = bezierConfig,
+                        onBezierConfigChange = { cfg ->
+                            bezierConfig = cfg
+                            canvasView.bezierConfig = cfg
                         },
                         canUndo = canUndo,
                         onUndo = { canvasView.undo() },
