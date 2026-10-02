@@ -1,10 +1,13 @@
 package com.antigrav.milton.core.brush
 
+import kotlin.math.exp
 import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.pow
 
 /**
  * Converts continuous stylus stroke coordinates into discrete equidistant raster dabs.
+ * Supports rate-invariant, time-decay lazy brush stabilization.
  */
 class BrushEngine(val properties: BrushProperties = BrushProperties()) {
 
@@ -12,6 +15,7 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
     private var lastY: Float = 0f
     private var rawLastX: Float = 0f
     private var rawLastY: Float = 0f
+    private var lastEventTimeMillis: Long = -1L
     private var lastSizeP: Float = 0.5f
     private var lastNormOpacityY: Float = 1.0f
     private var lastRawP: Float = 0.5f
@@ -25,13 +29,19 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
         return (minAlpha + (maxAlpha - minAlpha) * normY).coerceIn(0.001f, 1.0f)
     }
 
-    fun startStroke(worldX: Float, worldY: Float, pressure: Float): List<BrushDab> {
+    fun startStroke(
+        worldX: Float,
+        worldY: Float,
+        pressure: Float,
+        eventTimeMillis: Long = -1L
+    ): List<BrushDab> {
         isStrokeActive = true
         currentStrokeId = System.nanoTime()
         lastX = worldX
         lastY = worldY
         rawLastX = worldX
         rawLastY = worldY
+        lastEventTimeMillis = eventTimeMillis
         val clampedP = if (pressure <= 0.001f) 0.05f else pressure.coerceIn(0.01f, 1.0f)
         lastRawP = clampedP
         lastSizeP = properties.sizeBezierConfig.solveY(clampedP)
@@ -56,28 +66,53 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
         return listOf(initialDab)
     }
 
-    fun addPoint(worldX: Float, worldY: Float, pressure: Float): List<BrushDab> {
+    fun addPoint(
+        worldX: Float,
+        worldY: Float,
+        pressure: Float,
+        eventTimeMillis: Long = -1L
+    ): List<BrushDab> {
         if (!isStrokeActive) {
-            return startStroke(worldX, worldY, pressure)
+            return startStroke(worldX, worldY, pressure, eventTimeMillis)
         }
 
         rawLastX = worldX
         rawLastY = worldY
 
-        val targetX = if (properties.stabilizer > 0.001f) {
-            val stab = properties.stabilizer.coerceIn(0f, 0.95f)
-            val weight = 1.0f - stab * 0.85f
-            lastX + (worldX - lastX) * weight
-        } else {
-            worldX
-        }
+        val targetX: Float
+        val targetY: Float
 
-        val targetY = if (properties.stabilizer > 0.001f) {
-            val stab = properties.stabilizer.coerceIn(0f, 0.95f)
-            val weight = 1.0f - stab * 0.85f
-            lastY + (worldY - lastY) * weight
+        if (properties.stabilizer > 0.001f) {
+            val stab = properties.stabilizer.coerceIn(0.001f, 1.0f)
+            // Rate-invariant time constant (seconds):
+            // 5% -> ~59ms, 10% -> ~106ms, 15% -> ~150ms, 50% -> ~416ms, 100% -> ~750ms
+            val tau = (stab.toDouble().pow(0.85) * 0.75).toFloat()
+
+            val dtSeconds = if (lastEventTimeMillis >= 0L && eventTimeMillis > lastEventTimeMillis) {
+                val dt = (eventTimeMillis - lastEventTimeMillis) / 1000.0f
+                dt.coerceIn(0.001f, 0.1f)
+            } else if (lastEventTimeMillis >= 0L && eventTimeMillis == lastEventTimeMillis) {
+                // Sub-frame historical event at identical millisecond: nominal 4ms (240Hz)
+                0.004f
+            } else {
+                // Initial fallback (nominal 120Hz = 8.3ms)
+                0.0083f
+            }
+            if (eventTimeMillis >= 0L) {
+                lastEventTimeMillis = eventTimeMillis
+            }
+
+            // Continuous time-decay weight independent of polling rate: weight = 1 - exp(-dt / tau)
+            val weight = (1.0 - exp(-dtSeconds / tau)).toFloat().coerceIn(0.005f, 1.0f)
+
+            targetX = lastX + (worldX - lastX) * weight
+            targetY = lastY + (worldY - lastY) * weight
         } else {
-            worldY
+            if (eventTimeMillis >= 0L) {
+                lastEventTimeMillis = eventTimeMillis
+            }
+            targetX = worldX
+            targetY = worldY
         }
 
         val rawP = if (pressure <= 0.001f) lastRawP else pressure.coerceIn(0.01f, 1.0f)
@@ -184,6 +219,7 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
         }
 
         distanceFromLastDab = 0f
+        lastEventTimeMillis = 0L
         return dabs
     }
 }

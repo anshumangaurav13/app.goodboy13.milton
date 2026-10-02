@@ -2,6 +2,7 @@ package com.antigrav.milton
 
 import com.antigrav.milton.core.brush.BrushEngine
 import com.antigrav.milton.core.brush.BrushProperties
+import com.antigrav.milton.core.brush.BrushType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -22,7 +23,7 @@ class BrushEngineTest {
 
     @Test
     fun testStrokeInterpolation() {
-        val engine = BrushEngine(BrushProperties(size = 20f, spacing = 0.2f))
+        val engine = BrushEngine(BrushProperties(size = 20f, spacing = 0.2f, stabilizer = 0f))
         engine.startStroke(0f, 0f, 1f)
         val dabs = engine.addPoint(100f, 0f, 1f)
 
@@ -36,7 +37,7 @@ class BrushEngineTest {
     @Test
     fun testMicroMovementInterpolation() {
         // High frequency events (e.g. 240Hz stylus) where each event moves only 0.5px
-        val engine = BrushEngine(BrushProperties(size = 20f, spacing = 0.15f))
+        val engine = BrushEngine(BrushProperties(size = 20f, spacing = 0.15f, stabilizer = 0f))
         engine.startStroke(0f, 0f, 1f)
 
         var totalDabs = 0
@@ -105,7 +106,7 @@ class BrushEngineTest {
     @Test
     fun testDirectPressureResponseNoEma() {
         // Without EMA, a pressure step should immediately reflect on the next dab
-        val engine = BrushEngine(BrushProperties(size = 20f, spacing = 0.5f))
+        val engine = BrushEngine(BrushProperties(size = 20f, spacing = 0.5f, stabilizer = 0f))
         engine.startStroke(0f, 0f, 0.2f)
         val dabs = engine.addPoint(50f, 0f, 0.9f)
 
@@ -122,12 +123,11 @@ class BrushEngineTest {
     @Test
     fun testStabilizerSmoothesMotionAndFlushesOnLift() {
         val engine = BrushEngine(BrushProperties(size = 20f, spacing = 0.1f, stabilizer = 0.5f))
-        engine.startStroke(0f, 0f, 1f)
+        engine.startStroke(0f, 0f, 1f, 0L)
 
-        // Abrupt jump to (100, 0)
-        val dabs = engine.addPoint(100f, 0f, 1f)
+        // Abrupt jump to (100, 0) over 100ms
+        val dabs = engine.addPoint(100f, 0f, 1f, 100L)
         assertTrue(dabs.isNotEmpty())
-        // With stabilizer = 0.5 (weight = 1 - 0.5 * 0.85 = 0.575), intermediate target is ~57.5, not 100
         val lastX = dabs.last().x
         assertTrue("Expected smoothed position < 80f, got $lastX", lastX < 80f)
 
@@ -135,5 +135,44 @@ class BrushEngineTest {
         val endDabs = engine.endStroke()
         assertTrue(endDabs.isNotEmpty())
         assertTrue("End dab should approach raw endpoint 100f, got ${endDabs.last().x}", endDabs.last().x >= 90f)
+    }
+
+    @Test
+    fun testDefaultStabilizerValues() {
+        val props = BrushProperties()
+        // Default tool is Pencil: 10%
+        org.junit.Assert.assertEquals(0.10f, props.stabilizer, 0.001f)
+
+        props.applyPreset(BrushType.PEN)
+        org.junit.Assert.assertEquals(0.05f, props.stabilizer, 0.001f)
+
+        props.applyPreset(BrushType.PENCIL)
+        org.junit.Assert.assertEquals(0.10f, props.stabilizer, 0.001f)
+
+        props.applyPreset(BrushType.PAINTBRUSH)
+        org.junit.Assert.assertEquals(0.15f, props.stabilizer, 0.001f)
+
+        props.applyPreset(BrushType.ERASER)
+        org.junit.Assert.assertEquals(0.0f, props.stabilizer, 0.001f)
+    }
+
+    @Test
+    fun testStabilizerRateInvariance() {
+        // High polling rate (10 steps of 4ms = 40ms) vs 1 step of 40ms
+        val engineFast = BrushEngine(BrushProperties(size = 20f, spacing = 0.1f, stabilizer = 0.15f))
+        engineFast.startStroke(0f, 0f, 1f, 0L)
+        var lastFastX = 0f
+        for (i in 1..10) {
+            val dabs = engineFast.addPoint(100f, 0f, 1f, i * 4L)
+            if (dabs.isNotEmpty()) lastFastX = dabs.last().x
+        }
+
+        val engineSlow = BrushEngine(BrushProperties(size = 20f, spacing = 0.1f, stabilizer = 0.15f))
+        engineSlow.startStroke(0f, 0f, 1f, 0L)
+        val dabsSlow = engineSlow.addPoint(100f, 0f, 1f, 40L)
+        val lastSlowX = if (dabsSlow.isNotEmpty()) dabsSlow.last().x else 0f
+
+        // Positions should be closely aligned regardless of sampling frequency
+        org.junit.Assert.assertEquals(lastSlowX, lastFastX, 2.0f)
     }
 }

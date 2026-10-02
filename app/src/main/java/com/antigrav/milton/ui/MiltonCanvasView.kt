@@ -49,6 +49,7 @@ class MiltonCanvasView @JvmOverloads constructor(
     private var frontBufferedRenderer: GLFrontBufferedRenderer<DabPacket>? = null
 
     init {
+        brushEngine.properties.applyPreset(com.antigrav.milton.core.brush.BrushType.PENCIL)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             isAutoHandwritingEnabled = false
         }
@@ -370,7 +371,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                 brushEngine.properties.isEraser = isEraserMode || isHardwareEraser
                 val isEraser = brushEngine.properties.isEraser
                 Log.i(TAG, "Stylus DOWN at screen=($sx, $sy), world=(${worldPos.x}, ${worldPos.y}), pressure=$pressure, isEraser=$isEraser")
-                val initialDabs = brushEngine.startStroke(worldPos.x, worldPos.y, pressure)
+                val initialDabs = brushEngine.startStroke(worldPos.x, worldPos.y, pressure, event.eventTime)
                 if (initialDabs.isNotEmpty()) {
                     renderer.queueDabs(initialDabs)
                     if (isEraser) {
@@ -392,12 +393,13 @@ class MiltonCanvasView @JvmOverloads constructor(
                     val hy = event.getHistoricalY(stylusIndex, h)
                     val hpRaw = event.getHistoricalPressure(stylusIndex, h)
                     val hp = if (hpRaw <= 0.001f) pressure else hpRaw.coerceIn(0.01f, 1.0f)
+                    val ht = event.getHistoricalEventTime(h)
                     val hw = renderer.viewport.screenToWorld(hx, hy)
-                    dabs.addAll(brushEngine.addPoint(hw.x, hw.y, hp))
+                    dabs.addAll(brushEngine.addPoint(hw.x, hw.y, hp, ht))
                 }
 
                 // Add current point
-                dabs.addAll(brushEngine.addPoint(worldPos.x, worldPos.y, pressure))
+                dabs.addAll(brushEngine.addPoint(worldPos.x, worldPos.y, pressure, event.eventTime))
 
                 if (dabs.isNotEmpty()) {
                     renderer.queueDabs(dabs)

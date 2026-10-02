@@ -268,7 +268,7 @@ fun ToolParametersFloatingWindow(
     onBrushSizeChange: (Float) -> Unit,
     brushOpacity: Float,
     onBrushOpacityChange: (Float) -> Unit,
-    brushStabilizer: Float = 0.0f,
+    brushStabilizer: Float = 0.10f,
     onBrushStabilizerChange: (Float) -> Unit = {},
     brushColorRgb: Int,
     sizeBezierConfig: BezierControlPoints,
