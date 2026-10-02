@@ -156,6 +156,21 @@ class LayerManager(
     }
 
     /**
+     * Atomically sets the exact order of layers to match the specified layer IDs.
+     */
+    fun reorderLayersById(orderedIds: List<Long>): Boolean {
+        if (orderedIds.size != _layers.size) return false
+        val idMap = _layers.associateBy { it.id }
+        val newLayers = orderedIds.mapNotNull { idMap[it] }
+        if (newLayers.size != _layers.size) return false
+        _layers.clear()
+        _layers.addAll(newLayers)
+        structuralRevision++
+        notifyChanged()
+        return true
+    }
+
+    /**
      * Move layer up in visual stacking order (closer to top of screen / higher index).
      */
     fun moveLayerUp(layerId: Long): Boolean {

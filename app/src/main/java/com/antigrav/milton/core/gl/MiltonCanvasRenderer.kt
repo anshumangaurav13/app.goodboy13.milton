@@ -281,7 +281,7 @@ class MiltonCanvasRenderer(
         val allLayers = layerManager.layers
 
         val mvp = computeFinalMvpMatrix(bufferInfo, transform)
-        tileBlitShader.begin(mvp)
+        tileBlitShader.begin(mvp, true, backgroundColorRgb)
 
         for (layer in allLayers) {
             if (!layer.isVisible || layer.opacity <= 0.001f) continue

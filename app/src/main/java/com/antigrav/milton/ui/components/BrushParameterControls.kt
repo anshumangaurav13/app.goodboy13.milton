@@ -266,6 +266,8 @@ fun ToolParametersFloatingWindow(
     onBrushSizeChange: (Float) -> Unit,
     brushOpacity: Float,
     onBrushOpacityChange: (Float) -> Unit,
+    brushStabilizer: Float = 0.0f,
+    onBrushStabilizerChange: (Float) -> Unit = {},
     brushColorRgb: Int,
     sizeBezierConfig: BezierControlPoints,
     onSizeBezierConfigChange: (BezierControlPoints) -> Unit,
@@ -393,6 +395,17 @@ fun ToolParametersFloatingWindow(
                     curveColor = Color(0xFFFFB74D)
                 )
             }
+
+            // Stabilizer Scrubber (0% .. 100%)
+            ValueDragControl(
+                label = "Stabilizer",
+                value = brushStabilizer * 100f,
+                onValueChange = { onBrushStabilizerChange(it / 100f) },
+                valueRange = 0f..100f,
+                unit = "%",
+                displayDecimals = 0,
+                fillColor = Color(0xFF81C784)
+            )
         }
     }
 }

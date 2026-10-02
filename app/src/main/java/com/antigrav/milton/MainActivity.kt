@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity() {
                 var brushType by remember { mutableStateOf(BrushType.PENCIL) }
                 var brushSize by remember { mutableFloatStateOf(canvasView.brushSize) }
                 var brushOpacity by remember { mutableFloatStateOf(canvasView.brushOpacity) }
+                var brushStabilizer by remember { mutableFloatStateOf(canvasView.brushStabilizer) }
                 var brushColor by remember { mutableIntStateOf(0xFF333333.toInt()) } // Graphite default
                 var canUndo by remember { mutableStateOf(false) }
                 var canRedo by remember { mutableStateOf(false) }
@@ -170,6 +171,7 @@ class MainActivity : ComponentActivity() {
                             canvasView.brushType = type
                             brushSize = canvasView.brushSize
                             brushOpacity = canvasView.brushOpacity
+                            brushStabilizer = canvasView.brushStabilizer
                             sizeBezierConfig = canvasView.sizeBezierConfig
                             opacityBezierConfig = canvasView.opacityBezierConfig
                         },
@@ -182,6 +184,11 @@ class MainActivity : ComponentActivity() {
                         onBrushOpacityChange = { opacity ->
                             brushOpacity = opacity
                             canvasView.brushOpacity = opacity
+                        },
+                        brushStabilizer = brushStabilizer,
+                        onBrushStabilizerChange = { stab ->
+                            brushStabilizer = stab
+                            canvasView.brushStabilizer = stab
                         },
                         brushColorRgb = brushColor,
                         onBrushColorChange = { color ->
@@ -242,6 +249,9 @@ class MainActivity : ComponentActivity() {
                         },
                         onReorderLayer = { fromStorage, toStorage ->
                             layerManager.moveLayer(fromStorage, toStorage)
+                        },
+                        onReorderLayers = { newOrderIds ->
+                            layerManager.reorderLayersById(newOrderIds)
                         },
                         isCanvasFlipped = isCanvasFlipped,
                         onToggleFlipCanvas = {

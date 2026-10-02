@@ -97,6 +97,7 @@ fun LayersFloatingWindow(
     onMoveLayerUp: (Long) -> Unit,
     onMoveLayerDown: (Long) -> Unit,
     onReorderLayer: (fromStorageIndex: Int, toStorageIndex: Int) -> Unit = { _, _ -> },
+    onReorderLayers: (List<Long>) -> Unit = {},
     backgroundColorRgb: Int = 0xFFFFFFFF.toInt(),
     onChangeBackgroundColor: (Int) -> Unit = {},
     onClose: () -> Unit,
@@ -114,11 +115,12 @@ fun LayersFloatingWindow(
     var listHeightPx by remember { mutableFloatStateOf(0f) }
     val density = LocalDensity.current
     val edgeThreshold = with(density) { 45.dp.toPx() }
+    val cardHeightPx = with(density) { 38.dp.toPx() }
 
     // Physical drag-and-drop states
     var draggingLayerId by remember { mutableStateOf<Long?>(null) }
     var dragTouchYInList by remember { mutableFloatStateOf(0f) }
-    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+    var dragGrabOffsetInCard by remember { mutableFloatStateOf(0f) }
     var dropSlotIndex by remember { mutableIntStateOf(-1) }
     var autoScrollSpeed by remember { mutableFloatStateOf(0f) }
 
@@ -200,8 +202,7 @@ fun LayersFloatingWindow(
                         LayerCard(
                             layer = layer,
                             isActive = isActive,
-                            isFloating = isBeingDragged,
-                            floatingOffsetY = if (isBeingDragged) dragOffsetY else 0f,
+                            isDimmed = isBeingDragged,
                             canDelete = canDelete,
                             canMoveUp = !isTopmost,
                             canMoveDown = !isBottommost,
@@ -213,14 +214,13 @@ fun LayersFloatingWindow(
                             onMoveDown = { onMoveLayerDown(layer.id) },
                             onDragStart = { startOffset ->
                                 draggingLayerId = layer.id
-                                dragOffsetY = 0f
                                 val itemInfo = listState.layoutInfo.visibleItemsInfo.find { it.key == layer.id }
                                 val initialY = (itemInfo?.offset?.toFloat() ?: 0f) + startOffset.y
                                 dragTouchYInList = initialY
+                                dragGrabOffsetInCard = startOffset.y
                                 dropSlotIndex = computeClosestSlot(initialY, reversedLayers.size)
                             },
                             onDrag = { dragDelta ->
-                                dragOffsetY += dragDelta.y
                                 dragTouchYInList += dragDelta.y
 
                                 if (dragTouchYInList < edgeThreshold) {
@@ -240,22 +240,20 @@ fun LayersFloatingWindow(
                                 val fromReversedIdx = reversedLayers.indexOfFirst { it.id == draggingLayerId }
                                 val targetSlot = dropSlotIndex
                                 if (fromReversedIdx >= 0 && targetSlot >= 0) {
-                                    val newReversedIdx = if (targetSlot > fromReversedIdx) targetSlot - 1 else targetSlot
-                                    if (newReversedIdx != fromReversedIdx && newReversedIdx in reversedLayers.indices) {
-                                        val fromStorage = (layers.size - 1) - fromReversedIdx
-                                        val toStorage = (layers.size - 1) - newReversedIdx
-                                        onReorderLayer(fromStorage, toStorage)
-                                    }
+                                    val visualList = reversedLayers.map { it.id }.toMutableList()
+                                    val item = visualList.removeAt(fromReversedIdx)
+                                    val insertIdx = if (targetSlot > fromReversedIdx) targetSlot - 1 else targetSlot
+                                    visualList.add(insertIdx.coerceIn(0, visualList.size), item)
+                                    val newStorageOrder = visualList.reversed()
+                                    onReorderLayers(newStorageOrder)
                                 }
                                 draggingLayerId = null
                                 dropSlotIndex = -1
-                                dragOffsetY = 0f
                             },
                             onDragCancel = {
                                 autoScrollSpeed = 0f
                                 draggingLayerId = null
                                 dropSlotIndex = -1
-                                dragOffsetY = 0f
                             }
                         )
                     }
@@ -275,10 +273,31 @@ fun LayersFloatingWindow(
                         modifier = Modifier
                             .fillMaxWidth()
                             .graphicsLayer {
-                                translationY = lineY - 4.dp.toPx()
+                                translationY = lineY - with(density) { 4.dp.toPx() }
                             }
                             .zIndex(20f)
                     )
+                }
+
+                // Smooth floating card preview following touch position
+                if (draggingLayerId != null) {
+                    val draggingLayer = reversedLayers.find { it.id == draggingLayerId }
+                    if (draggingLayer != null) {
+                        val cardY = (dragTouchYInList - dragGrabOffsetInCard).coerceIn(0f, (listHeightPx - cardHeightPx).coerceAtLeast(0f))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer {
+                                    translationY = cardY
+                                    scaleX = 1.03f
+                                    scaleY = 1.03f
+                                    shadowElevation = 16.dp.toPx()
+                                }
+                                .zIndex(25f)
+                        ) {
+                            FloatingLayerCardPreview(layer = draggingLayer)
+                        }
+                    }
                 }
             }
 
@@ -534,8 +553,7 @@ private fun CanvasBackgroundButton(
 private fun LayerCard(
     layer: Layer,
     isActive: Boolean,
-    isFloating: Boolean = false,
-    floatingOffsetY: Float = 0f,
+    isDimmed: Boolean = false,
     canDelete: Boolean,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
@@ -551,29 +569,17 @@ private fun LayerCard(
     onDragCancel: () -> Unit = {}
 ) {
     val cardBg = if (isActive) Color(0x283949AB) else Color(0xFF20232B)
-    val borderColor = if (isFloating) {
-        Color(0xFF64B5F6)
-    } else if (isActive) {
-        Color(0xFF64B5F6)
-    } else {
-        Color(0x22FFFFFF)
-    }
+    val borderColor = if (isActive) Color(0xFF64B5F6) else Color(0x22FFFFFF)
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .graphicsLayer {
-                translationY = floatingOffsetY
-                if (isFloating) {
-                    scaleX = 1.03f
-                    scaleY = 1.03f
-                    shadowElevation = 14.dp.toPx()
-                }
+                alpha = if (isDimmed) 0.35f else 1.0f
             }
-            .zIndex(if (isFloating) 10f else 1f)
             .clip(RoundedCornerShape(8.dp))
             .border(
-                width = if (isFloating) 1.5.dp else 1.dp,
+                width = 1.dp,
                 color = borderColor,
                 shape = RoundedCornerShape(8.dp)
             )
@@ -669,7 +675,7 @@ private fun LayerCard(
                     Icon(
                         imageVector = Icons.Default.DragHandle,
                         contentDescription = "Drag to reorder",
-                        tint = if (isFloating) Color(0xFF64B5F6) else Color(0x75FFFFFF),
+                        tint = if (isDimmed) Color(0xFF64B5F6) else Color(0x75FFFFFF),
                         modifier = Modifier.size(16.dp)
                     )
                 }
@@ -752,6 +758,68 @@ private fun LayerCard(
                         .height(18.dp)
                 )
             }
+        }
+    }
+}
+
+/**
+ * Lightweight floating card preview rendered in overlay directly tracking stylus/finger.
+ */
+@Composable
+private fun FloatingLayerCardPreview(layer: Layer) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.5.dp, Color(0xFF64B5F6), RoundedCornerShape(8.dp)),
+        color = Color(0xFF262C38),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color(0xFF14161C))
+                    .border(1.dp, Color(0x30FFFFFF), RoundedCornerShape(4.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                val thumb = layer.thumbnailBitmap
+                if (thumb != null && !thumb.isRecycled) {
+                    Image(
+                        bitmap = thumb.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.size(28.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+            }
+
+            val displayName = if (layer.name.startsWith("Layer ", ignoreCase = true)) {
+                layer.name.substring(6).trim()
+            } else {
+                layer.name
+            }
+            Text(
+                text = displayName,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF90CAF9),
+                modifier = Modifier.weight(1f)
+            )
+
+            Icon(
+                imageVector = Icons.Default.DragHandle,
+                contentDescription = null,
+                tint = Color(0xFF64B5F6),
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }

@@ -118,4 +118,22 @@ class BrushEngineTest {
             kotlin.math.abs(lastRadius - expectedRadius) < 1.0f
         )
     }
+
+    @Test
+    fun testStabilizerSmoothesMotionAndFlushesOnLift() {
+        val engine = BrushEngine(BrushProperties(size = 20f, spacing = 0.1f, stabilizer = 0.5f))
+        engine.startStroke(0f, 0f, 1f)
+
+        // Abrupt jump to (100, 0)
+        val dabs = engine.addPoint(100f, 0f, 1f)
+        assertTrue(dabs.isNotEmpty())
+        // With stabilizer = 0.5 (weight = 1 - 0.5 * 0.85 = 0.575), intermediate target is ~57.5, not 100
+        val lastX = dabs.last().x
+        assertTrue("Expected smoothed position < 80f, got $lastX", lastX < 80f)
+
+        // Ending stroke flushes to the raw endpoint
+        val endDabs = engine.endStroke()
+        assertTrue(endDabs.isNotEmpty())
+        assertTrue("End dab should approach raw endpoint 100f, got ${endDabs.last().x}", endDabs.last().x >= 90f)
+    }
 }

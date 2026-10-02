@@ -57,28 +57,42 @@ object PigmentColorMixing {
     }
 
     fun mixPigment(c1: Vec3, c2: Vec3, t: Float): Vec3 {
-        if (kotlin.math.abs(c1.r - c2.r) < 0.008f &&
-            kotlin.math.abs(c1.g - c2.g) < 0.008f &&
-            kotlin.math.abs(c1.b - c2.b) < 0.008f
-        ) {
-            return c1
+        val diffR = c1.r - c2.r
+        val diffG = c1.g - c2.g
+        val diffB = c1.b - c2.b
+        if (diffR * diffR + diffG * diffG + diffB * diffB < 0.0004f) {
+            return c2
         }
+
         val clampedT = t.coerceIn(0f, 1f)
-        val p1 = toPigment(c1)
-        val p2 = toPigment(c2)
 
-        val subR = (max(0.001f, p1.r)).pow(1f - clampedT) * (max(0.001f, p2.r)).pow(clampedT)
-        val subG = (max(0.001f, p1.g)).pow(1f - clampedT) * (max(0.001f, p2.g)).pow(clampedT)
-        val subB = (max(0.001f, p1.b)).pow(1f - clampedT) * (max(0.001f, p2.b)).pow(clampedT)
+        // Subtractive CMY coordinates (absorptions)
+        val c1c = 1f - c1.r
+        val c1m = 1f - c1.g
+        val c1y = 1f - c1.b
 
-        val ok1 = rgbToOklab(c1.r, c1.g, c1.b)
-        val ok2 = rgbToOklab(c2.r, c2.g, c2.b)
-        val okSub = rgbToOklab(subR, subG, subB)
+        val c2c = 1f - c2.r
+        val c2m = 1f - c2.g
+        val c2y = 1f - c2.b
 
-        val lTarget = (1f - clampedT) * ok1.x + clampedT * ok2.x
-        val lMix = 0.60f * lTarget + 0.40f * okSub.x
+        val mixC = (1f - clampedT) * c1c + clampedT * c2c
+        var mixM = (1f - clampedT) * c1m + clampedT * c2m
+        val mixY = (1f - clampedT) * c1y + clampedT * c2y
 
-        return oklabToRgb(Vec3(lMix, okSub.y, okSub.z))
+        // Natural pigment transmission:
+        // Yellow absorbs Blue, Cyan absorbs Red, both transmit Green.
+        // When Cyan and Yellow are combined, Green absorption (Magenta) is suppressed,
+        // provided both inputs are not already Green absorbers (e.g. Red + Blue).
+        val cyOverlap = min(mixC, mixY)
+        val sharedGreenAbsorption = min(c1m, c2m)
+        val canFormGreen = max(0f, 1f - 2f * sharedGreenAbsorption)
+        mixM *= max(0f, 1f - 1.6f * cyOverlap * canFormGreen)
+
+        return Vec3(
+            (1f - mixC).coerceIn(0f, 1f),
+            (1f - mixM).coerceIn(0f, 1f),
+            (1f - mixY).coerceIn(0f, 1f)
+        )
     }
 
     fun mixColorsInt(colorDst: Int, colorSrc: Int, alpha: Float): Int {

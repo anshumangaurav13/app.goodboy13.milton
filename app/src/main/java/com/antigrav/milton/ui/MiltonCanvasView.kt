@@ -163,6 +163,12 @@ class MiltonCanvasView @JvmOverloads constructor(
             brushEngine.properties.opacity = value
         }
 
+    var brushStabilizer: Float
+        get() = brushEngine.properties.stabilizer
+        set(value) {
+            brushEngine.properties.stabilizer = value
+        }
+
     var brushColorRgb: Int
         get() = brushEngine.properties.colorRgb
         set(value) {

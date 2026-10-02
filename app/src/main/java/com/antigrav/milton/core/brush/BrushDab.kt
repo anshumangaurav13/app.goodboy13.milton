@@ -36,6 +36,7 @@ data class BrushProperties(
     var minRadius: Float = 1.5f,
     var isEraser: Boolean = false,
     var brushMode: Int = 1,
+    var stabilizer: Float = 0.0f,
     var sizeBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.20f),
     var opacityBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.20f)
 ) {
@@ -58,6 +59,13 @@ data class BrushProperties(
         BrushType.ERASER to 1.0f
     )
 
+    private val savedStabilizers = mutableMapOf(
+        BrushType.PEN to 0.15f,
+        BrushType.PENCIL to 0.0f,
+        BrushType.PAINTBRUSH to 0.20f,
+        BrushType.ERASER to 0.0f
+    )
+
     private val savedSizeBeziers = mutableMapOf(
         BrushType.PEN to PressureCurveDefaults.STANDARD.copy(minPercent = 0.15f),
         BrushType.PENCIL to PressureCurveDefaults.STANDARD.copy(minPercent = 0.20f),
@@ -76,12 +84,14 @@ data class BrushProperties(
         // Save current tool's settings before switching
         savedSizes[brushType] = size
         savedOpacities[brushType] = opacity
+        savedStabilizers[brushType] = stabilizer
         savedSizeBeziers[brushType] = sizeBezierConfig
         savedOpacityBeziers[brushType] = opacityBezierConfig
 
         brushType = type
         size = savedSizes[type] ?: 35f
         opacity = savedOpacities[type] ?: 0.40f
+        stabilizer = savedStabilizers[type] ?: 0.0f
         sizeBezierConfig = savedSizeBeziers[type] ?: PressureCurveDefaults.STANDARD
         opacityBezierConfig = savedOpacityBeziers[type] ?: PressureCurveDefaults.STANDARD
         minRadius = (size * 0.12f).coerceAtLeast(1.2f)

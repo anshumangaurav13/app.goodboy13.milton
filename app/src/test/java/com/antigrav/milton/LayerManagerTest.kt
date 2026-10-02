@@ -114,4 +114,23 @@ class LayerManagerTest {
         manager.selectLayer(l1.id)
         assertEquals(l1.id, manager.activeLayerId)
     }
+
+    @Test
+    fun testReorderLayersById() {
+        val manager = LayerManager()
+        val l1 = manager.layers[0]
+        val l2 = manager.addLayer("Layer 2")!!
+        val l3 = manager.addLayer("Layer 3")!!
+
+        // Storage order is [l1, l2, l3]
+        assertEquals(listOf(l1.id, l2.id, l3.id), manager.layers.map { it.id })
+
+        // Reorder to [l3, l1, l2]
+        assertTrue(manager.reorderLayersById(listOf(l3.id, l1.id, l2.id)))
+        assertEquals(listOf(l3.id, l1.id, l2.id), manager.layers.map { it.id })
+
+        // Invalid list should fail and not alter order
+        assertFalse(manager.reorderLayersById(listOf(l1.id, l2.id)))
+        assertEquals(listOf(l3.id, l1.id, l2.id), manager.layers.map { it.id })
+    }
 }

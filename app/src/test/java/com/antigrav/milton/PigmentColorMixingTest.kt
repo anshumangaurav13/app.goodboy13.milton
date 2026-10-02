@@ -46,12 +46,37 @@ class PigmentColorMixingTest {
     }
 
     @Test
+    fun testRedOverBlueProducesPurple() {
+        val red = Vec3(1.0f, 0.0f, 0.0f)
+        val blue = Vec3(0.0f, 0.0f, 1.0f)
+
+        val mixed = PigmentColorMixing.mixPigment(red, blue, 0.5f)
+
+        // Purple has high red and blue, minimal green
+        assertTrue("Red must be present: ${mixed.r}", mixed.r >= 0.40f)
+        assertTrue("Blue must be present: ${mixed.b}", mixed.b >= 0.40f)
+        assertTrue("Green must be low for purple: ${mixed.g}", mixed.g <= 0.20f)
+    }
+
+    @Test
+    fun testWhiteGlazeProducesTint() {
+        val white = Vec3(1.0f, 1.0f, 1.0f)
+        val blue = Vec3(0.0f, 0.4f, 1.0f)
+
+        val mixed = PigmentColorMixing.mixPigment(white, blue, 0.5f)
+
+        // Light blue tint
+        assertTrue("Red should be boosted towards white: ${mixed.r}", mixed.r in 0.40f..0.60f)
+        assertTrue("Blue should remain dominant: ${mixed.b}", mixed.b >= 0.90f)
+    }
+
+    @Test
     fun testIdentityMixing() {
         val blue = Vec3(0.1f, 0.4f, 0.9f)
         val mixed = PigmentColorMixing.mixPigment(blue, blue, 0.5f)
 
-        assertTrue("Mixing same color should preserve red: ${mixed.r}", kotlin.math.abs(mixed.r - blue.r) < 0.05f)
-        assertTrue("Mixing same color should preserve green: ${mixed.g}", kotlin.math.abs(mixed.g - blue.g) < 0.05f)
-        assertTrue("Mixing same color should preserve blue: ${mixed.b}", kotlin.math.abs(mixed.b - blue.b) < 0.05f)
+        assertTrue("Mixing same color should preserve red: ${mixed.r}", kotlin.math.abs(mixed.r - blue.r) < 0.01f)
+        assertTrue("Mixing same color should preserve green: ${mixed.g}", kotlin.math.abs(mixed.g - blue.g) < 0.01f)
+        assertTrue("Mixing same color should preserve blue: ${mixed.b}", kotlin.math.abs(mixed.b - blue.b) < 0.01f)
     }
 }
