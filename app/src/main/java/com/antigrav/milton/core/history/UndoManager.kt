@@ -41,6 +41,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
     private val pendingPreStrokeDeltas = mutableMapOf<Pair<Long, TileCoord>, ByteArray?>()
 
     var onStateChangedListener: (() -> Unit)? = null
+    var onTilesCommittedListener: ((List<TileDelta>) -> Unit)? = null
 
     val canUndo: Boolean get() = undoStack.isNotEmpty()
     val canRedo: Boolean get() = redoStack.isNotEmpty()
@@ -101,6 +102,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
         }
 
         onStateChangedListener?.invoke()
+        onTilesCommittedListener?.invoke(deltas)
     }
 
     fun commitStroke(tileMap: TileMap) {
@@ -131,6 +133,10 @@ class UndoManager(val maxHistorySize: Int = 30) {
 
         redoStack.push(command)
         onStateChangedListener?.invoke()
+        val revertedDeltas = command.deltas.map {
+            TileDelta(it.layerId, it.coord, it.afterCompressed, it.beforeCompressed)
+        }
+        onTilesCommittedListener?.invoke(revertedDeltas)
         return true
     }
 
@@ -157,6 +163,10 @@ class UndoManager(val maxHistorySize: Int = 30) {
 
         redoStack.push(command)
         onStateChangedListener?.invoke()
+        val revertedDeltas = command.deltas.map {
+            TileDelta(it.layerId, it.coord, it.afterCompressed, it.beforeCompressed)
+        }
+        onTilesCommittedListener?.invoke(revertedDeltas)
         return true
     }
 
@@ -184,6 +194,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
 
         undoStack.push(command)
         onStateChangedListener?.invoke()
+        onTilesCommittedListener?.invoke(command.deltas)
         return true
     }
 
@@ -210,6 +221,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
 
         undoStack.push(command)
         onStateChangedListener?.invoke()
+        onTilesCommittedListener?.invoke(command.deltas)
         return true
     }
 

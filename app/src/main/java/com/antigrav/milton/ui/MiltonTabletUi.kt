@@ -32,15 +32,34 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Colorize
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Photo
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.ScreenRotation
+import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -153,6 +172,13 @@ fun MiltonTabletUi(
     isEyedropperActive: Boolean = false,
     onToggleEyedropper: () -> Unit = {},
     eyedropperReticleState: EyedropperReticleState = EyedropperReticleState(),
+    documentTitle: String = "Untitled Artwork",
+    onTitleChange: (String) -> Unit = {},
+    onManualSave: () -> Unit = {},
+    onExportMilton: () -> Unit = {},
+    onExportPng: () -> Unit = {},
+    onExportJpg: () -> Unit = {},
+    onImportMilton: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showColorPaletteWindow by remember { mutableStateOf(false) }
@@ -186,6 +212,26 @@ fun MiltonTabletUi(
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val containerW = constraints.maxWidth
         val containerH = constraints.maxHeight
+
+        // 0. Top Left Bar (docked to top-left corner, flat against top and left edges, zero gap)
+        AnimatedVisibility(
+            visible = !isZenMode,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(top = 0.dp, start = 0.dp)
+        ) {
+            TabletTopLeftBar(
+                documentTitle = documentTitle,
+                onTitleChange = onTitleChange,
+                onManualSave = onManualSave,
+                onExportMilton = onExportMilton,
+                onExportPng = onExportPng,
+                onExportJpg = onExportJpg,
+                onImportMilton = onImportMilton
+            )
+        }
 
         // 1. Left Vertical Tool Rail (docked to left screen edge)
         AnimatedVisibility(
@@ -231,11 +277,11 @@ fun MiltonTabletUi(
             )
         }
 
-        // 3. Top Right Header Bar (docked to top edge, flat on top, rounded on bottom)
+        // 3. Top Right Header Bar (docked to top-right corner, flat against top and right edges, zero gap)
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = 0.dp, end = 20.dp)
+                .padding(top = 0.dp, end = 0.dp)
         ) {
             if (!isZenMode) {
                 TabletTopBar(
@@ -257,7 +303,7 @@ fun MiltonTabletUi(
                     onToggleZenMode = { onToggleZenMode(true) }
                 )
             } else {
-                val zenExitShape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 14.dp, bottomEnd = 14.dp)
+                val zenExitShape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 14.dp, bottomEnd = 0.dp)
                 Surface(
                     modifier = Modifier
                         .size(42.dp)
@@ -667,6 +713,257 @@ private fun QuickRailOpacityScrubber(
 }
 
 /**
+ * Top left header bar: Docked to top-left edge, flush with corner.
+ * Contains:
+ * 1. Sandwich menu with dropdown: Manual Save, Export .milton, Export PNG, Export JPG, Import .milton.
+ * 2. In-place titlebar editable by holding (long press), but NOT merely tapping.
+ */
+@Composable
+private fun TabletTopLeftBar(
+    documentTitle: String,
+    onTitleChange: (String) -> Unit,
+    onManualSave: () -> Unit,
+    onExportMilton: () -> Unit,
+    onExportPng: () -> Unit,
+    onExportJpg: () -> Unit,
+    onImportMilton: () -> Unit
+) {
+    val barShape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 14.dp)
+    var isMenuExpanded by remember { mutableStateOf(false) }
+    var isEditingTitle by remember { mutableStateOf(false) }
+    var tempTitle by remember(documentTitle) { mutableStateOf(documentTitle) }
+    val focusRequester = remember { FocusRequester() }
+
+    Surface(
+        modifier = Modifier
+            .shadow(elevation = 10.dp, shape = barShape)
+            .clip(barShape),
+        shape = barShape,
+        color = Color(0xF0181A1F),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x35FFFFFF)),
+        tonalElevation = 6.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            // Sandwich menu button
+            Box {
+                IconButton(
+                    onClick = { isMenuExpanded = !isMenuExpanded },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "Menu",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = isMenuExpanded,
+                    onDismissRequest = { isMenuExpanded = false },
+                    modifier = Modifier
+                        .background(Color(0xF5181A1F))
+                        .border(1.dp, Color(0x35FFFFFF), RoundedCornerShape(12.dp))
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Save Project", color = Color.White, fontSize = 14.sp) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Save,
+                                contentDescription = null,
+                                tint = Color(0xFF64B5F6),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        onClick = {
+                            isMenuExpanded = false
+                            onManualSave()
+                        }
+                    )
+
+                    HorizontalDivider(color = Color(0x25FFFFFF))
+
+                    DropdownMenuItem(
+                        text = { Text("Export PNG", color = Color.White, fontSize = 14.sp) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Image,
+                                contentDescription = null,
+                                tint = Color(0xFF81C784),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        onClick = {
+                            isMenuExpanded = false
+                            onExportPng()
+                        }
+                    )
+
+                    DropdownMenuItem(
+                        text = { Text("Export JPG", color = Color.White, fontSize = 14.sp) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Photo,
+                                contentDescription = null,
+                                tint = Color(0xFFFFB74D),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        onClick = {
+                            isMenuExpanded = false
+                            onExportJpg()
+                        }
+                    )
+
+                    DropdownMenuItem(
+                        text = { Text("Export .milton", color = Color.White, fontSize = 14.sp) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.UploadFile,
+                                contentDescription = null,
+                                tint = Color(0xFFBA68C8),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        onClick = {
+                            isMenuExpanded = false
+                            onExportMilton()
+                        }
+                    )
+
+                    HorizontalDivider(color = Color(0x25FFFFFF))
+
+                    DropdownMenuItem(
+                        text = { Text("Import .milton", color = Color.White, fontSize = 14.sp) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.FolderOpen,
+                                contentDescription = null,
+                                tint = Color(0xFF4FC3F7),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        onClick = {
+                            isMenuExpanded = false
+                            onImportMilton()
+                        }
+                    )
+                }
+            }
+
+            // Divider between sandwich menu and title
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .height(20.dp)
+                    .background(Color(0x35FFFFFF))
+            )
+
+            // Titlebar: in-place editable by HOLDING (long press), NOT merely tapping
+            if (!isEditingTitle) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .pointerInput(documentTitle) {
+                            detectTapGestures(
+                                onLongPress = {
+                                    tempTitle = documentTitle
+                                    isEditingTitle = true
+                                }
+                            )
+                        }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    Text(
+                        text = documentTitle,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 240.dp)
+                    )
+                }
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    BasicTextField(
+                        value = tempTitle,
+                        onValueChange = { tempTitle = it },
+                        textStyle = TextStyle(
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        cursorBrush = SolidColor(Color(0xFF64B5F6)),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = {
+                            val trimmed = tempTitle.trim()
+                            if (trimmed.isNotEmpty()) {
+                                onTitleChange(trimmed)
+                            }
+                            isEditingTitle = false
+                        }),
+                        modifier = Modifier
+                            .widthIn(min = 100.dp, max = 220.dp)
+                            .background(Color(0x33FFFFFF), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 8.dp, vertical = 5.dp)
+                            .focusRequester(focusRequester)
+                    )
+
+                    LaunchedEffect(Unit) {
+                        focusRequester.requestFocus()
+                    }
+
+                    // Confirm edit button
+                    IconButton(
+                        onClick = {
+                            val trimmed = tempTitle.trim()
+                            if (trimmed.isNotEmpty()) {
+                                onTitleChange(trimmed)
+                            }
+                            isEditingTitle = false
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Confirm Title",
+                            tint = Color(0xFF81C784),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    // Cancel edit button
+                    IconButton(
+                        onClick = {
+                            tempTitle = documentTitle
+                            isEditingTitle = false
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Cancel Edit",
+                            tint = Color(0xFFE57373),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
  * Top minimal bar holding canvas navigation controls, zoom/rotation lock toggles, and single fullscreen button.
  */
 @Composable
@@ -688,7 +985,7 @@ private fun TabletTopBar(
     onResetCanvas: () -> Unit,
     onToggleZenMode: () -> Unit
 ) {
-    val topBarShape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 14.dp, bottomEnd = 14.dp)
+    val topBarShape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 14.dp, bottomEnd = 0.dp)
     Surface(
         modifier = Modifier
             .shadow(elevation = 10.dp, shape = topBarShape)

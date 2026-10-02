@@ -24,7 +24,6 @@ class RasterTile(val coord: TileCoord) {
     var lastAccessTime: Long = System.nanoTime()
     var hasContent: Boolean = false
     var isOnDisk: Boolean = false
-        private set
 
     private val prevFbo = IntArray(1)
     private val prevViewport = IntArray(4)
