@@ -181,8 +181,7 @@ class MiltonCanvasView @JvmOverloads constructor(
         val sx = event.getX(stylusIndex)
         val sy = event.getY(stylusIndex)
         val rawPressure = event.getPressure(stylusIndex)
-        // If device reports zero pressure on contact, default to 0.5f so stroke is not collapsed
-        val pressure = if (rawPressure <= 0.001f) 0.5f else rawPressure.coerceIn(0.01f, 1.0f)
+        val pressure = if (rawPressure <= 0.001f) 0.05f else rawPressure.coerceIn(0.01f, 1.0f)
         val worldPos = renderer.viewport.screenToWorld(sx, sy)
 
         val stylusTool = event.getToolType(stylusIndex)
@@ -211,7 +210,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                     val hx = event.getHistoricalX(stylusIndex, h)
                     val hy = event.getHistoricalY(stylusIndex, h)
                     val hpRaw = event.getHistoricalPressure(stylusIndex, h)
-                    val hp = if (hpRaw <= 0.001f) 0.5f else hpRaw.coerceIn(0.01f, 1.0f)
+                    val hp = if (hpRaw <= 0.001f) pressure else hpRaw.coerceIn(0.01f, 1.0f)
                     val hw = renderer.viewport.screenToWorld(hx, hy)
                     dabs.addAll(brushEngine.addPoint(hw.x, hw.y, hp))
                 }
