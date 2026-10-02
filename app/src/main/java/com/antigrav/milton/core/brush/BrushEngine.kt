@@ -51,8 +51,7 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
             hardness = properties.hardness,
             brushMode = properties.brushMode,
             pressure = lastSizeP,
-            strokeId = currentStrokeId,
-            pigmentMixing = (properties.brushType == BrushType.PAINTBRUSH && properties.realisticPigment)
+            strokeId = currentStrokeId
         )
         return listOf(initialDab)
     }
@@ -127,8 +126,7 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
                     hardness = properties.hardness,
                     brushMode = properties.brushMode,
                     pressure = ipSize,
-                    strokeId = currentStrokeId,
-                    pigmentMixing = (properties.brushType == BrushType.PAINTBRUSH && properties.realisticPigment)
+                    strokeId = currentStrokeId
                 )
             )
             lastPlacedD = d
@@ -177,8 +175,7 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
                             hardness = properties.hardness,
                             brushMode = properties.brushMode,
                             pressure = lastSizeP,
-                            strokeId = currentStrokeId,
-                            pigmentMixing = (properties.brushType == BrushType.PAINTBRUSH && properties.realisticPigment)
+                            strokeId = currentStrokeId
                         )
                     )
                     d += stepSize

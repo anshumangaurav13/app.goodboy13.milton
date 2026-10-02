@@ -52,7 +52,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
         for (tile in tiles) {
             val key = layerId to tile.coord
             if (!pendingPreStrokeDeltas.containsKey(key)) {
-                val data = if (tile.isInitialized) {
+                val data = if (tile.isInitialized && tile.hasContent) {
                     compress(tile.readPixels())
                 } else {
                     null // Tile was empty before this stroke
@@ -80,12 +80,14 @@ class UndoManager(val maxHistorySize: Int = 30) {
             if (entryLayerId == layerId) {
                 val beforeBytes = entry.value
                 val tile = tileMap.getExistingTile(coord.tx, coord.ty)
-                val afterBytes = if (tile != null && tile.isInitialized) {
+                val afterBytes = if (tile != null && tile.isInitialized && tile.hasContent) {
                     compress(tile.readPixels())
                 } else {
                     null
                 }
-                deltas.add(TileDelta(layerId, coord, beforeBytes, afterBytes))
+                if (beforeBytes != null || afterBytes != null) {
+                    deltas.add(TileDelta(layerId, coord, beforeBytes, afterBytes))
+                }
                 iter.remove()
             }
         }

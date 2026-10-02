@@ -16,8 +16,7 @@ data class BrushDab(
     val hardness: Float = 0.85f,
     val brushMode: Int = 0, // 0 = Pen/Eraser, 1 = Pencil, 2 = Paintbrush
     val pressure: Float = 0.5f,
-    val strokeId: Long = 0L,
-    val pigmentMixing: Boolean = false
+    val strokeId: Long = 0L
 )
 
 enum class BrushType(val displayName: String) {
@@ -38,7 +37,6 @@ data class BrushProperties(
     var isEraser: Boolean = false,
     var brushMode: Int = 1,
     var stabilizer: Float = 0.0f,
-    var realisticPigment: Boolean = true,
     var sizeBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.20f),
     var opacityBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.20f)
 ) {
@@ -82,19 +80,11 @@ data class BrushProperties(
         BrushType.ERASER to PressureCurveDefaults.LINEAR.copy(minPercent = 1.0f, maxPercent = 1.0f)
     )
 
-    private val savedRealisticPigments = mutableMapOf(
-        BrushType.PEN to false,
-        BrushType.PENCIL to false,
-        BrushType.PAINTBRUSH to true,
-        BrushType.ERASER to false
-    )
-
     fun applyPreset(type: BrushType) {
         // Save current tool's settings before switching
         savedSizes[brushType] = size
         savedOpacities[brushType] = opacity
         savedStabilizers[brushType] = stabilizer
-        savedRealisticPigments[brushType] = realisticPigment
         savedSizeBeziers[brushType] = sizeBezierConfig
         savedOpacityBeziers[brushType] = opacityBezierConfig
 
@@ -102,7 +92,6 @@ data class BrushProperties(
         size = savedSizes[type] ?: 35f
         opacity = savedOpacities[type] ?: 0.40f
         stabilizer = savedStabilizers[type] ?: 0.0f
-        realisticPigment = savedRealisticPigments[type] ?: (type == BrushType.PAINTBRUSH)
         sizeBezierConfig = savedSizeBeziers[type] ?: PressureCurveDefaults.STANDARD
         opacityBezierConfig = savedOpacityBeziers[type] ?: PressureCurveDefaults.STANDARD
         minRadius = (size * 0.12f).coerceAtLeast(1.2f)

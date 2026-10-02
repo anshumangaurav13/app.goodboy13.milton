@@ -216,26 +216,8 @@ class MiltonCanvasRenderer(
 
         val mvp = computeFinalMvpMatrix(bufferInfo, transform)
         val activeOpacity = activeLayer.opacity
-        val tileSize = TileCoord.TILE_SIZE.toFloat()
         for (dab in param.dabs) {
             if (dab.isEraser) continue // Never draw eraser dabs into front buffer overlay
-
-            var tileTextureId = 0
-            var tileOriginX = 0f
-            var tileOriginY = 0f
-            var hasTileTexture = false
-
-            if (dab.pigmentMixing && dab.brushMode == 2) {
-                val tx = floor(dab.x / tileSize).toInt()
-                val ty = floor(dab.y / tileSize).toInt()
-                val tile = activeLayer.tileMap.getExistingTile(tx, ty)
-                if (tile != null && tile.isInitialized && tile.hasContent) {
-                    tileTextureId = tile.textureId
-                    tileOriginX = tx * tileSize
-                    tileOriginY = ty * tileSize
-                    hasTileTexture = true
-                }
-            }
 
             dabShader.renderDab(
                 centerX = dab.x,
@@ -247,12 +229,7 @@ class MiltonCanvasRenderer(
                 brushMode = dab.brushMode,
                 pressure = dab.pressure,
                 projectionMatrix = mvp,
-                isEraser = false,
-                pigmentMixing = dab.pigmentMixing,
-                tileTextureId = tileTextureId,
-                tileOriginX = tileOriginX,
-                tileOriginY = tileOriginY,
-                hasTileTexture = hasTileTexture
+                isEraser = false
             )
         }
         if (dabShader.usesFramebufferFetch) {
@@ -310,7 +287,6 @@ class MiltonCanvasRenderer(
                     for (tx in minTx..maxTx) {
                         val tile = activeLayer.tileMap.getOrCreateTile(tx, ty)
                         tile.ensureResident(activeLayer.tileMap.cacheDir)
-                        tile.hasContent = true
                         affectedTiles.add(tile)
                     }
                 }
@@ -454,10 +430,13 @@ class MiltonCanvasRenderer(
             val (tx, ty) = coord
             val tile = targetTileMap.getOrCreateTile(tx, ty)
             tile.ensureResident(targetTileMap.cacheDir)
-            tile.hasContent = true
 
             val eraserDabs = tileDabs.filter { it.isEraser }
             val brushDabs = tileDabs.filter { !it.isEraser }
+
+            if (brushDabs.isNotEmpty()) {
+                tile.hasContent = true
+            }
 
             // 1. Eraser dabs directly attenuate the tile FBO
             if (eraserDabs.isNotEmpty()) {
@@ -485,8 +464,7 @@ class MiltonCanvasRenderer(
                         worldOffsetX = tx * tileSize,
                         worldOffsetY = ty * tileSize,
                         projectionMatrix = tileOrthoMatrix,
-                        isEraser = true,
-                        pigmentMixing = false
+                        isEraser = true
                     )
                 }
                 tile.unbindFbo()
@@ -528,8 +506,7 @@ class MiltonCanvasRenderer(
                         worldOffsetX = tx * tileSize,
                         worldOffsetY = ty * tileSize,
                         projectionMatrix = tileOrthoMatrix,
-                        isEraser = false,
-                        pigmentMixing = false // Stroke ribbon accumulates pure color & alpha
+                        isEraser = false
                     )
                 }
 
@@ -541,12 +518,7 @@ class MiltonCanvasRenderer(
                 // Pass 2: Composite the scratch stroke ribbon onto the destination tile FBO in a single pass!
                 tile.bindFbo()
                 GLES30.glViewport(0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE)
-                val sampleDab = brushDabs.first()
-                strokeCompositeShader.render(
-                    strokeTextureId = scratchTextureId,
-                    brushMode = sampleDab.brushMode,
-                    pigmentMixing = sampleDab.pigmentMixing
-                )
+                strokeCompositeShader.render(strokeTextureId = scratchTextureId)
                 tile.unbindFbo()
             }
         }

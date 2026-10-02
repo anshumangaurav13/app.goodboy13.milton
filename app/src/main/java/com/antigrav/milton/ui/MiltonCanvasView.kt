@@ -169,12 +169,6 @@ class MiltonCanvasView @JvmOverloads constructor(
             brushEngine.properties.stabilizer = value
         }
 
-    var realisticPigment: Boolean
-        get() = brushEngine.properties.realisticPigment
-        set(value) {
-            brushEngine.properties.realisticPigment = value
-        }
-
     var brushColorRgb: Int
         get() = brushEngine.properties.colorRgb
         set(value) {

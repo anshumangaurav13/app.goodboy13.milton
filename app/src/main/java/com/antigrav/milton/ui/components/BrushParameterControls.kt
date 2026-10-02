@@ -270,8 +270,6 @@ fun ToolParametersFloatingWindow(
     onBrushOpacityChange: (Float) -> Unit,
     brushStabilizer: Float = 0.0f,
     onBrushStabilizerChange: (Float) -> Unit = {},
-    realisticPigment: Boolean = true,
-    onRealisticPigmentChange: (Boolean) -> Unit = {},
     brushColorRgb: Int,
     sizeBezierConfig: BezierControlPoints,
     onSizeBezierConfigChange: (BezierControlPoints) -> Unit,
@@ -410,46 +408,6 @@ fun ToolParametersFloatingWindow(
                 displayDecimals = 0,
                 fillColor = Color(0xFF81C784)
             )
-
-            // Realistic Pigment (Kubelka–Munk) Toggle for Paintbrush
-            if (brushType == BrushType.PAINTBRUSH) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF22262E))
-                        .border(1.dp, Color(0x35FFFFFF), RoundedCornerShape(8.dp))
-                        .clickable { onRealisticPigmentChange(!realisticPigment) }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Realistic Pigment",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "Kubelka–Munk theory",
-                            fontSize = 9.sp,
-                            color = Color.White.copy(alpha = 0.5f)
-                        )
-                    }
-                    Switch(
-                        checked = realisticPigment,
-                        onCheckedChange = onRealisticPigmentChange,
-                        modifier = Modifier.scale(0.75f),
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF64B5F6),
-                            uncheckedThumbColor = Color(0xFF888888),
-                            uncheckedTrackColor = Color(0xFF333742)
-                        )
-                    )
-                }
-            }
         }
     }
 }

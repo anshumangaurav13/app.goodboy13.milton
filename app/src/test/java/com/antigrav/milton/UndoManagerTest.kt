@@ -38,4 +38,18 @@ class UndoManagerTest {
         val decompressed = UndoManager.decompress(compressed)
         assertArrayEquals(blankTile, decompressed)
     }
+
+    @Test
+    fun testEmptyTileCapturesNullPreStrokeDelta() {
+        val undoManager = UndoManager()
+        val tile = com.antigrav.milton.core.tile.RasterTile(com.antigrav.milton.core.tile.TileCoord(0, 0))
+        org.junit.Assert.assertFalse(tile.hasContent)
+
+        undoManager.capturePreStrokeTiles(listOf(tile))
+        val tileMap = com.antigrav.milton.core.tile.TileMap()
+        undoManager.commitStroke(tileMap)
+
+        // Empty tile with no content changes must not push a command to the undo stack
+        org.junit.Assert.assertFalse(undoManager.canUndo)
+    }
 }
