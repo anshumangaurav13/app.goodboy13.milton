@@ -1,6 +1,9 @@
 package com.antigrav.milton.core.tile
 
 import android.opengl.GLES30
+import android.util.Log
+import com.antigrav.milton.core.history.UndoManager
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -17,6 +20,11 @@ class RasterTile(val coord: TileCoord) {
     var isInitialized: Boolean = false
         private set
     var isDirty: Boolean = false
+
+    var lastAccessTime: Long = System.nanoTime()
+    var hasContent: Boolean = false
+    var isOnDisk: Boolean = false
+        private set
 
     private val prevFbo = IntArray(1)
     private val prevViewport = IntArray(4)
@@ -89,6 +97,7 @@ class RasterTile(val coord: TileCoord) {
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         unbindFbo()
         isDirty = true
+        hasContent = false
     }
 
     /**
@@ -129,6 +138,77 @@ class RasterTile(val coord: TileCoord) {
         )
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
         isDirty = true
+        hasContent = true
+    }
+
+    fun ensureResident(cacheDir: File?) {
+        lastAccessTime = System.nanoTime()
+        if (isOnDisk) {
+            restoreFromDisk(cacheDir)
+        } else if (!isInitialized) {
+            initGl()
+        }
+    }
+
+    fun evictToDisk(cacheDir: File?) {
+        if (!isInitialized) return
+        if (!hasContent || cacheDir == null) {
+            releaseGl()
+            isOnDisk = false
+            return
+        }
+
+        try {
+            val raw = readPixels()
+            val compressed = UndoManager.compress(raw)
+            val swapFile = getSwapFile(cacheDir)
+            swapFile.parentFile?.mkdirs()
+            swapFile.writeBytes(compressed)
+            isOnDisk = true
+        } catch (e: Exception) {
+            Log.e("RasterTile", "Failed to evict tile $coord to disk", e)
+        } finally {
+            releaseGl()
+        }
+    }
+
+    fun restoreFromDisk(cacheDir: File?) {
+        if (!isOnDisk || cacheDir == null) {
+            if (!isInitialized) initGl()
+            return
+        }
+
+        try {
+            val swapFile = getSwapFile(cacheDir)
+            if (swapFile.exists()) {
+                val compressed = swapFile.readBytes()
+                val raw = UndoManager.decompress(compressed)
+                initGl()
+                writePixels(raw)
+                hasContent = true
+            } else {
+                initGl()
+            }
+        } catch (e: Exception) {
+            Log.e("RasterTile", "Failed to restore tile $coord from disk", e)
+            initGl()
+        } finally {
+            isOnDisk = false
+        }
+    }
+
+    fun deleteDiskSwap(cacheDir: File?) {
+        if (cacheDir != null) {
+            val swapFile = getSwapFile(cacheDir)
+            if (swapFile.exists()) {
+                swapFile.delete()
+            }
+        }
+        isOnDisk = false
+    }
+
+    private fun getSwapFile(cacheDir: File): File {
+        return File(cacheDir, "tile_${coord.tx}_${coord.ty}.bin")
     }
 
     fun releaseGl() {

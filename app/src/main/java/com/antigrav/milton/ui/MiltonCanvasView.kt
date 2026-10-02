@@ -30,7 +30,12 @@ class MiltonCanvasView @JvmOverloads constructor(
         private const val TAG = "MiltonCanvasView"
     }
 
-    val renderer = MiltonCanvasRenderer()
+    val renderer = MiltonCanvasRenderer(
+        tileMap = com.antigrav.milton.core.tile.TileMap(
+            cacheDir = context.cacheDir.resolve("milton_tile_cache"),
+            maxResidentTiles = 96
+        )
+    )
     val brushEngine = BrushEngine()
 
     private var frontBufferedRenderer: GLFrontBufferedRenderer<DabPacket>? = null

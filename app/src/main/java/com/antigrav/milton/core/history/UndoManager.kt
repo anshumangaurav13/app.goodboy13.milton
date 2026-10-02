@@ -96,12 +96,15 @@ class UndoManager(val maxHistorySize: Int = 30) {
         val command = undoStack.pop()
         for (delta in command.deltas) {
             val tile = tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
+            tile.ensureResident(tileMap.cacheDir)
             val before = delta.beforeCompressed
             if (before != null) {
                 val decompressed = decompress(before)
                 tile.writePixels(decompressed)
+                tile.hasContent = true
             } else {
                 tile.clear()
+                tile.deleteDiskSwap(tileMap.cacheDir)
             }
         }
 
@@ -120,12 +123,15 @@ class UndoManager(val maxHistorySize: Int = 30) {
         val command = redoStack.pop()
         for (delta in command.deltas) {
             val tile = tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
+            tile.ensureResident(tileMap.cacheDir)
             val after = delta.afterCompressed
             if (after != null) {
                 val decompressed = decompress(after)
                 tile.writePixels(decompressed)
+                tile.hasContent = true
             } else {
                 tile.clear()
+                tile.deleteDiskSwap(tileMap.cacheDir)
             }
         }
 

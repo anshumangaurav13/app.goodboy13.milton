@@ -196,7 +196,10 @@ class MiltonCanvasRenderer(
                 val maxTy = floor((dab.y + dab.radius) / tileSize).toInt()
                 for (ty in minTy..maxTy) {
                     for (tx in minTx..maxTx) {
-                        affectedTiles.add(tileMap.getOrCreateTile(tx, ty))
+                        val tile = tileMap.getOrCreateTile(tx, ty)
+                        tile.ensureResident(tileMap.cacheDir)
+                        tile.hasContent = true
+                        affectedTiles.add(tile)
                     }
                 }
             }
@@ -235,6 +238,9 @@ class MiltonCanvasRenderer(
                 )
             }
         }
+
+        // 4. Enforce VRAM tile budget by paging out cold, non-visible tiles to disk
+        tileMap.trimToBudget(visibleTiles)
     }
 
     private fun stampDabsIntoTiles(dabs: List<BrushDab>) {
@@ -257,6 +263,8 @@ class MiltonCanvasRenderer(
             for (ty in minTy..maxTy) {
                 for (tx in minTx..maxTx) {
                     val tile = tileMap.getOrCreateTile(tx, ty)
+                    tile.ensureResident(tileMap.cacheDir)
+                    tile.hasContent = true
                     tile.bindFbo()
 
                     val localX = dab.x - (tx * tileSize)
