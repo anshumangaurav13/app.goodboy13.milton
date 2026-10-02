@@ -10,29 +10,27 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
 
     private var lastX: Float = 0f
     private var lastY: Float = 0f
-    private var smoothedPressure: Float = 0.1f
+    private var lastPressure: Float = 0.1f
     private var distanceFromLastDab: Float = 0f
     private var isStrokeActive: Boolean = false
-
-    // EMA smoothing factor: 0.35 gives smooth, natural pressure response without latency
-    private val pressureFilter = 0.35f
 
     fun startStroke(worldX: Float, worldY: Float, pressure: Float): List<BrushDab> {
         isStrokeActive = true
         lastX = worldX
         lastY = worldY
         val clampedP = if (pressure <= 0.001f) 0.05f else pressure.coerceIn(0.01f, 1.0f)
-        smoothedPressure = clampedP
+        lastPressure = clampedP
         distanceFromLastDab = 0f
 
-        val radius = max(properties.minRadius, (properties.size * 0.5f) * smoothedPressure)
+        val radius = max(properties.minRadius, (properties.size * 0.5f) * lastPressure)
         val initialDab = BrushDab(
             x = worldX,
             y = worldY,
             radius = radius,
             alpha = properties.opacity,
             colorRgb = properties.colorRgb,
-            isEraser = properties.isEraser
+            isEraser = properties.isEraser,
+            hardness = properties.hardness
         )
         return listOf(initialDab)
     }
@@ -42,9 +40,9 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
             return startStroke(worldX, worldY, pressure)
         }
 
-        val targetP = if (pressure <= 0.001f) smoothedPressure else pressure.coerceIn(0.01f, 1.0f)
-        val prevP = smoothedPressure
-        smoothedPressure = prevP + pressureFilter * (targetP - prevP)
+        val currentPressure = if (pressure <= 0.001f) lastPressure else pressure.coerceIn(0.01f, 1.0f)
+        val prevP = lastPressure
+        lastPressure = currentPressure
 
         val dx = worldX - lastX
         val dy = worldY - lastY
@@ -56,7 +54,7 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
 
         val dabs = mutableListOf<BrushDab>()
 
-        val avgPressure = (prevP + smoothedPressure) * 0.5f
+        val avgPressure = (prevP + currentPressure) * 0.5f
         val radius = max(properties.minRadius, (properties.size * 0.5f) * avgPressure)
         val stepSize = max(0.8f, radius * properties.spacing * 2.0f)
 
@@ -67,7 +65,7 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
             val t = (d / segmentDist).coerceIn(0f, 1f)
             val ix = lastX + dx * t
             val iy = lastY + dy * t
-            val ip = prevP + (smoothedPressure - prevP) * t
+            val ip = prevP + (currentPressure - prevP) * t
             val ir = max(properties.minRadius, (properties.size * 0.5f) * ip)
 
             dabs.add(
@@ -77,7 +75,8 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
                     radius = ir,
                     alpha = properties.opacity,
                     colorRgb = properties.colorRgb,
-                    isEraser = properties.isEraser
+                    isEraser = properties.isEraser,
+                    hardness = properties.hardness
                 )
             )
             lastPlacedD = d

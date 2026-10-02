@@ -25,9 +25,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.antigrav.milton.core.brush.BrushType
 import com.antigrav.milton.ui.MiltonCanvasView
-import com.antigrav.milton.ui.MiltonToolbar
-import com.antigrav.milton.ui.PALETTE_COLORS
+import com.antigrav.milton.ui.MiltonTabletUi
+import com.antigrav.milton.ui.ARTIST_PALETTE_COLORS
 
 class MainActivity : ComponentActivity() {
 
@@ -59,12 +60,14 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme {
-                var isEraser by remember { mutableStateOf(false) }
-                var brushSize by remember { mutableFloatStateOf(12f) }
-                var brushOpacity by remember { mutableFloatStateOf(1.0f) }
-                var brushColor by remember { mutableIntStateOf(PALETTE_COLORS[0]) }
+                var brushType by remember { mutableStateOf(BrushType.PEN) }
+                var brushSize by remember { mutableFloatStateOf(canvasView.brushSize) }
+                var brushOpacity by remember { mutableFloatStateOf(canvasView.brushOpacity) }
+                var brushColor by remember { mutableIntStateOf(ARTIST_PALETTE_COLORS[0]) }
                 var canUndo by remember { mutableStateOf(false) }
                 var canRedo by remember { mutableStateOf(false) }
+                var zoomLevel by remember { mutableFloatStateOf(1.0f) }
+                var isZenMode by remember { mutableStateOf(false) }
 
                 DisposableEffect(canvasView) {
                     val handler = Handler(Looper.getMainLooper())
@@ -74,8 +77,14 @@ class MainActivity : ComponentActivity() {
                             canRedo = canvasView.renderer.undoManager.canRedo
                         }
                     }
+                    canvasView.onViewportChanged = { zoom ->
+                        handler.post {
+                            zoomLevel = zoom
+                        }
+                    }
                     onDispose {
                         canvasView.renderer.undoManager.onStateChangedListener = null
+                        canvasView.onViewportChanged = null
                     }
                 }
 
@@ -85,11 +94,13 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize()
                     )
 
-                    MiltonToolbar(
-                        isEraser = isEraser,
-                        onToggleEraser = { eraser ->
-                            isEraser = eraser
-                            canvasView.isEraserMode = eraser
+                    MiltonTabletUi(
+                        brushType = brushType,
+                        onBrushTypeChange = { type ->
+                            brushType = type
+                            canvasView.brushType = type
+                            brushSize = canvasView.brushSize
+                            brushOpacity = canvasView.brushOpacity
                         },
                         brushSize = brushSize,
                         onBrushSizeChange = { size ->
@@ -110,10 +121,10 @@ class MainActivity : ComponentActivity() {
                         onUndo = { canvasView.undo() },
                         canRedo = canRedo,
                         onRedo = { canvasView.redo() },
+                        zoomLevel = zoomLevel,
                         onResetCanvas = { canvasView.resetCanvas() },
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = 16.dp)
+                        isZenMode = isZenMode,
+                        onToggleZenMode = { isZenMode = it }
                     )
                 }
             }

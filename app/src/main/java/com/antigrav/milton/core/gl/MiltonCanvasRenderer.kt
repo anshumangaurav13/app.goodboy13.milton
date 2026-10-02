@@ -63,7 +63,7 @@ class MiltonCanvasRenderer(
 
     private var isGlInitialized = false
 
-    // Clean neutral canvas background color (Leonardo default)
+    // Clean neutral canvas background color (paper default)
     var backgroundColorRgb: Int = Color.rgb(248, 248, 247)
 
     init {
@@ -149,7 +149,7 @@ class MiltonCanvasRenderer(
                 radius = dab.radius,
                 colorRgb = dabColor,
                 alpha = dab.alpha,
-                hardness = 0.85f,
+                hardness = dab.hardness,
                 projectionMatrix = mvp
             )
         }
@@ -285,7 +285,7 @@ class MiltonCanvasRenderer(
                         radius = dab.radius,
                         colorRgb = if (dab.isEraser) 0 else dab.colorRgb,
                         alpha = dab.alpha,
-                        hardness = 0.85f,
+                        hardness = dab.hardness,
                         projectionMatrix = tileOrthoMatrix
                     )
 

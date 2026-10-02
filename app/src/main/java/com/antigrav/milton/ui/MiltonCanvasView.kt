@@ -61,6 +61,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                 zoomFactor, angleDelta
             )
             frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+            post { onViewportChanged?.invoke(renderer.viewport.zoom) }
         }
 
         override fun onGestureStart() {
@@ -85,10 +86,30 @@ class MiltonCanvasView @JvmOverloads constructor(
         }
     })
 
+    var onViewportChanged: ((zoom: Float) -> Unit)? = null
+
+    val currentZoom: Float
+        get() = renderer.viewport.zoom
+
+    var brushType: com.antigrav.milton.core.brush.BrushType
+        get() = brushEngine.properties.brushType
+        set(value) {
+            brushEngine.properties.applyPreset(value)
+            isEraserMode = (value == com.antigrav.milton.core.brush.BrushType.ERASER)
+        }
+
     var isEraserMode: Boolean = false
         set(value) {
             field = value
-            brushEngine.properties.isEraser = value
+            if (value) {
+                if (brushEngine.properties.brushType != com.antigrav.milton.core.brush.BrushType.ERASER) {
+                    brushEngine.properties.applyPreset(com.antigrav.milton.core.brush.BrushType.ERASER)
+                }
+            } else {
+                if (brushEngine.properties.brushType == com.antigrav.milton.core.brush.BrushType.ERASER) {
+                    brushEngine.properties.applyPreset(com.antigrav.milton.core.brush.BrushType.PEN)
+                }
+            }
         }
 
     var brushSize: Float
@@ -123,6 +144,7 @@ class MiltonCanvasView @JvmOverloads constructor(
     fun resetCanvas() {
         renderer.viewport.reset()
         frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+        post { onViewportChanged?.invoke(renderer.viewport.zoom) }
     }
 
     override fun onAttachedToWindow() {
@@ -147,6 +169,7 @@ class MiltonCanvasView @JvmOverloads constructor(
             renderer.viewport.reset()
         }
         frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+        post { onViewportChanged?.invoke(renderer.viewport.zoom) }
         Log.i(TAG, "onSizeChanged: width=$w, height=$h")
     }
 
