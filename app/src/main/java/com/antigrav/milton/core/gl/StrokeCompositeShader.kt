@@ -6,27 +6,23 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * High-performance GPU shader for stamping circular anti-aliased brush dabs.
- * Supports programmable GL_EXT_shader_framebuffer_fetch with realistic subtractive
- * Oklab pigment mixing (translucent blue glazed over yellow produces green).
- * Gracefully falls back to standard blending if framebuffer fetch is unavailable.
+ * High-performance GPU shader that composites an accumulated stroke ribbon from a 512x512
+ * scratch FBO onto a destination tile FBO in a single pass.
+ *
+ * This guarantees:
+ * 1. ZERO scallop rings across the stroke (the stroke ribbon is fully assembled before compositing).
+ * 2. ZERO compounding absorption in Kubelka-Munk mode (mixing between existing paint and the stroke
+ *    ribbon is evaluated exactly once per pixel, exactly like a single physical brush stroke).
  */
-class DabShader {
+class StrokeCompositeShader {
 
     private var programId: Int = 0
     private var vaoId: Int = 0
     private var vboId: Int = 0
 
-    private var uProjectionLoc: Int = -1
-    private var uCenterLoc: Int = -1
-    private var uRadiusLoc: Int = -1
-    private var uColorLoc: Int = -1
-    private var uHardnessLoc: Int = -1
-    private var uBrushModeLoc: Int = -1
-    private var uPressureLoc: Int = -1
-    private var uWorldOffsetLoc: Int = -1
-    private var uIsEraserLoc: Int = -1
+    private var uStrokeTextureLoc: Int = -1
     private var uPigmentMixingLoc: Int = -1
+    private var uBrushModeLoc: Int = -1
 
     var usesFramebufferFetch: Boolean = false
         private set
@@ -35,53 +31,24 @@ class DabShader {
         val vertexShaderCode = """
             #version 300 es
             layout(location = 0) in vec2 aPosition; // Unit quad [-1..1, -1..1]
-            uniform mat4 uProjection;
-            uniform vec2 uCenter;
-            uniform float uRadius;
-            uniform vec2 uWorldOffset;
-            out vec2 vLocalCoord;
-            out vec2 vWorldPos;
+            out vec2 vTexCoord;
             void main() {
-                vLocalCoord = aPosition;
-                vec2 worldPos = uCenter + aPosition * uRadius;
-                vWorldPos = uWorldOffset + worldPos;
-                gl_Position = uProjection * vec4(worldPos, 0.0, 1.0);
+                vTexCoord = (aPosition + vec2(1.0)) * 0.5;
+                gl_Position = vec4(aPosition, 0.0, 1.0);
             }
         """.trimIndent()
 
-        // 1. High-fidelity fragment shader with GL_EXT_shader_framebuffer_fetch + Oklab pigment mixing
         val fragmentShaderCodeFetch = """
             #version 300 es
             #extension GL_EXT_shader_framebuffer_fetch : require
             precision highp float;
-            in vec2 vLocalCoord;
-            in vec2 vWorldPos;
+            in vec2 vTexCoord;
 
-            uniform vec4 uColor;
-            uniform float uHardness;
-            uniform int uBrushMode; // 0 = Pen, 1 = Pencil, 2 = Paintbrush
-            uniform float uPressure;
-            uniform int uIsEraser;
+            uniform sampler2D uStrokeTexture;
             uniform int uPigmentMixing; // 1 = Kubelka-Munk enabled, 0 = standard blending
+            uniform int uBrushMode;     // 2 = Paintbrush
 
             layout(location = 0) inout vec4 fragColor;
-
-            float hash(vec2 p) {
-                vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-                p3 += dot(p3, p3.yzx + 33.33);
-                return fract((p3.x + p3.y) * p3.z);
-            }
-
-            float paperTooth(vec2 p) {
-                vec2 i = floor(p);
-                vec2 f = fract(p);
-                f = f * f * (3.0 - 2.0 * f);
-                float a = hash(i);
-                float b = hash(i + vec2(1.0, 0.0));
-                float c = hash(i + vec2(0.0, 1.0));
-                float d = hash(i + vec2(1.0, 1.0));
-                return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-            }
 
             // --- Full 38-Band Kubelka-Munk Spectral Pigment Mixing ---
             const int SPECTRAL_SIZE = 38;
@@ -178,44 +145,44 @@ class DabShader {
                 xyz += R[ 7] * vec3(0.0372237901162006, 0.0042073290434730, 0.1962065755586570);
                 xyz += R[ 8] * vec3(0.0324183761091486, 0.0066887983719014, 0.1860823707062960);
                 xyz += R[ 9] * vec3(0.0212332056093810, 0.0098883960193565, 0.1399504753832070);
-                xyz += R[10] * vec3(0.0104909907685421, 0.0152494514496311, 0.0891745294268649);
-                xyz += R[11] * vec3(0.0032958375797931, 0.0214183109449723, 0.0478962113517075);
-                xyz += R[12] * vec3(0.0005070351633801, 0.0334229301575068, 0.0281456253957952);
-                xyz += R[13] * vec3(0.0009486742057141, 0.0513100134918512, 0.0161376622950514);
-                xyz += R[14] * vec3(0.0062737180998318, 0.0704020839399490, 0.0077591019215214);
-                xyz += R[15] * vec3(0.0168646241897775, 0.0878387072603517, 0.0042961483736618);
-                xyz += R[16] * vec3(0.0286896490259810, 0.0942490536184085, 0.0020055092122156);
-                xyz += R[17] * vec3(0.0426748124691731, 0.0979566702718931, 0.0008614711098802);
-                xyz += R[18] * vec3(0.0562547481311377, 0.0941521856862608, 0.0003690387177652);
-                xyz += R[19] * vec3(0.0694703972677158, 0.0867810237486753, 0.0001914287288574);
-                xyz += R[20] * vec3(0.0830531516998291, 0.0788565338632013, 0.0001495555858975);
-                xyz += R[21] * vec3(0.0861260963002257, 0.0635267026203555, 0.0000923109285104);
-                xyz += R[22] * vec3(0.0904661376847769, 0.0537414167568200, 0.0000681349182337);
-                xyz += R[23] * vec3(0.0850038650591277, 0.0426460643574120, 0.0000288263655696);
-                xyz += R[24] * vec3(0.0709066691074488, 0.0316173492792708, 0.0000157671820553);
-                xyz += R[25] * vec3(0.0506288916373645, 0.0208852059213910, 0.0000039406041027);
-                xyz += R[26] * vec3(0.0354739618852640, 0.0138601101360152, 0.0000015840125870);
-                xyz += R[27] * vec3(0.0214682102597065, 0.0081026402038399, 0.0000000000000000);
-                xyz += R[28] * vec3(0.0125164567619117, 0.0046301022588030, 0.0000000000000000);
-                xyz += R[29] * vec3(0.0068045816390165, 0.0024913800051319, 0.0000000000000000);
-                xyz += R[30] * vec3(0.0034645657946526, 0.0012593033677378, 0.0000000000000000);
-                xyz += R[31] * vec3(0.0014976097506959, 0.0005416465221680, 0.0000000000000000);
-                xyz += R[32] * vec3(0.0007697004809280, 0.0002779528920067, 0.0000000000000000);
-                xyz += R[33] * vec3(0.0004073680581315, 0.0001471080673854, 0.0000000000000000);
-                xyz += R[34] * vec3(0.0001690104031614, 0.0000610327472927, 0.0000000000000000);
-                xyz += R[35] * vec3(0.0000952245150365, 0.0000343873229523, 0.0000000000000000);
-                xyz += R[36] * vec3(0.0000490309872958, 0.0000177059860053, 0.0000000000000000);
-                xyz += R[37] * vec3(0.0000199961492222, 0.0000072209749130, 0.0000000000000000);
+                xyz += R[10] * vec3(0.0087652758169608, 0.0139972740263435, 0.0827299099834162);
+                xyz += R[11] * vec3(0.0023605701859666, 0.0207797746197171, 0.0404396092055745);
+                xyz += R[12] * vec3(0.0003299710373024, 0.0327318047029517, 0.0157147775986873);
+                xyz += R[13] * vec3(0.0001712869408428, 0.0527533816654877, 0.0053982468307421);
+                xyz += R[14] * vec3(0.0023901764653606, 0.0818817296009825, 0.0020616183955611);
+                xyz += R[15] * vec3(0.0091386705574885, 0.1194951475727930, 0.0010461876537617);
+                xyz += R[16] * vec3(0.0223784136453916, 0.1633527218685040, 0.0004945326532454);
+                xyz += R[17] * vec3(0.0428989531586521, 0.2078028798150490, 0.0001851210452317);
+                xyz += R[18] * vec3(0.0712716174415891, 0.2454641618671400, 0.0000344400717203);
+                xyz += R[19] * vec3(0.1064843468593450, 0.2694765471410940, 0.0000000000000000);
+                xyz += R[20] * vec3(0.1447035619379890, 0.2725916327072480, 0.0000000000000000);
+                xyz += R[21] * vec3(0.1793740901247070, 0.2523270921473950, 0.0000000000000000);
+                xyz += R[22] * vec3(0.2016629851608220, 0.2109867990184420, 0.0000000000000000);
+                xyz += R[23] * vec3(0.2036737525287700, 0.1585257922240900, 0.0000000000000000);
+                xyz += R[24] * vec3(0.1804245648509370, 0.1070851833075240, 0.0000000000000000);
+                xyz += R[25] * vec3(0.1384074219430260, 0.0638573212876939, 0.0000000000000000);
+                xyz += R[26] * vec3(0.0924976735105658, 0.0340327318721111, 0.0000000000000000);
+                xyz += R[27] * vec3(0.0538805562776361, 0.0163359300588975, 0.0000000000000000);
+                xyz += R[28] * vec3(0.0275841028710328, 0.0070624021703279, 0.0000000000000000);
+                xyz += R[29] * vec3(0.0125860252516757, 0.0027672202613134, 0.0000000000000000);
+                xyz += R[30] * vec3(0.0050868461324835, 0.0009971033036611, 0.0000000000000000);
+                xyz += R[31] * vec3(0.0018868688463200, 0.0003366835261899, 0.0000000000000000);
+                xyz += R[32] * vec3(0.0006504257850239, 0.0001090547796989, 0.0000000000000000);
+                xyz += R[33] * vec3(0.0002166562092147, 0.0000350410766155, 0.0000000000000000);
+                xyz += R[34] * vec3(0.0000693510007802, 0.0000109159074061, 0.0000000000000000);
+                xyz += R[35] * vec3(0.0000215739343714, 0.0000033481267425, 0.0000000000000000);
+                xyz += R[36] * vec3(0.0000066164479532, 0.0000010185966567, 0.0000000000000000);
+                xyz += R[37] * vec3(0.0000020162002599, 0.0000003087265977, 0.0000000000000000);
                 return xyz;
             }
 
             float KS(float R) {
                 float clampedR = clamp(R, 0.008, 0.999);
-                return ((1.0 - clampedR) * (1.0 - clampedR)) / (2.0 * clampedR);
+                return (1.0 - clampedR) * (1.0 - clampedR) / (2.0 * clampedR);
             }
 
-            float KM(float ks) {
-                return 1.0 + ks - sqrt(ks * ks + 2.0 * ks);
+            float KM(float ksVal) {
+                return 1.0 + ksVal - sqrt(ksVal * ksVal + 2.0 * ksVal);
             }
 
             vec3 spectral_mix(vec3 color1, vec3 color2, float factor) {
@@ -255,171 +222,67 @@ class DabShader {
             }
 
             void main() {
-                float dist = length(vLocalCoord);
-                if (dist > 1.0) {
-                    discard;
-                }
-
-                float dabAlpha = 0.0;
-                if (uBrushMode == 1) {
-                    // Pencil: soft edge + paper tooth bite
-                    float edge = smoothstep(1.0, 0.15, dist);
-                    float t1 = paperTooth(vWorldPos * 0.70);
-                    float t2 = paperTooth(vWorldPos * 1.65);
-                    float t3 = paperTooth(vWorldPos * 3.60);
-                    float fineGrain = hash(floor(vWorldPos * 2.4));
-                    float tooth = t1 * 0.40 + t2 * 0.35 + t3 * 0.25;
-                    tooth = mix(tooth, fineGrain, 0.18);
-
-                    float threshold = mix(0.56, 0.18, clamp(uPressure, 0.0, 1.0));
-                    float toothBite = smoothstep(threshold - 0.18, threshold + 0.22, tooth);
-                    dabAlpha = edge * toothBite * uColor.a;
-                } else if (uBrushMode == 2) {
-                    // Paintbrush: smooth soft feathered edge
-                    float edge = smoothstep(1.0, uHardness, dist);
-                    dabAlpha = edge * uColor.a;
-                } else {
-                    // Pen / Eraser: firm anti-aliased edge
-                    dabAlpha = smoothstep(1.0, uHardness, dist) * uColor.a;
-                }
-
-                if (dabAlpha <= 0.001) {
+                vec4 stroke = texture(uStrokeTexture, vTexCoord);
+                if (stroke.a <= 0.001) {
                     discard;
                 }
 
                 vec4 dst = fragColor;
 
-                // Eraser mode directly attenuates tile
-                if (uIsEraser == 1) {
-                    fragColor = dst * (1.0 - dabAlpha);
+                // If destination tile pixel is transparent, directly stamp the stroke
+                if (dst.a <= 0.001) {
+                    fragColor = stroke;
                     return;
                 }
 
-                vec3 srcColor = uColor.rgb;
+                float strokeAlpha = stroke.a;
+                vec3 strokeRgb = stroke.rgb / max(strokeAlpha, 0.001);
+                float dstAlpha = dst.a;
+                vec3 dstRgb = dst.rgb / max(dstAlpha, 0.001);
 
-                // Empty tile pixel: direct premultiplied stamp
-                if (dst.a <= 0.002) {
-                    fragColor = vec4(srcColor * dabAlpha, dabAlpha);
-                    return;
-                }
+                float outAlpha = dstAlpha + strokeAlpha * (1.0 - dstAlpha);
 
-                // Check if destination pixel was already painted with the current stroke's color.
-                // Cross-multiplication test (|dst.rgb - srcColor * dst.a|) avoids 8-bit division noise at feathered edges.
-                vec3 premulExpected = srcColor * dst.a;
-                vec3 colorDiff = abs(dst.rgb - premulExpected);
-                bool isSameStrokeColor = all(lessThan(colorDiff, vec3(0.035)));
-
-                float outAlpha = dst.a + dabAlpha * (1.0 - dst.a);
-
-                if (isSameStrokeColor) {
-                    // Intra-stroke accumulation: smooth continuous stroke geometry with zero scallop rings
-                    fragColor = vec4(srcColor * outAlpha, outAlpha);
-                    return;
-                }
-
-                // Painting over existing paint of a different color:
                 if (uPigmentMixing == 1 && uBrushMode == 2) {
-                    // Realistic Kubelka-Munk pigment mixing for Paintbrush
-                    vec3 dstColor = clamp(dst.rgb / max(dst.a, 0.001), 0.0, 1.0);
-                    float factor = clamp(dabAlpha / max(dst.a * 0.65 + dabAlpha, 0.001), 0.0, 1.0);
-                    vec3 mixed = spectral_mix(dstColor, srcColor, factor);
+                    // Single-pass Kubelka-Munk spectral mixing evaluated once across the stroke ribbon
+                    float factor = clamp(strokeAlpha / max(dstAlpha * 0.75 + strokeAlpha, 0.001), 0.0, 1.0);
+                    vec3 mixed = spectral_mix(dstRgb, strokeRgb, factor);
                     fragColor = vec4(mixed * outAlpha, outAlpha);
                 } else {
-                    // Standard Porter-Duff Over digital art blending (for Pen, Pencil, or Paintbrush with toggle off)
-                    vec3 outPremul = srcColor * dabAlpha + dst.rgb * (1.0 - dabAlpha);
+                    // Single-pass Porter-Duff Over optical blending evaluated once across the stroke ribbon
+                    vec3 outPremul = strokeRgb * strokeAlpha + dst.rgb * (1.0 - strokeAlpha);
                     fragColor = vec4(clamp(outPremul, 0.0, 1.0), clamp(outAlpha, 0.0, 1.0));
                 }
             }
         """.trimIndent()
 
-        // 2. Standard fallback fragment shader without framebuffer fetch
         val fragmentShaderCodeFallback = """
             #version 300 es
             precision highp float;
-            in vec2 vLocalCoord;
-            in vec2 vWorldPos;
-
-            uniform vec4 uColor;
-            uniform float uHardness;
-            uniform int uBrushMode;
-            uniform float uPressure;
-            uniform int uIsEraser;
-
+            in vec2 vTexCoord;
+            uniform sampler2D uStrokeTexture;
             out vec4 fragColor;
-
-            float hash(vec2 p) {
-                vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-                p3 += dot(p3, p3.yzx + 33.33);
-                return fract((p3.x + p3.y) * p3.z);
-            }
-
-            float paperTooth(vec2 p) {
-                vec2 i = floor(p);
-                vec2 f = fract(p);
-                f = f * f * (3.0 - 2.0 * f);
-                float a = hash(i);
-                float b = hash(i + vec2(1.0, 0.0));
-                float c = hash(i + vec2(0.0, 1.0));
-                float d = hash(i + vec2(1.0, 1.0));
-                return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-            }
-
             void main() {
-                float dist = length(vLocalCoord);
-                if (dist > 1.0) {
-                    discard;
-                }
-
-                float dabAlpha = 0.0;
-                if (uBrushMode == 1) {
-                    float edge = smoothstep(1.0, 0.15, dist);
-                    float t1 = paperTooth(vWorldPos * 0.70);
-                    float t2 = paperTooth(vWorldPos * 1.65);
-                    float t3 = paperTooth(vWorldPos * 3.60);
-                    float fineGrain = hash(floor(vWorldPos * 2.4));
-                    float tooth = t1 * 0.40 + t2 * 0.35 + t3 * 0.25;
-                    tooth = mix(tooth, fineGrain, 0.18);
-
-                    float threshold = mix(0.56, 0.18, clamp(uPressure, 0.0, 1.0));
-                    float toothBite = smoothstep(threshold - 0.18, threshold + 0.22, tooth);
-                    dabAlpha = edge * toothBite * uColor.a;
-                } else if (uBrushMode == 2) {
-                    float edge = smoothstep(1.0, uHardness, dist);
-                    dabAlpha = edge * uColor.a;
-                } else {
-                    dabAlpha = smoothstep(1.0, uHardness, dist) * uColor.a;
-                }
-
-                if (dabAlpha <= 0.001) {
-                    discard;
-                }
-
-                fragColor = vec4(uColor.rgb * dabAlpha, dabAlpha);
+                vec4 stroke = texture(uStrokeTexture, vTexCoord);
+                if (stroke.a <= 0.001) discard;
+                fragColor = stroke;
             }
         """.trimIndent()
 
         programId = GlUtils.tryCreateProgram(vertexShaderCode, fragmentShaderCodeFetch)
         if (programId != 0) {
             usesFramebufferFetch = true
-            Log.i("DabShader", "Initialized with GL_EXT_shader_framebuffer_fetch Oklab pigment mixing")
+            Log.i("StrokeCompositeShader", "Initialized with GL_EXT_shader_framebuffer_fetch")
         } else {
             programId = GlUtils.createProgram(vertexShaderCode, fragmentShaderCodeFallback)
             usesFramebufferFetch = false
-            Log.i("DabShader", "Initialized with standard fallback shader")
+            Log.i("StrokeCompositeShader", "Initialized with standard fallback shader")
         }
 
-        uProjectionLoc = GLES30.glGetUniformLocation(programId, "uProjection")
-        uCenterLoc = GLES30.glGetUniformLocation(programId, "uCenter")
-        uRadiusLoc = GLES30.glGetUniformLocation(programId, "uRadius")
-        uColorLoc = GLES30.glGetUniformLocation(programId, "uColor")
-        uHardnessLoc = GLES30.glGetUniformLocation(programId, "uHardness")
-        uBrushModeLoc = GLES30.glGetUniformLocation(programId, "uBrushMode")
-        uPressureLoc = GLES30.glGetUniformLocation(programId, "uPressure")
-        uWorldOffsetLoc = GLES30.glGetUniformLocation(programId, "uWorldOffset")
-        uIsEraserLoc = GLES30.glGetUniformLocation(programId, "uIsEraser")
+        uStrokeTextureLoc = GLES30.glGetUniformLocation(programId, "uStrokeTexture")
         uPigmentMixingLoc = GLES30.glGetUniformLocation(programId, "uPigmentMixing")
+        uBrushModeLoc = GLES30.glGetUniformLocation(programId, "uBrushMode")
 
-        // Setup static Unit Quad in VBO + VAO
+        // Setup static Unit Quad covering NDC [-1..1, -1..1]
         val vaos = IntArray(1)
         GLES30.glGenVertexArrays(1, vaos, 0)
         vaoId = vaos[0]
@@ -450,54 +313,35 @@ class DabShader {
 
         GLES30.glBindVertexArray(0)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
-
-        val err = GLES30.glGetError()
-        if (err != GLES30.GL_NO_ERROR) {
-            Log.e("DabShader", "GL error during DabShader.initGl(): $err")
-        }
     }
 
-    fun renderDab(
-        centerX: Float,
-        centerY: Float,
-        radius: Float,
-        colorRgb: Int,
-        alpha: Float,
-        hardness: Float,
-        brushMode: Int = 0,
-        pressure: Float = 0.5f,
-        worldOffsetX: Float = 0f,
-        worldOffsetY: Float = 0f,
-        projectionMatrix: FloatArray,
-        isEraser: Boolean = false,
-        pigmentMixing: Boolean = false
-    ) {
+    fun render(strokeTextureId: Int, brushMode: Int, pigmentMixing: Boolean) {
         if (programId == 0) return
 
         GLES30.glUseProgram(programId)
 
-        GLES30.glUniformMatrix4fv(uProjectionLoc, 1, false, projectionMatrix, 0)
-        GLES30.glUniform2f(uCenterLoc, centerX, centerY)
-        GLES30.glUniform1f(uRadiusLoc, radius)
-        GLES30.glUniform2f(uWorldOffsetLoc, worldOffsetX, worldOffsetY)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, strokeTextureId)
+        GLES30.glUniform1i(uStrokeTextureLoc, 0)
 
-        val red = ((colorRgb shr 16) and 0xFF) / 255.0f
-        val green = ((colorRgb shr 8) and 0xFF) / 255.0f
-        val blue = (colorRgb and 0xFF) / 255.0f
-        GLES30.glUniform4f(uColorLoc, red, green, blue, alpha)
-        GLES30.glUniform1f(uHardnessLoc, hardness.coerceIn(0.01f, 0.99f))
         GLES30.glUniform1i(uBrushModeLoc, brushMode)
-        GLES30.glUniform1f(uPressureLoc, pressure.coerceIn(0.01f, 1.0f))
-        if (uIsEraserLoc != -1) {
-            GLES30.glUniform1i(uIsEraserLoc, if (isEraser) 1 else 0)
-        }
-        if (uPigmentMixingLoc != -1) {
-            GLES30.glUniform1i(uPigmentMixingLoc, if (pigmentMixing && brushMode == 2) 1 else 0)
+        GLES30.glUniform1i(uPigmentMixingLoc, if (pigmentMixing && brushMode == 2) 1 else 0)
+
+        if (usesFramebufferFetch) {
+            GLES30.glDisable(GLES30.GL_BLEND)
+        } else {
+            GLES30.glEnable(GLES30.GL_BLEND)
+            GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
         }
 
         GLES30.glBindVertexArray(vaoId)
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)
         GLES30.glBindVertexArray(0)
+
+        if (usesFramebufferFetch) {
+            GLES30.glEnable(GLES30.GL_BLEND)
+        }
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
     }
 
     fun releaseGl() {
