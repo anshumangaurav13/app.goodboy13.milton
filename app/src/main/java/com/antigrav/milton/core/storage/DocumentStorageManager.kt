@@ -250,6 +250,9 @@ class DocumentStorageManager(private val context: Context) {
         val layerManager = renderer.layerManager
         val viewport = renderer.viewport
 
+        // 0. Drain any uncommitted dabs
+        renderer.clearPendingDabs()
+
         // 1. Restore background color
         canvasView.backgroundColorRgb = metadata.backgroundColorRgb
         renderer.backgroundColorRgb = metadata.backgroundColorRgb
@@ -261,22 +264,18 @@ class DocumentStorageManager(private val context: Context) {
         viewport.rotationDegrees = metadata.viewportRotation
         viewport.isFlippedHorizontally = metadata.isFlippedHorizontally
 
-        // 3. Clear existing layers
-        while (layerManager.canDeleteLayer()) {
-            layerManager.deleteLayer(layerManager.layers.last().id)
-        }
+        // 3. Clear all old layers and tiles completely
+        layerManager.resetToSingleLayer(renderer)
         val baseLayer = layerManager.layers.first()
 
-        // 4. Reconstruct layer stack
+        // 4. Reconstruct layer stack if metadata has layers
         if (metadata.layers.isNotEmpty()) {
-            // Reconfigure base layer with descriptor 0
             val firstDesc = metadata.layers[0]
             baseLayer.name = firstDesc.name
             baseLayer.opacity = firstDesc.opacity
             baseLayer.isVisible = firstDesc.isVisible
             restoreLayerTiles(baseLayer, firstDesc, sourceTilesDir)
 
-            // Add remaining layers
             for (i in 1 until metadata.layers.size) {
                 val desc = metadata.layers[i]
                 val newLayer = layerManager.addLayer(name = desc.name, insertAboveActive = false)
@@ -289,9 +288,17 @@ class DocumentStorageManager(private val context: Context) {
         }
 
         // 5. Select active layer and clear undo history
-        layerManager.selectLayer(metadata.activeLayerId)
+        val targetActiveId = if (layerManager.layers.any { it.id == metadata.activeLayerId }) {
+            metadata.activeLayerId
+        } else {
+            baseLayer.id
+        }
+        layerManager.selectLayer(targetActiveId)
         renderer.undoManager.clear()
         canvasView.requestRedraw()
+        canvasView.post {
+            canvasView.onViewportChanged?.invoke(viewport.zoom, viewport.rotationDegrees)
+        }
     }
 
     private fun restoreLayerTiles(
@@ -565,6 +572,15 @@ class DocumentStorageManager(private val context: Context) {
             viewportRotation = 0f,
             isFlippedHorizontally = false,
             activeLayerId = 1L
+        )
+        newMeta.layers.add(
+            LayerDescriptor(
+                id = 1L,
+                name = "Layer 1",
+                opacity = 1.0f,
+                isVisible = true,
+                tiles = emptyList()
+            )
         )
         autosaveManifestFile.writeText(newMeta.toJson())
 

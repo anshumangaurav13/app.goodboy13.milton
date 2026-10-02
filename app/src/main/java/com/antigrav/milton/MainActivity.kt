@@ -451,6 +451,8 @@ class MainActivity : ComponentActivity() {
                                         zoomLevel = newMeta.viewportZoom
                                         rotationDegrees = newMeta.viewportRotation
                                         isCanvasFlipped = newMeta.isFlippedHorizontally
+                                        canUndo = false
+                                        canRedo = false
                                         refreshProjectMetrics()
                                         Toast.makeText(this@MainActivity, "Created new project", Toast.LENGTH_SHORT).show()
                                     }
@@ -481,6 +483,8 @@ class MainActivity : ComponentActivity() {
                                         zoomLevel = loaded.viewportZoom
                                         rotationDegrees = loaded.viewportRotation
                                         isCanvasFlipped = loaded.isFlippedHorizontally
+                                        canUndo = false
+                                        canRedo = false
                                         refreshProjectMetrics()
                                         Toast.makeText(this@MainActivity, "Loaded '${loaded.title}'", Toast.LENGTH_SHORT).show()
                                     }
@@ -550,6 +554,8 @@ class MainActivity : ComponentActivity() {
                                                 zoomLevel = newMeta.viewportZoom
                                                 rotationDegrees = newMeta.viewportRotation
                                                 isCanvasFlipped = newMeta.isFlippedHorizontally
+                                                canUndo = false
+                                                canRedo = false
                                                 refreshProjectMetrics()
                                                 Toast.makeText(this@MainActivity, "Saved and created new project", Toast.LENGTH_SHORT).show()
                                             }
@@ -578,6 +584,8 @@ class MainActivity : ComponentActivity() {
                                                     zoomLevel = newMeta.viewportZoom
                                                     rotationDegrees = newMeta.viewportRotation
                                                     isCanvasFlipped = newMeta.isFlippedHorizontally
+                                                    canUndo = false
+                                                    canRedo = false
                                                     refreshProjectMetrics()
                                                     Toast.makeText(this@MainActivity, "Created new project", Toast.LENGTH_SHORT).show()
                                                 }

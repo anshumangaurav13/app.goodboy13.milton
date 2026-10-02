@@ -199,6 +199,19 @@ class LayerManager(
         }
     }
 
+    fun resetToSingleLayer(renderer: com.antigrav.milton.core.gl.MiltonCanvasRenderer? = null) {
+        for (layer in _layers) {
+            layer.tileMap.clearTiles(renderer)
+        }
+        _layers.clear()
+        layerNameCounter = 1
+        val firstLayer = createLayerInstance("Layer 1")
+        _layers.add(firstLayer)
+        activeLayerId = firstLayer.id
+        structuralRevision++
+        notifyChanged()
+    }
+
     fun releaseAll() {
         for (layer in _layers) {
             layer.tileMap.releaseAll()

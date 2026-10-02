@@ -95,6 +95,24 @@ class TileMap(
         }
     }
 
+    fun clearTiles(renderer: com.antigrav.milton.core.gl.MiltonCanvasRenderer? = null) {
+        val oldTiles = tiles.values.toList()
+        for (tile in oldTiles) {
+            tile.hasContent = false
+            tile.deleteDiskSwap(cacheDir)
+        }
+        tiles.clear()
+        cacheDir?.deleteRecursively()
+        cacheDir?.mkdirs()
+        if (renderer != null) {
+            renderer.runOnGlThread {
+                for (tile in oldTiles) {
+                    tile.releaseGl()
+                }
+            }
+        }
+    }
+
     fun releaseAll() {
         for (tile in tiles.values) {
             tile.releaseGl()

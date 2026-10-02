@@ -61,6 +61,11 @@ class MiltonCanvasRenderer(
     private val pendingTrimBudget = AtomicBoolean(false)
     private val pendingStrokeFinished = AtomicBoolean(false)
     private val pendingColorPick = java.util.concurrent.atomic.AtomicReference<android.graphics.PointF?>()
+    val pendingGlTasks = ConcurrentLinkedQueue<() -> Unit>()
+
+    fun runOnGlThread(block: () -> Unit) {
+        pendingGlTasks.add(block)
+    }
 
     var onLayerThumbnailUpdated: ((layerId: Long, bitmap: android.graphics.Bitmap?) -> Unit)? = null
     var onColorPicked: ((Int) -> Unit)? = null
@@ -247,6 +252,16 @@ class MiltonCanvasRenderer(
     ) {
         ensureGlInitialized()
         viewport.updateScreenSize(width, height)
+
+        // Drain any pending GL tasks
+        while (true) {
+            val task = pendingGlTasks.poll() ?: break
+            try {
+                task()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error executing GL task", e)
+            }
+        }
 
         // 0. Handle requested undo / redo on the GL thread
         var undos = pendingUndoCount.getAndSet(0)
