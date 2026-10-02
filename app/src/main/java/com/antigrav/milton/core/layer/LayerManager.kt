@@ -111,6 +111,49 @@ class LayerManager(
         return true
     }
 
+    fun removeLayer(layerId: Long): Layer? {
+        val layerToDelete = _layers.find { it.id == layerId } ?: return null
+        val index = _layers.indexOf(layerToDelete)
+        _layers.remove(layerToDelete)
+        if (activeLayerId == layerId && _layers.isNotEmpty()) {
+            val newActiveIndex = index.coerceAtMost(_layers.size - 1)
+            activeLayerId = _layers[newActiveIndex].id
+        }
+        notifyChanged()
+        return layerToDelete
+    }
+
+    fun restoreLayer(
+        id: Long,
+        name: String,
+        opacity: Float,
+        isVisible: Boolean,
+        storageIndex: Int,
+        thumbnail: Bitmap?
+    ): Layer {
+        val layerCacheDir = cacheBaseDir?.resolve("layer_$id")
+        val tileMap = TileMap(cacheDir = layerCacheDir, maxResidentTiles = maxResidentTilesPerLayer)
+        val layer = Layer(
+            id = id,
+            initialName = name,
+            initialOpacity = opacity,
+            initialIsVisible = isVisible,
+            tileMap = tileMap
+        )
+        layer.thumbnailBitmap = thumbnail
+        val insertIdx = storageIndex.coerceIn(0, _layers.size)
+        _layers.add(insertIdx, layer)
+        if (id >= nextLayerId) {
+            nextLayerId = id + 1
+        }
+        notifyChanged()
+        return layer
+    }
+
+    fun notifyThumbnailsChanged() {
+        structuralRevision++
+    }
+
     fun selectLayer(layerId: Long) {
         if (_layers.any { it.id == layerId }) {
             activeLayerId = layerId

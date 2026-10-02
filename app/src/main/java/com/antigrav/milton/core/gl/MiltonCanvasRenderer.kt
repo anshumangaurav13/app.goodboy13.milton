@@ -12,8 +12,12 @@ import com.antigrav.milton.core.layer.LayerManager
 import com.antigrav.milton.core.tile.RasterTile
 import com.antigrav.milton.core.tile.TileCoord
 import com.antigrav.milton.core.tile.TileMap
+import com.antigrav.milton.core.history.DeleteLayerCommand
+import com.antigrav.milton.core.history.StrokeCommand
+import com.antigrav.milton.core.history.TileDelta
 import com.antigrav.milton.core.history.UndoManager
 import com.antigrav.milton.core.viewport.Viewport
+import com.antigrav.milton.ui.MiltonCanvasView
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -537,6 +541,84 @@ class MiltonCanvasRenderer(
                 tile.unbindFbo()
             }
         }
+    }
+
+    fun deleteLayer(canvasView: MiltonCanvasView, layerId: Long) {
+        if (!layerManager.canDeleteLayer()) return
+        runOnGlThread {
+            val layer = layerManager.getLayer(layerId) ?: return@runOnGlThread
+            val storageIndex = layerManager.layers.indexOf(layer)
+            val name = layer.name
+            val opacity = layer.opacity
+            val isVisible = layer.isVisible
+            val activeBefore = layerManager.activeLayerId
+            val thumbnail = layer.thumbnailBitmap
+
+            val tilesSnapshot = mutableMapOf<TileCoord, ByteArray>()
+            val tiles = layer.tileMap.getAllTiles()
+            for (tile in tiles) {
+                if (tile.hasContent) {
+                    tile.ensureResident(layer.tileMap.cacheDir)
+                    val raw = tile.readPixels()
+                    tilesSnapshot[tile.coord] = UndoManager.compress(raw)
+                }
+            }
+
+            layer.tileMap.releaseAll()
+            layerManager.removeLayer(layerId)
+
+            undoManager.pushCustomCommand(
+                DeleteLayerCommand(
+                    layerId = layerId,
+                    layerName = name,
+                    layerOpacity = opacity,
+                    layerIsVisible = isVisible,
+                    storageIndex = storageIndex,
+                    activeLayerIdBefore = activeBefore,
+                    tilesSnapshot = tilesSnapshot,
+                    thumbnailBitmap = thumbnail
+                )
+            )
+
+            val clearedDeltas = tilesSnapshot.map { (coord, _) ->
+                TileDelta(layerId, coord, null, null)
+            }
+            undoManager.onTilesCommittedListener?.invoke(clearedDeltas)
+
+            canvasView.post {
+                canvasView.requestRedraw()
+            }
+        }
+        canvasView.requestRedraw()
+    }
+
+    fun clearLayer(canvasView: MiltonCanvasView, layerId: Long) {
+        runOnGlThread {
+            val layer = layerManager.getLayer(layerId) ?: return@runOnGlThread
+            val tiles = layer.tileMap.getAllTiles().filter { it.hasContent }
+            if (tiles.isEmpty()) return@runOnGlThread
+
+            val deltas = mutableListOf<TileDelta>()
+            for (tile in tiles) {
+                tile.ensureResident(layer.tileMap.cacheDir)
+                val beforeBytes = tile.readPixels()
+                val beforeCompressed = UndoManager.compress(beforeBytes)
+                tile.clear()
+                tile.deleteDiskSwap(layer.tileMap.cacheDir)
+                deltas.add(TileDelta(layerId, tile.coord, beforeCompressed, null))
+            }
+
+            layer.thumbnailBitmap = null
+            layerManager.notifyThumbnailsChanged()
+
+            undoManager.pushCustomCommand(StrokeCommand(deltas))
+            undoManager.onTilesCommittedListener?.invoke(deltas)
+
+            canvasView.post {
+                canvasView.requestRedraw()
+            }
+        }
+        canvasView.requestRedraw()
     }
 
     fun cleanup() {

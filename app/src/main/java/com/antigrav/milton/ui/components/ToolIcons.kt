@@ -283,3 +283,63 @@ fun FlipCanvasIcon(tint: Color, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * Custom vector icon for Clear Layer:
+ * Features a layer/canvas sheet with a chiseled eraser sweeping across it.
+ */
+@Composable
+fun ClearLayerIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(24.dp)) {
+        val w = size.width
+        val scale = w / 24f
+        fun pt(x: Float, y: Float) = Offset(x * scale, y * scale)
+
+        // 1. Layer/canvas sheet outline (subtle dashed border)
+        val rectPath = Path().apply {
+            moveTo(4f * scale, 5f * scale)
+            lineTo(20f * scale, 5f * scale)
+            lineTo(20f * scale, 19f * scale)
+            lineTo(4f * scale, 19f * scale)
+            close()
+        }
+        drawPath(
+            rectPath,
+            color = tint.copy(alpha = 0.45f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = 1.3f * scale,
+                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(3f * scale, 2f * scale), 0f)
+            )
+        )
+
+        // 2. Chiseled rubber eraser angled at 45 degrees
+        val eraserPath = Path().apply {
+            moveTo(8f * scale, 16f * scale)
+            lineTo(14.5f * scale, 9.5f * scale)
+            lineTo(18f * scale, 13f * scale)
+            lineTo(11.5f * scale, 19.5f * scale)
+            close()
+        }
+        drawPath(eraserPath, color = tint)
+
+        // Eraser tip highlight band
+        val tipBand = Path().apply {
+            moveTo(8f * scale, 16f * scale)
+            lineTo(10.5f * scale, 13.5f * scale)
+            lineTo(13f * scale, 16f * scale)
+            lineTo(10.5f * scale, 18.5f * scale)
+            close()
+        }
+        drawPath(tipBand, color = Color(0xFF181A1F).copy(alpha = 0.35f))
+
+        // 3. Dynamic sweep sparks / motion lines
+        drawLine(
+            color = tint.copy(alpha = 0.85f),
+            start = pt(6f, 13f),
+            end = pt(7.5f, 14.5f),
+            strokeWidth = 1.4f * scale,
+            cap = StrokeCap.Round
+        )
+    }
+}
+
+

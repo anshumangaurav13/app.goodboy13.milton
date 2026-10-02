@@ -22,11 +22,30 @@ class TileDelta(
 )
 
 /**
+ * Base sealed interface for undoable actions on the canvas.
+ */
+sealed interface UndoCommand
+
+/**
  * A single stroke undo record covering all tiles mutated by that stroke.
  */
 class StrokeCommand(
     val deltas: List<TileDelta>
-)
+) : UndoCommand
+
+/**
+ * An undo record for layer deletion, preserving layer metadata and tile snapshots.
+ */
+class DeleteLayerCommand(
+    val layerId: Long,
+    val layerName: String,
+    val layerOpacity: Float,
+    val layerIsVisible: Boolean,
+    val storageIndex: Int,
+    val activeLayerIdBefore: Long,
+    val tilesSnapshot: Map<TileCoord, ByteArray>,
+    val thumbnailBitmap: android.graphics.Bitmap? = null
+) : UndoCommand
 
 /**
  * High-performance, memory-efficient undo/redo manager for the infinite raster canvas.
@@ -34,8 +53,8 @@ class StrokeCommand(
  */
 class UndoManager(val maxHistorySize: Int = 30) {
 
-    private val undoStack = ArrayDeque<StrokeCommand>()
-    private val redoStack = ArrayDeque<StrokeCommand>()
+    private val undoStack = ArrayDeque<UndoCommand>()
+    private val redoStack = ArrayDeque<UndoCommand>()
 
     // Tiles touched in the currently active stroke before stamping: (layerId to coord) -> compressed bytes
     private val pendingPreStrokeDeltas = mutableMapOf<Pair<Long, TileCoord>, ByteArray?>()
@@ -109,34 +128,71 @@ class UndoManager(val maxHistorySize: Int = 30) {
         commitStroke(1L, tileMap)
     }
 
+    fun pushCustomCommand(command: UndoCommand) {
+        redoStack.clear()
+        undoStack.push(command)
+        if (undoStack.size > maxHistorySize) {
+            undoStack.removeLast()
+        }
+        onStateChangedListener?.invoke()
+    }
+
     /**
-     * Reverts the most recent stroke across layers. Must be executed on the GL thread.
+     * Reverts the most recent stroke or layer operation across layers. Must be executed on the GL thread.
      */
     fun undo(layerManager: LayerManager): Boolean {
         if (undoStack.isEmpty()) return false
 
         val command = undoStack.pop()
-        for (delta in command.deltas) {
-            val layer = layerManager.getLayer(delta.layerId) ?: continue
-            val tile = layer.tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
-            tile.ensureResident(layer.tileMap.cacheDir)
-            val before = delta.beforeCompressed
-            if (before != null) {
-                val decompressed = decompress(before)
-                tile.writePixels(decompressed)
-                tile.hasContent = true
-            } else {
-                tile.clear()
-                tile.deleteDiskSwap(layer.tileMap.cacheDir)
+        when (command) {
+            is StrokeCommand -> {
+                for (delta in command.deltas) {
+                    val layer = layerManager.getLayer(delta.layerId) ?: continue
+                    val tile = layer.tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
+                    tile.ensureResident(layer.tileMap.cacheDir)
+                    val before = delta.beforeCompressed
+                    if (before != null) {
+                        val decompressed = decompress(before)
+                        tile.writePixels(decompressed)
+                        tile.hasContent = true
+                    } else {
+                        tile.clear()
+                        tile.deleteDiskSwap(layer.tileMap.cacheDir)
+                    }
+                }
+                redoStack.push(command)
+                onStateChangedListener?.invoke()
+                val revertedDeltas = command.deltas.map {
+                    TileDelta(it.layerId, it.coord, it.afterCompressed, it.beforeCompressed)
+                }
+                onTilesCommittedListener?.invoke(revertedDeltas)
+            }
+            is DeleteLayerCommand -> {
+                // Restore layer in LayerManager at original storageIndex
+                val restoredLayer = layerManager.restoreLayer(
+                    id = command.layerId,
+                    name = command.layerName,
+                    opacity = command.layerOpacity,
+                    isVisible = command.layerIsVisible,
+                    storageIndex = command.storageIndex,
+                    thumbnail = command.thumbnailBitmap
+                )
+                // Restore its tiles
+                for ((coord, compressed) in command.tilesSnapshot) {
+                    val tile = restoredLayer.tileMap.getOrCreateTile(coord.tx, coord.ty)
+                    val raw = decompress(compressed)
+                    tile.writePixels(raw)
+                    tile.hasContent = true
+                }
+                layerManager.selectLayer(command.activeLayerIdBefore)
+                redoStack.push(command)
+                onStateChangedListener?.invoke()
+                val restoredDeltas = command.tilesSnapshot.map { (coord, compressed) ->
+                    TileDelta(command.layerId, coord, null, compressed)
+                }
+                onTilesCommittedListener?.invoke(restoredDeltas)
             }
         }
-
-        redoStack.push(command)
-        onStateChangedListener?.invoke()
-        val revertedDeltas = command.deltas.map {
-            TileDelta(it.layerId, it.coord, it.afterCompressed, it.beforeCompressed)
-        }
-        onTilesCommittedListener?.invoke(revertedDeltas)
         return true
     }
 
@@ -146,7 +202,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
     fun undo(tileMap: TileMap): Boolean {
         if (undoStack.isEmpty()) return false
 
-        val command = undoStack.pop()
+        val command = undoStack.pop() as? StrokeCommand ?: return false
         for (delta in command.deltas) {
             val tile = tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
             tile.ensureResident(tileMap.cacheDir)
@@ -171,30 +227,47 @@ class UndoManager(val maxHistorySize: Int = 30) {
     }
 
     /**
-     * Reapplies the most recently undone stroke across layers. Must be executed on the GL thread.
+     * Reapplies the most recently undone action across layers. Must be executed on the GL thread.
      */
     fun redo(layerManager: LayerManager): Boolean {
         if (redoStack.isEmpty()) return false
 
         val command = redoStack.pop()
-        for (delta in command.deltas) {
-            val layer = layerManager.getLayer(delta.layerId) ?: continue
-            val tile = layer.tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
-            tile.ensureResident(layer.tileMap.cacheDir)
-            val after = delta.afterCompressed
-            if (after != null) {
-                val decompressed = decompress(after)
-                tile.writePixels(decompressed)
-                tile.hasContent = true
-            } else {
-                tile.clear()
-                tile.deleteDiskSwap(layer.tileMap.cacheDir)
+        when (command) {
+            is StrokeCommand -> {
+                for (delta in command.deltas) {
+                    val layer = layerManager.getLayer(delta.layerId) ?: continue
+                    val tile = layer.tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
+                    tile.ensureResident(layer.tileMap.cacheDir)
+                    val after = delta.afterCompressed
+                    if (after != null) {
+                        val decompressed = decompress(after)
+                        tile.writePixels(decompressed)
+                        tile.hasContent = true
+                    } else {
+                        tile.clear()
+                        tile.deleteDiskSwap(layer.tileMap.cacheDir)
+                    }
+                }
+                undoStack.push(command)
+                onStateChangedListener?.invoke()
+                onTilesCommittedListener?.invoke(command.deltas)
+            }
+            is DeleteLayerCommand -> {
+                // Delete layer again
+                val layer = layerManager.getLayer(command.layerId)
+                if (layer != null) {
+                    layer.tileMap.releaseAll()
+                    layerManager.removeLayer(command.layerId)
+                }
+                undoStack.push(command)
+                onStateChangedListener?.invoke()
+                val clearedDeltas = command.tilesSnapshot.map { (coord, compressed) ->
+                    TileDelta(command.layerId, coord, compressed, null)
+                }
+                onTilesCommittedListener?.invoke(clearedDeltas)
             }
         }
-
-        undoStack.push(command)
-        onStateChangedListener?.invoke()
-        onTilesCommittedListener?.invoke(command.deltas)
         return true
     }
 
@@ -204,7 +277,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
     fun redo(tileMap: TileMap): Boolean {
         if (redoStack.isEmpty()) return false
 
-        val command = redoStack.pop()
+        val command = redoStack.pop() as? StrokeCommand ?: return false
         for (delta in command.deltas) {
             val tile = tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
             tile.ensureResident(tileMap.cacheDir)

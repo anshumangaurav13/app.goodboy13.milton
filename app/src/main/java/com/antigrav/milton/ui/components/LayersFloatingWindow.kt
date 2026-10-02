@@ -92,6 +92,7 @@ fun LayersFloatingWindow(
     onSelectLayer: (Long) -> Unit,
     onAddLayer: () -> Unit,
     onDeleteLayer: (Long) -> Unit,
+    onClearLayer: (Long) -> Unit = {},
     onToggleVisibility: (Long, Boolean) -> Unit,
     onOpacityChange: (Long, Float) -> Unit,
     onMoveLayerUp: (Long) -> Unit,
@@ -162,7 +163,7 @@ fun LayersFloatingWindow(
         containerWidth = containerWidth,
         containerHeight = containerHeight,
         state = state,
-        modifier = Modifier.width(204.dp),
+        modifier = Modifier.width(220.dp),
         headerActions = {
             IconButton(
                 onClick = onAddLayer,
@@ -209,6 +210,7 @@ fun LayersFloatingWindow(
                             onSelect = { onSelectLayer(layer.id) },
                             onToggleVisibility = { onToggleVisibility(layer.id, !layer.isVisible) },
                             onOpacityChange = { onOpacityChange(layer.id, it) },
+                            onClear = { onClearLayer(layer.id) },
                             onDelete = { onDeleteLayer(layer.id) },
                             onMoveUp = { onMoveLayerUp(layer.id) },
                             onMoveDown = { onMoveLayerDown(layer.id) },
@@ -560,6 +562,7 @@ private fun LayerCard(
     onSelect: () -> Unit,
     onToggleVisibility: () -> Unit,
     onOpacityChange: (Float) -> Unit,
+    onClear: () -> Unit = {},
     onDelete: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
@@ -709,6 +712,17 @@ private fun LayerCard(
                             modifier = Modifier.size(16.dp)
                         )
                     }
+                }
+
+                // Clear Layer Button
+                IconButton(
+                    onClick = onClear,
+                    modifier = Modifier.size(20.dp)
+                ) {
+                    ClearLayerIcon(
+                        tint = Color(0xFFFFCA28),
+                        modifier = Modifier.size(14.dp)
+                    )
                 }
 
                 // Delete Trash Button

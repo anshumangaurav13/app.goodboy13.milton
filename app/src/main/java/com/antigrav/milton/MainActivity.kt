@@ -395,7 +395,10 @@ class MainActivity : ComponentActivity() {
                             layerManager.addLayer()
                         },
                         onDeleteLayer = { id ->
-                            layerManager.deleteLayer(id)
+                            canvasView.deleteLayer(id)
+                        },
+                        onClearLayer = { id ->
+                            canvasView.clearLayer(id)
                         },
                         onToggleLayerVisibility = { id, isVis ->
                             layerManager.setLayerVisibility(id, isVis)

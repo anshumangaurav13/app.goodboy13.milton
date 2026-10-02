@@ -221,6 +221,14 @@ class MiltonCanvasView @JvmOverloads constructor(
         frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
     }
 
+    fun deleteLayer(layerId: Long) {
+        renderer.deleteLayer(this, layerId)
+    }
+
+    fun clearLayer(layerId: Long) {
+        renderer.clearLayer(this, layerId)
+    }
+
     fun resetCanvas() {
         renderer.viewport.reset()
         frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
