@@ -12,16 +12,13 @@
   <a href="#features"><img src="https://img.shields.io/badge/Platform-Android%208.0%2B%20(API%2026%2B)-brightgreen.svg" alt="Platform" /></a>
   <a href="#architecture"><img src="https://img.shields.io/badge/Renderer-OpenGL%20ES%203.0-blue.svg" alt="Renderer" /></a>
   <a href="#architecture"><img src="https://img.shields.io/badge/UI-Jetpack%20Compose-purple.svg" alt="UI" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-orange.svg" alt="License" /></a>
 </p>
 
 ---
 
 ## Overview
 
-**Milton for Android** is an open-source infinite canvas sketching and digital painting application tailored for Android tablets and active pressure-sensitive styluses (Samsung S-Pen, Xiaomi Pen, Lenovo Precision Pen, universal active styluses).
-
-Inspired by the desktop painting program [Milton by Sergio Gonzalez](https://github.com/serge-rgb/milton), this implementation provides a virtually boundless workspace where artists can zoom in and out without loss of clarity, sketch without running out of borders, and paint with natural, pressure-sensitive dabs.
+**Milton for Android** is an infinite canvas sketching and digital painting application tailored for Android tablets and active pressure-sensitive styluses (Samsung S-Pen, Xiaomi Pen, Lenovo Precision Pen, universal active styluses). It provides a virtually boundless workspace where artists can zoom in and out without loss of clarity, sketch without running out of borders, and paint with natural, pressure-sensitive dabs.
 
 ---
 
@@ -106,19 +103,19 @@ Milton follows a decoupled, modular architecture designed for high graphics thro
 ### Key Modules
 
 - **`core/gl`**:
-  - [`GlSceneRenderer`](app/src/main/java/com/antigrav/milton/core/gl/GlSceneRenderer.kt): Pure graphics pipeline executing dab shaders, FBO ping-pong compositing, tile blitting, and offscreen exports.
-  - [`CanvasEngine`](app/src/main/java/com/antigrav/milton/core/gl/CanvasEngine.kt): Canvas domain coordinator managing tile diff generation, thumbnail rendering, and budget trimming.
-  - [`GlRenderCommand`](app/src/main/java/com/antigrav/milton/core/gl/GlRenderCommand.kt): Thread-safe command queue decoupling the UI thread from the OpenGL thread.
+  - [`GlSceneRenderer`](app/src/main/java/app/goodboy13/milton/core/gl/GlSceneRenderer.kt): Pure graphics pipeline executing dab shaders, FBO ping-pong compositing, tile blitting, and offscreen exports.
+  - [`CanvasEngine`](app/src/main/java/app/goodboy13/milton/core/gl/CanvasEngine.kt): Canvas domain coordinator managing tile diff generation, thumbnail rendering, and budget trimming.
+  - [`GlRenderCommand`](app/src/main/java/app/goodboy13/milton/core/gl/GlRenderCommand.kt): Thread-safe command queue decoupling the UI thread from the OpenGL thread.
 - **`core/tile` & `core/memory`**:
-  - [`TileMap`](app/src/main/java/com/antigrav/milton/core/tile/TileMap.kt): Sparse coordinate hash map managing 512×512 raster tiles.
-  - [`GlTexturePool`](app/src/main/java/com/antigrav/milton/core/gl/GlTexturePool.kt) & [`DirectBufferPool`](app/src/main/java/com/antigrav/milton/core/memory/DirectBufferPool.kt): Pre-allocated VRAM texture and direct byte buffer recycling pools preventing GC heap churn.
+  - [`TileMap`](app/src/main/java/app/goodboy13/milton/core/tile/TileMap.kt): Sparse coordinate hash map managing 512×512 raster tiles.
+  - [`GlTexturePool`](app/src/main/java/app/goodboy13/milton/core/gl/GlTexturePool.kt) & [`DirectBufferPool`](app/src/main/java/app/goodboy13/milton/core/memory/DirectBufferPool.kt): Pre-allocated VRAM texture and direct byte buffer recycling pools preventing GC heap churn.
 - **`core/storage`**:
-  - [`AutosaveCoordinator`](app/src/main/java/com/antigrav/milton/core/storage/AutosaveCoordinator.kt): Debounced background persistence service.
-  - [`ProjectCatalogRepository`](app/src/main/java/com/antigrav/milton/core/storage/ProjectCatalogRepository.kt): Saved project catalog repository.
-  - [`MiltonArchiveCodec`](app/src/main/java/com/antigrav/milton/core/storage/MiltonArchiveCodec.kt): Zip archive packaging for `.milton` files.
-  - [`CanvasExportEngine`](app/src/main/java/com/antigrav/milton/core/storage/CanvasExportEngine.kt): High-resolution bitmap renderer.
+  - [`AutosaveCoordinator`](app/src/main/java/app/goodboy13/milton/core/storage/AutosaveCoordinator.kt): Debounced background persistence service.
+  - [`ProjectCatalogRepository`](app/src/main/java/app/goodboy13/milton/core/storage/ProjectCatalogRepository.kt): Saved project catalog repository.
+  - [`MiltonArchiveCodec`](app/src/main/java/app/goodboy13/milton/core/storage/MiltonArchiveCodec.kt): Zip archive packaging for `.milton` files.
+  - [`CanvasExportEngine`](app/src/main/java/app/goodboy13/milton/core/storage/CanvasExportEngine.kt): High-resolution bitmap renderer.
 - **`ui`**:
-  - [`CanvasViewModel`](app/src/main/java/com/antigrav/milton/ui/CanvasViewModel.kt): MVI/UDF state container exposing `StateFlow<CanvasUiState>`.
+  - [`CanvasViewModel`](app/src/main/java/app/goodboy13/milton/ui/CanvasViewModel.kt): MVI/UDF state container exposing `StateFlow<CanvasUiState>`.
   - Feature-decomposed Compose components under `ui/topbar`, `ui/rail`, `ui/palette`, and `ui/components`.
 
 ---
@@ -166,6 +163,6 @@ By default, running `./gradlew assembleRelease` automatically falls back to debu
 
 ---
 
-## License
+## Copyright
 
-This project is licensed under the [MIT License](LICENSE).
+Copyright (c) 2026. All rights reserved. Proprietary software.
