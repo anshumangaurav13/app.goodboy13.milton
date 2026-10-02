@@ -1,9 +1,11 @@
 package com.antigrav.milton.ui
 
 import android.content.Context
+import android.os.Build
 import android.util.AttributeSet
 import android.util.Log
 import android.view.MotionEvent
+import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.graphics.lowlatency.GLFrontBufferedRenderer
 import com.antigrav.milton.core.brush.BrushDab
@@ -33,6 +35,12 @@ class MiltonCanvasView @JvmOverloads constructor(
 
     private var frontBufferedRenderer: GLFrontBufferedRenderer<DabPacket>? = null
 
+    init {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            isAutoHandwritingEnabled = false
+        }
+    }
+
     private val gestureDetector = CanvasGestureDetector(object : CanvasGestureDetector.GestureListener {
         override fun onPanZoomRotate(
             prevFocalX: Float,
@@ -47,7 +55,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                 curFocalX, curFocalY,
                 zoomFactor, angleDelta
             )
-            frontBufferedRenderer?.commit()
+            frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
         }
 
         override fun onGestureStart() {
@@ -55,7 +63,7 @@ class MiltonCanvasView @JvmOverloads constructor(
         }
 
         override fun onGestureEnd() {
-            frontBufferedRenderer?.commit()
+            frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
         }
 
         override fun onFling(vx: Float, vy: Float) {
@@ -66,7 +74,7 @@ class MiltonCanvasView @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         frontBufferedRenderer = GLFrontBufferedRenderer(this, renderer)
-        Log.d(TAG, "GLFrontBufferedRenderer attached to window")
+        Log.i(TAG, "GLFrontBufferedRenderer attached to window")
     }
 
     override fun onDetachedFromWindow() {
@@ -75,7 +83,7 @@ class MiltonCanvasView @JvmOverloads constructor(
         }
         frontBufferedRenderer = null
         super.onDetachedFromWindow()
-        Log.d(TAG, "GLFrontBufferedRenderer released")
+        Log.i(TAG, "GLFrontBufferedRenderer released")
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -84,8 +92,8 @@ class MiltonCanvasView @JvmOverloads constructor(
         if (oldw == 0 && oldh == 0) {
             renderer.viewport.reset()
         }
-        frontBufferedRenderer?.commit()
-        Log.d(TAG, "onSizeChanged: width=$w, height=$h")
+        frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+        Log.i(TAG, "onSizeChanged: width=$w, height=$h")
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -93,9 +101,13 @@ class MiltonCanvasView @JvmOverloads constructor(
             requestUnbufferedDispatch(event)
         }
 
+        val action = event.actionMasked
+        val pointerCount = event.pointerCount
+        val tool0 = event.getToolType(0)
+
         // 1. Identify if any pointer is a hardware stylus
         var stylusIndex = -1
-        for (i in 0 until event.pointerCount) {
+        for (i in 0 until pointerCount) {
             val tool = event.getToolType(i)
             if (tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER) {
                 stylusIndex = i
@@ -114,13 +126,17 @@ class MiltonCanvasView @JvmOverloads constructor(
 
         val sx = event.getX(stylusIndex)
         val sy = event.getY(stylusIndex)
-        val pressure = event.getPressure(stylusIndex).coerceIn(0.01f, 1.0f)
+        val rawPressure = event.getPressure(stylusIndex)
+        // If device reports zero pressure on contact, default to 0.5f so stroke is not collapsed
+        val pressure = if (rawPressure <= 0.001f) 0.5f else rawPressure.coerceIn(0.01f, 1.0f)
         val worldPos = renderer.viewport.screenToWorld(sx, sy)
 
-        when (event.actionMasked) {
+        when (action) {
             MotionEvent.ACTION_DOWN -> {
+                Log.i(TAG, "Stylus DOWN at screen=($sx, $sy), world=(${worldPos.x}, ${worldPos.y}), pressure=$pressure")
                 val initialDabs = brushEngine.startStroke(worldPos.x, worldPos.y, pressure)
                 if (initialDabs.isNotEmpty()) {
+                    renderer.queueDabs(initialDabs)
                     frontBufferedRenderer?.renderFrontBufferedLayer(DabPacket(initialDabs))
                 }
             }
@@ -133,7 +149,8 @@ class MiltonCanvasView @JvmOverloads constructor(
                 for (h in 0 until historySize) {
                     val hx = event.getHistoricalX(stylusIndex, h)
                     val hy = event.getHistoricalY(stylusIndex, h)
-                    val hp = event.getHistoricalPressure(stylusIndex, h).coerceIn(0.01f, 1.0f)
+                    val hpRaw = event.getHistoricalPressure(stylusIndex, h)
+                    val hp = if (hpRaw <= 0.001f) 0.5f else hpRaw.coerceIn(0.01f, 1.0f)
                     val hw = renderer.viewport.screenToWorld(hx, hy)
                     dabs.addAll(brushEngine.addPoint(hw.x, hw.y, hp))
                 }
@@ -142,11 +159,13 @@ class MiltonCanvasView @JvmOverloads constructor(
                 dabs.addAll(brushEngine.addPoint(worldPos.x, worldPos.y, pressure))
 
                 if (dabs.isNotEmpty()) {
+                    renderer.queueDabs(dabs)
                     frontBufferedRenderer?.renderFrontBufferedLayer(DabPacket(dabs))
                 }
             }
 
             MotionEvent.ACTION_UP -> {
+                Log.i(TAG, "Stylus UP at screen=($sx, $sy)")
                 val endDabs = brushEngine.endStroke()
                 if (endDabs.isNotEmpty()) {
                     renderer.queueDabs(endDabs)
@@ -155,8 +174,9 @@ class MiltonCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_CANCEL -> {
+                Log.i(TAG, "Stylus CANCEL")
                 brushEngine.endStroke()
-                frontBufferedRenderer?.commit()
+                frontBufferedRenderer?.cancel()
             }
         }
 

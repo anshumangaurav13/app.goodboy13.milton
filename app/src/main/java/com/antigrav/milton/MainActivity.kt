@@ -1,5 +1,6 @@
 package com.antigrav.milton
 
+import android.os.Build
 import android.os.Bundle
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
@@ -15,6 +16,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Clear window background so SurfaceView is directly visible
+        window.setBackgroundDrawable(null)
+
         // Immersive sticky fullscreen for full drawing surface
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val insetsController = WindowCompat.getInsetsController(window, window.decorView)
@@ -26,6 +30,11 @@ class MainActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
+            isFocusable = true
+            isFocusableInTouchMode = true
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                isAutoHandwritingEnabled = false
+            }
         }
 
         setContentView(canvasView)

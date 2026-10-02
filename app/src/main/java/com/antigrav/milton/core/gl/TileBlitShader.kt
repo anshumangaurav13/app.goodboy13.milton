@@ -30,7 +30,7 @@ class TileBlitShader {
             uniform float uTileSize;
             out vec2 vTexCoord;
             void main() {
-                vTexCoord = aPosition;
+                vTexCoord = vec2(aPosition.x, 1.0 - aPosition.y);
                 vec2 worldPos = uTilePos + aPosition * uTileSize;
                 gl_Position = uMvpMatrix * vec4(worldPos, 0.0, 1.0);
             }

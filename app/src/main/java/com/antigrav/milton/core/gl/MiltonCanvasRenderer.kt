@@ -106,6 +106,7 @@ class MiltonCanvasRenderer(
         ensureGlInitialized()
         if (param.dabs.isEmpty()) return
 
+        Log.i(TAG, "onDrawFrontBufferedLayer: dabs=${param.dabs.size}, buffer=${bufferInfo.width}x${bufferInfo.height}, fbo=${bufferInfo.frameBufferId}")
         viewport.updateScreenSize(width, height)
         pendingDabsForCommit.addAll(param.dabs)
 
@@ -158,6 +159,7 @@ class MiltonCanvasRenderer(
             val dab = pendingDabsForCommit.poll() ?: break
             dabsToStamp.add(dab)
         }
+        Log.i(TAG, "onDrawMultiBufferedLayer: buffer=${bufferInfo.width}x${bufferInfo.height}, dabsToStamp=${dabsToStamp.size}")
         if (dabsToStamp.isNotEmpty()) {
             stampDabsIntoTiles(dabsToStamp)
         }
