@@ -2,6 +2,7 @@ package com.antigrav.milton.core.gl
 
 import android.opengl.GLES30
 import android.util.Log
+import com.antigrav.milton.core.tile.TileCoord
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -27,6 +28,10 @@ class DabShader {
     private var uWorldOffsetLoc: Int = -1
     private var uIsEraserLoc: Int = -1
     private var uPigmentMixingLoc: Int = -1
+    private var uTileTextureLoc: Int = -1
+    private var uHasTileTextureLoc: Int = -1
+    private var uTileOriginLoc: Int = -1
+    private var uTileSizeLoc: Int = -1
 
     var usesFramebufferFetch: Boolean = false
         private set
@@ -63,6 +68,10 @@ class DabShader {
             uniform float uPressure;
             uniform int uIsEraser;
             uniform int uPigmentMixing; // 1 = Kubelka-Munk enabled, 0 = standard blending
+            uniform sampler2D uTileTexture;
+            uniform int uHasTileTexture;
+            uniform vec2 uTileOrigin;
+            uniform float uTileSize;
 
             layout(location = 0) inout vec4 fragColor;
 
@@ -296,24 +305,41 @@ class DabShader {
                 }
 
                 vec3 srcColor = uColor.rgb;
+                vec3 effectiveColor = srcColor;
+                float effectiveAlpha = dabAlpha;
 
-                // Empty tile pixel: direct premultiplied stamp
+                // When realistic pigment mixing is enabled on paintbrush, sample the underlying layer tile
+                if (uPigmentMixing == 1 && uBrushMode == 2 && uHasTileTexture == 1) {
+                    vec2 tileUv = (vWorldPos - uTileOrigin) / uTileSize;
+                    tileUv.y = 1.0 - tileUv.y;
+                    vec2 clampedUv = clamp(tileUv, 0.0, 1.0);
+                    vec4 tileSample = texture(uTileTexture, clampedUv);
+                    float dstAlpha = tileSample.a;
+                    if (dstAlpha > 0.001) {
+                        vec3 dstRgb = tileSample.rgb / max(dstAlpha, 0.001);
+                        float factor = clamp(dabAlpha / max(dstAlpha * 0.75 + dabAlpha, 0.001), 0.0, 1.0);
+                        effectiveColor = spectral_mix(dstRgb, srcColor, factor);
+                        effectiveAlpha = dstAlpha + dabAlpha * (1.0 - dstAlpha);
+                    }
+                }
+
+                // Empty tile / front-buffer pixel: direct premultiplied stamp
                 if (dst.a <= 0.002) {
-                    fragColor = vec4(srcColor * dabAlpha, dabAlpha);
+                    fragColor = vec4(effectiveColor * effectiveAlpha, effectiveAlpha);
                     return;
                 }
 
                 // Check if destination pixel was already painted with the current stroke's color.
-                // Cross-multiplication test (|dst.rgb - srcColor * dst.a|) avoids 8-bit division noise at feathered edges.
-                vec3 premulExpected = srcColor * dst.a;
+                // Cross-multiplication test (|dst.rgb - effectiveColor * dst.a|) avoids 8-bit division noise at feathered edges.
+                vec3 premulExpected = effectiveColor * dst.a;
                 vec3 colorDiff = abs(dst.rgb - premulExpected);
-                bool isSameStrokeColor = all(lessThan(colorDiff, vec3(0.035)));
+                bool isSameStrokeColor = all(lessThan(colorDiff, vec3(0.045)));
 
                 float outAlpha = dst.a + dabAlpha * (1.0 - dst.a);
 
                 if (isSameStrokeColor) {
                     // Intra-stroke accumulation: smooth continuous stroke geometry with zero scallop rings
-                    fragColor = vec4(srcColor * outAlpha, outAlpha);
+                    fragColor = vec4(effectiveColor * outAlpha, outAlpha);
                     return;
                 }
 
@@ -321,12 +347,12 @@ class DabShader {
                 if (uPigmentMixing == 1 && uBrushMode == 2) {
                     // Realistic Kubelka-Munk pigment mixing for Paintbrush
                     vec3 dstColor = clamp(dst.rgb / max(dst.a, 0.001), 0.0, 1.0);
-                    float factor = clamp(dabAlpha / max(dst.a * 0.65 + dabAlpha, 0.001), 0.0, 1.0);
-                    vec3 mixed = spectral_mix(dstColor, srcColor, factor);
+                    float factor = clamp(dabAlpha / max(dst.a * 0.75 + dabAlpha, 0.001), 0.0, 1.0);
+                    vec3 mixed = spectral_mix(dstColor, effectiveColor, factor);
                     fragColor = vec4(mixed * outAlpha, outAlpha);
                 } else {
                     // Standard Porter-Duff Over digital art blending (for Pen, Pencil, or Paintbrush with toggle off)
-                    vec3 outPremul = srcColor * dabAlpha + dst.rgb * (1.0 - dabAlpha);
+                    vec3 outPremul = effectiveColor * dabAlpha + dst.rgb * (1.0 - dabAlpha);
                     fragColor = vec4(clamp(outPremul, 0.0, 1.0), clamp(outAlpha, 0.0, 1.0));
                 }
             }
@@ -344,6 +370,10 @@ class DabShader {
             uniform int uBrushMode;
             uniform float uPressure;
             uniform int uIsEraser;
+            uniform sampler2D uTileTexture;
+            uniform int uHasTileTexture;
+            uniform vec2 uTileOrigin;
+            uniform float uTileSize;
 
             out vec4 fragColor;
 
@@ -418,6 +448,10 @@ class DabShader {
         uWorldOffsetLoc = GLES30.glGetUniformLocation(programId, "uWorldOffset")
         uIsEraserLoc = GLES30.glGetUniformLocation(programId, "uIsEraser")
         uPigmentMixingLoc = GLES30.glGetUniformLocation(programId, "uPigmentMixing")
+        uTileTextureLoc = GLES30.glGetUniformLocation(programId, "uTileTexture")
+        uHasTileTextureLoc = GLES30.glGetUniformLocation(programId, "uHasTileTexture")
+        uTileOriginLoc = GLES30.glGetUniformLocation(programId, "uTileOrigin")
+        uTileSizeLoc = GLES30.glGetUniformLocation(programId, "uTileSize")
 
         // Setup static Unit Quad in VBO + VAO
         val vaos = IntArray(1)
@@ -470,7 +504,11 @@ class DabShader {
         worldOffsetY: Float = 0f,
         projectionMatrix: FloatArray,
         isEraser: Boolean = false,
-        pigmentMixing: Boolean = false
+        pigmentMixing: Boolean = false,
+        tileTextureId: Int = 0,
+        tileOriginX: Float = 0f,
+        tileOriginY: Float = 0f,
+        hasTileTexture: Boolean = false
     ) {
         if (programId == 0) return
 
@@ -494,10 +532,36 @@ class DabShader {
         if (uPigmentMixingLoc != -1) {
             GLES30.glUniform1i(uPigmentMixingLoc, if (pigmentMixing && brushMode == 2) 1 else 0)
         }
+        if (hasTileTexture && tileTextureId != 0) {
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tileTextureId)
+            if (uTileTextureLoc != -1) {
+                GLES30.glUniform1i(uTileTextureLoc, 1)
+            }
+            if (uHasTileTextureLoc != -1) {
+                GLES30.glUniform1i(uHasTileTextureLoc, 1)
+            }
+            if (uTileOriginLoc != -1) {
+                GLES30.glUniform2f(uTileOriginLoc, tileOriginX, tileOriginY)
+            }
+            if (uTileSizeLoc != -1) {
+                GLES30.glUniform1f(uTileSizeLoc, TileCoord.TILE_SIZE.toFloat())
+            }
+        } else {
+            if (uHasTileTextureLoc != -1) {
+                GLES30.glUniform1i(uHasTileTextureLoc, 0)
+            }
+        }
 
         GLES30.glBindVertexArray(vaoId)
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)
         GLES30.glBindVertexArray(0)
+
+        if (hasTileTexture && tileTextureId != 0) {
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        }
     }
 
     fun releaseGl() {

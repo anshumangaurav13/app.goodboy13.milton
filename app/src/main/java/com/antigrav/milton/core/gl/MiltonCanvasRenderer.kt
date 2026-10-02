@@ -216,8 +216,27 @@ class MiltonCanvasRenderer(
 
         val mvp = computeFinalMvpMatrix(bufferInfo, transform)
         val activeOpacity = activeLayer.opacity
+        val tileSize = TileCoord.TILE_SIZE.toFloat()
         for (dab in param.dabs) {
             if (dab.isEraser) continue // Never draw eraser dabs into front buffer overlay
+
+            var tileTextureId = 0
+            var tileOriginX = 0f
+            var tileOriginY = 0f
+            var hasTileTexture = false
+
+            if (dab.pigmentMixing && dab.brushMode == 2) {
+                val tx = floor(dab.x / tileSize).toInt()
+                val ty = floor(dab.y / tileSize).toInt()
+                val tile = activeLayer.tileMap.getExistingTile(tx, ty)
+                if (tile != null && tile.isInitialized && tile.hasContent) {
+                    tileTextureId = tile.textureId
+                    tileOriginX = tx * tileSize
+                    tileOriginY = ty * tileSize
+                    hasTileTexture = true
+                }
+            }
+
             dabShader.renderDab(
                 centerX = dab.x,
                 centerY = dab.y,
@@ -229,7 +248,11 @@ class MiltonCanvasRenderer(
                 pressure = dab.pressure,
                 projectionMatrix = mvp,
                 isEraser = false,
-                pigmentMixing = dab.pigmentMixing
+                pigmentMixing = dab.pigmentMixing,
+                tileTextureId = tileTextureId,
+                tileOriginX = tileOriginX,
+                tileOriginY = tileOriginY,
+                hasTileTexture = hasTileTexture
             )
         }
         if (dabShader.usesFramebufferFetch) {
