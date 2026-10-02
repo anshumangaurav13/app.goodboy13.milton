@@ -335,6 +335,8 @@ class MiltonCanvasRenderer(
                             hardness = dab.hardness,
                             brushMode = dab.brushMode,
                             pressure = dab.pressure,
+                            worldOffsetX = tx * tileSize,
+                            worldOffsetY = ty * tileSize,
                             projectionMatrix = tileOrthoMatrix
                         )
                     }
@@ -363,17 +365,19 @@ class MiltonCanvasRenderer(
                             hardness = dab.hardness,
                             brushMode = dab.brushMode,
                             pressure = dab.pressure,
+                            worldOffsetX = tx * tileSize,
+                            worldOffsetY = ty * tileSize,
                             projectionMatrix = tileOrthoMatrix
                         )
                     }
 
-                    // Blit stroke texture into real tile with premultiplied blend
+                    // Blit stroke texture into real tile with premultiplied blend (flipY = true matches tile FBO orientation)
                     tile.bindFbo()
                     GLES30.glEnable(GLES30.GL_BLEND)
                     GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
                     GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
 
-                    tileBlitShader.begin(tileOrthoMatrix, flipY = false)
+                    tileBlitShader.begin(tileOrthoMatrix, flipY = true)
                     tileBlitShader.renderTile(0f, 0f, scratchTextureId)
                     tileBlitShader.end()
 

@@ -22,6 +22,7 @@ class DabShader {
     private var uHardnessLoc: Int = -1
     private var uBrushModeLoc: Int = -1
     private var uPressureLoc: Int = -1
+    private var uWorldOffsetLoc: Int = -1
 
     fun initGl() {
         val vertexShaderCode = """
@@ -30,12 +31,13 @@ class DabShader {
             uniform mat4 uProjection;
             uniform vec2 uCenter;
             uniform float uRadius;
+            uniform vec2 uWorldOffset;
             out vec2 vLocalCoord;
             out vec2 vWorldPos;
             void main() {
                 vLocalCoord = aPosition;
                 vec2 worldPos = uCenter + aPosition * uRadius;
-                vWorldPos = worldPos;
+                vWorldPos = uWorldOffset + worldPos;
                 gl_Position = uProjection * vec4(worldPos, 0.0, 1.0);
             }
         """.trimIndent()
@@ -114,6 +116,7 @@ class DabShader {
         uHardnessLoc = GLES30.glGetUniformLocation(programId, "uHardness")
         uBrushModeLoc = GLES30.glGetUniformLocation(programId, "uBrushMode")
         uPressureLoc = GLES30.glGetUniformLocation(programId, "uPressure")
+        uWorldOffsetLoc = GLES30.glGetUniformLocation(programId, "uWorldOffset")
 
         // Setup static Unit Quad in VBO + VAO
         val vaos = IntArray(1)
@@ -162,6 +165,8 @@ class DabShader {
         hardness: Float,
         brushMode: Int = 0,
         pressure: Float = 0.5f,
+        worldOffsetX: Float = 0f,
+        worldOffsetY: Float = 0f,
         projectionMatrix: FloatArray
     ) {
         if (programId == 0) return
@@ -171,6 +176,7 @@ class DabShader {
         GLES30.glUniformMatrix4fv(uProjectionLoc, 1, false, projectionMatrix, 0)
         GLES30.glUniform2f(uCenterLoc, centerX, centerY)
         GLES30.glUniform1f(uRadiusLoc, radius)
+        GLES30.glUniform2f(uWorldOffsetLoc, worldOffsetX, worldOffsetY)
 
         val red = ((colorRgb shr 16) and 0xFF) / 255.0f
         val green = ((colorRgb shr 8) and 0xFF) / 255.0f
