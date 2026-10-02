@@ -60,6 +60,10 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme {
+                val layerManager = canvasView.layerManager
+                var layersList by remember { mutableStateOf(layerManager.layers) }
+                var activeLayerId by remember { mutableStateOf(layerManager.activeLayerId) }
+
                 var brushType by remember { mutableStateOf(BrushType.PEN) }
                 var brushSize by remember { mutableFloatStateOf(canvasView.brushSize) }
                 var brushOpacity by remember { mutableFloatStateOf(canvasView.brushOpacity) }
@@ -73,12 +77,39 @@ class MainActivity : ComponentActivity() {
                 var isZenMode by remember { mutableStateOf(false) }
                 var bezierConfig by remember { mutableStateOf(canvasView.bezierConfig) }
 
+                var recentColors by remember {
+                    mutableStateOf(
+                        listOf(
+                            0xFF111111.toInt(), // Ink Black
+                            0xFFFFFFFF.toInt(), // Paper White
+                            0xFFD32F2F.toInt(), // Crimson Red
+                            0xFF1976D2.toInt(), // Cobalt Blue
+                            0xFF388E3C.toInt(), // Forest Green
+                            0xFFF57C00.toInt(), // Amber Orange
+                            0xFF78909C.toInt(), // Slate Gray
+                            0xFF4A4A4A.toInt()  // Graphite
+                        )
+                    )
+                }
+
+                fun addRecentColor(color: Int) {
+                    recentColors = (listOf(color) + recentColors.filter { it != color }).take(12)
+                }
+
                 DisposableEffect(canvasView) {
                     val handler = Handler(Looper.getMainLooper())
                     canvasView.renderer.undoManager.onStateChangedListener = {
                         handler.post {
                             canUndo = canvasView.renderer.undoManager.canUndo
                             canRedo = canvasView.renderer.undoManager.canRedo
+                            layersList = layerManager.layers
+                        }
+                    }
+                    layerManager.onLayersChangedListener = {
+                        handler.post {
+                            layersList = layerManager.layers
+                            activeLayerId = layerManager.activeLayerId
+                            canvasView.requestRedraw()
                         }
                     }
                     canvasView.onViewportChanged = { zoom, rot ->
@@ -89,6 +120,7 @@ class MainActivity : ComponentActivity() {
                     }
                     onDispose {
                         canvasView.renderer.undoManager.onStateChangedListener = null
+                        layerManager.onLayersChangedListener = null
                         canvasView.onViewportChanged = null
                     }
                 }
@@ -146,7 +178,48 @@ class MainActivity : ComponentActivity() {
                         },
                         onResetCanvas = { canvasView.resetCanvas() },
                         isZenMode = isZenMode,
-                        onToggleZenMode = { isZenMode = it }
+                        onToggleZenMode = { isZenMode = it },
+                        layers = layersList,
+                        activeLayerId = activeLayerId,
+                        onSelectLayer = { id ->
+                            layerManager.selectLayer(id)
+                            activeLayerId = id
+                            canvasView.requestRedraw()
+                        },
+                        onAddLayer = {
+                            layerManager.addLayer()
+                            layersList = layerManager.layers
+                            activeLayerId = layerManager.activeLayerId
+                            canvasView.requestRedraw()
+                        },
+                        onDeleteLayer = { id ->
+                            layerManager.deleteLayer(id)
+                            layersList = layerManager.layers
+                            activeLayerId = layerManager.activeLayerId
+                            canvasView.requestRedraw()
+                        },
+                        onToggleLayerVisibility = { id, isVis ->
+                            layerManager.setLayerVisibility(id, isVis)
+                            layersList = layerManager.layers
+                            canvasView.requestRedraw()
+                        },
+                        onLayerOpacityChange = { id, op ->
+                            layerManager.setLayerOpacity(id, op)
+                            layersList = layerManager.layers
+                            canvasView.requestRedraw()
+                        },
+                        onMoveLayerUp = { id ->
+                            layerManager.moveLayerUp(id)
+                            layersList = layerManager.layers
+                            canvasView.requestRedraw()
+                        },
+                        onMoveLayerDown = { id ->
+                            layerManager.moveLayerDown(id)
+                            layersList = layerManager.layers
+                            canvasView.requestRedraw()
+                        },
+                        recentColors = recentColors,
+                        onAddRecentColor = { addRecentColor(it) }
                     )
                 }
             }

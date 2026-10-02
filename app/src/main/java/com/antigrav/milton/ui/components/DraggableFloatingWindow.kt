@@ -122,8 +122,8 @@ fun DraggableFloatingWindow(
         modifier = modifier
             .offset { IntOffset(state.offsetX.roundToInt(), state.offsetY.roundToInt()) }
             .onSizeChanged { state.windowSize = it }
-            .shadow(20.dp, RoundedCornerShape(18.dp))
-            .clip(RoundedCornerShape(18.dp)),
+            .shadow(12.dp, RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(12.dp)),
         color = Color(0xF6181A20),
         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x35FFFFFF))
     ) {
@@ -139,13 +139,13 @@ fun DraggableFloatingWindow(
                             state.onDrag(dragAmount, containerWidth, containerHeight)
                         }
                     }
-                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = title,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
@@ -157,20 +157,20 @@ fun DraggableFloatingWindow(
                     headerActions()
                     IconButton(
                         onClick = onClose,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(20.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close",
                             tint = Color.White.copy(alpha = 0.70f),
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(14.dp)
                         )
                     }
                 }
             }
 
             // Window Body
-            Box(modifier = Modifier.padding(14.dp)) {
+            Box(modifier = Modifier.padding(10.dp)) {
                 content()
             }
         }

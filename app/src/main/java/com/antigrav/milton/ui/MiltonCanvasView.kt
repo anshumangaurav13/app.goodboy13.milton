@@ -31,11 +31,12 @@ class MiltonCanvasView @JvmOverloads constructor(
     }
 
     val renderer = MiltonCanvasRenderer(
-        tileMap = com.antigrav.milton.core.tile.TileMap(
-            cacheDir = context.cacheDir.resolve("milton_tile_cache"),
-            maxResidentTiles = 96
+        layerManager = com.antigrav.milton.core.layer.LayerManager(
+            cacheBaseDir = context.cacheDir.resolve("milton_tile_cache"),
+            maxResidentTilesPerLayer = 48
         )
     )
+    val layerManager: com.antigrav.milton.core.layer.LayerManager get() = renderer.layerManager
     val brushEngine = BrushEngine()
 
     private var frontBufferedRenderer: GLFrontBufferedRenderer<DabPacket>? = null
@@ -162,6 +163,10 @@ class MiltonCanvasView @JvmOverloads constructor(
         renderer.viewport.reset()
         frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
         post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
+    }
+
+    fun requestRedraw() {
+        frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
     }
 
     override fun onAttachedToWindow() {

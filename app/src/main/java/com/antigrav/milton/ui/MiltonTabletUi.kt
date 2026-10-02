@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.ScreenRotation
@@ -44,10 +45,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
+import com.antigrav.milton.core.layer.Layer
 import com.antigrav.milton.core.model.BezierControlPoints
 import com.antigrav.milton.ui.components.DraggableFloatingWindow
 import com.antigrav.milton.ui.components.EraserIcon
 import com.antigrav.milton.ui.components.FloatingWindowState
+import com.antigrav.milton.ui.components.LayersFloatingWindow
 import com.antigrav.milton.ui.components.PaintbrushIcon
 import com.antigrav.milton.ui.components.PenIcon
 import com.antigrav.milton.ui.components.PencilIcon
@@ -121,16 +124,30 @@ fun MiltonTabletUi(
     onResetCanvas: () -> Unit,
     isZenMode: Boolean,
     onToggleZenMode: (Boolean) -> Unit,
+    layers: List<Layer>,
+    activeLayerId: Long,
+    onSelectLayer: (Long) -> Unit,
+    onAddLayer: () -> Unit,
+    onDeleteLayer: (Long) -> Unit,
+    onToggleLayerVisibility: (Long, Boolean) -> Unit,
+    onLayerOpacityChange: (Long, Float) -> Unit,
+    onMoveLayerUp: (Long) -> Unit,
+    onMoveLayerDown: (Long) -> Unit,
+    recentColors: List<Int>,
+    onAddRecentColor: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showColorPaletteWindow by remember { mutableStateOf(false) }
+    var showLayersWindow by remember { mutableStateOf(false) }
     var showToolParametersMenu by remember { mutableStateOf(false) }
     val colorWindowState = rememberFloatingWindowState(initialX = 84f, initialY = 120f)
+    val layersWindowState = rememberFloatingWindowState(initialX = 1400f, initialY = 80f)
 
     LaunchedEffect(isZenMode) {
         if (isZenMode) {
             showToolParametersMenu = false
             showColorPaletteWindow = false
+            showLayersWindow = false
         }
     }
 
@@ -182,7 +199,7 @@ fun MiltonTabletUi(
             )
         }
 
-        // 3. Top Right Header Bar (Undo, Redo, Zoom Lock, Rotation Lock, Reset View, Single Fullscreen Toggle)
+        // 3. Top Right Header Bar (Undo, Redo, Zoom Lock, Rotation Lock, Layers, Reset View, Single Fullscreen Toggle)
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -200,6 +217,8 @@ fun MiltonTabletUi(
                     rotationDegrees = rotationDegrees,
                     isRotationLocked = isRotationLocked,
                     onToggleRotationLock = onToggleRotationLock,
+                    isLayersOpen = showLayersWindow,
+                    onToggleLayers = { showLayersWindow = !showLayersWindow },
                     onResetCanvas = onResetCanvas,
                     onToggleZenMode = { onToggleZenMode(true) }
                 )
@@ -232,10 +251,31 @@ fun MiltonTabletUi(
             ColorPaletteFloatingWindow(
                 currentColorRgb = brushColorRgb,
                 onColorSelected = onBrushColorChange,
+                recentColors = recentColors,
+                onAddRecentColor = onAddRecentColor,
                 onClose = { showColorPaletteWindow = false },
                 containerWidth = containerW,
                 containerHeight = containerH,
                 state = colorWindowState
+            )
+        }
+
+        // 5. Floating Draggable Layers Window (confined within app bounds)
+        if (!isZenMode && showLayersWindow) {
+            LayersFloatingWindow(
+                layers = layers,
+                activeLayerId = activeLayerId,
+                onSelectLayer = onSelectLayer,
+                onAddLayer = onAddLayer,
+                onDeleteLayer = onDeleteLayer,
+                onToggleVisibility = onToggleLayerVisibility,
+                onOpacityChange = onLayerOpacityChange,
+                onMoveLayerUp = onMoveLayerUp,
+                onMoveLayerDown = onMoveLayerDown,
+                onClose = { showLayersWindow = false },
+                containerWidth = containerW,
+                containerHeight = containerH,
+                state = layersWindowState
             )
         }
     }
@@ -592,6 +632,8 @@ private fun TabletTopBar(
     rotationDegrees: Float,
     isRotationLocked: Boolean,
     onToggleRotationLock: () -> Unit,
+    isLayersOpen: Boolean,
+    onToggleLayers: () -> Unit,
     onResetCanvas: () -> Unit,
     onToggleZenMode: () -> Unit
 ) {
@@ -712,6 +754,39 @@ private fun TabletTopBar(
                 }
             }
 
+            // Layers Window Toggle Button
+            Surface(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onToggleLayers() }
+                    .background(if (isLayersOpen) Color(0x3564B5F6) else Color.Transparent)
+                    .border(
+                        width = 1.dp,
+                        color = if (isLayersOpen) Color(0xFF64B5F6) else Color(0x20FFFFFF),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 7.dp, vertical = 5.dp),
+                color = Color.Transparent
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Layers,
+                        contentDescription = "Layers",
+                        tint = if (isLayersOpen) Color(0xFF64B5F6) else Color(0x88FFFFFF),
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Text(
+                        text = "Layers",
+                        fontSize = 12.sp,
+                        fontWeight = if (isLayersOpen) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isLayersOpen) Color(0xFF64B5F6) else Color(0xDDFFFFFF)
+                    )
+                }
+            }
+
             // Dedicated Reset View Button
             IconButton(
                 onClick = onResetCanvas,
@@ -751,11 +826,14 @@ private enum class WheelTouchMode {
  * Draggable Floating Color Palette Window.
  * Confined strictly to container bounds.
  * Changes to hue / saturation / value update brush color live.
+ * Displays dynamic Recent Colors row under the wheel.
  */
 @Composable
 private fun ColorPaletteFloatingWindow(
     currentColorRgb: Int,
     onColorSelected: (Int) -> Unit,
+    recentColors: List<Int>,
+    onAddRecentColor: (Int) -> Unit,
     onClose: () -> Unit,
     containerWidth: Int,
     containerHeight: Int,
@@ -781,7 +859,7 @@ private fun ColorPaletteFloatingWindow(
         containerWidth = containerWidth,
         containerHeight = containerHeight,
         state = state,
-        modifier = Modifier.width(300.dp)
+        modifier = Modifier.width(230.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -792,7 +870,7 @@ private fun ColorPaletteFloatingWindow(
 
             androidx.compose.foundation.Canvas(
                 modifier = Modifier
-                    .size(210.dp)
+                    .size(160.dp)
                     .pointerInput(Unit) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
@@ -800,10 +878,10 @@ private fun ColorPaletteFloatingWindow(
                             val h = size.height.toFloat()
                             val cx = w / 2f
                             val cy = h / 2f
-                            val ringThickness = 20.dp.toPx()
+                            val ringThickness = 16.dp.toPx()
                             val rOuter = minOf(cx, cy) - 2.dp.toPx()
                             val rInner = rOuter - ringThickness
-                            val rSafe = rInner - 6.dp.toPx()
+                            val rSafe = rInner - 5.dp.toPx()
                             val sqSize = (rSafe * sqrt(2.0)).toFloat()
                             val sqLeft = cx - sqSize / 2f
                             val sqTop = cy - sqSize / 2f
@@ -812,7 +890,7 @@ private fun ColorPaletteFloatingWindow(
                             val dy = down.position.y - cy
                             val dist = hypot(dx, dy)
 
-                            touchMode = if (dist >= rInner - 8.dp.toPx()) {
+                            touchMode = if (dist >= rInner - 6.dp.toPx()) {
                                 WheelTouchMode.HUE
                             } else {
                                 WheelTouchMode.SV
@@ -850,6 +928,8 @@ private fun ColorPaletteFloatingWindow(
                                 }
                             } while (event.changes.any { it.pressed })
 
+                            val committedCol = android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, value))
+                            onAddRecentColor(committedCol)
                             touchMode = WheelTouchMode.NONE
                         }
                     }
@@ -858,7 +938,7 @@ private fun ColorPaletteFloatingWindow(
                 val h = size.height
                 val cx = w / 2f
                 val cy = h / 2f
-                val ringThickness = 20.dp.toPx()
+                val ringThickness = 16.dp.toPx()
                 val rOuter = minOf(cx, cy) - 2.dp.toPx()
                 val rInner = rOuter - ringThickness
                 val rMid = (rOuter + rInner) / 2f
@@ -882,19 +962,19 @@ private fun ColorPaletteFloatingWindow(
 
                 drawCircle(
                     color = Color(0x66000000),
-                    radius = 8.dp.toPx(),
-                    center = Offset(thumbX, thumbY),
-                    style = Stroke(width = 2.5.dp.toPx())
-                )
-                drawCircle(
-                    color = Color.White,
                     radius = 7.dp.toPx(),
                     center = Offset(thumbX, thumbY),
                     style = Stroke(width = 2.dp.toPx())
                 )
+                drawCircle(
+                    color = Color.White,
+                    radius = 6.dp.toPx(),
+                    center = Offset(thumbX, thumbY),
+                    style = Stroke(width = 1.5.dp.toPx())
+                )
 
                 // 2. Inner Saturation-Value Square
-                val rSafe = rInner - 6.dp.toPx()
+                val rSafe = rInner - 5.dp.toPx()
                 val sqSize = (rSafe * sqrt(2.0)).toFloat()
                 val sqLeft = cx - sqSize / 2f
                 val sqTop = cy - sqSize / 2f
@@ -947,91 +1027,78 @@ private fun ColorPaletteFloatingWindow(
 
                 drawCircle(
                     color = Color(0x66000000),
-                    radius = 6.dp.toPx(),
+                    radius = 5.dp.toPx(),
                     center = Offset(svX, svY),
-                    style = Stroke(width = 2.dp.toPx())
+                    style = Stroke(width = 1.5.dp.toPx())
                 )
                 drawCircle(
                     color = Color.White,
-                    radius = 5.dp.toPx(),
+                    radius = 4.dp.toPx(),
                     center = Offset(svX, svY),
                     style = Stroke(width = 1.5.dp.toPx())
                 )
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Quick Palette Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                QUICK_PALETTE_COLORS.forEach { col ->
-                    val isSelected = (col == activeColorInt)
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(Color(col))
-                            .border(
-                                width = if (isSelected) 2.dp else 1.dp,
-                                color = if (isSelected) Color.White else Color(0x33FFFFFF),
-                                shape = CircleShape
-                            )
-                            .clickable {
-                                val hsv = FloatArray(3)
-                                android.graphics.Color.colorToHSV(col, hsv)
-                                hue = hsv[0]
-                                saturation = hsv[1]
-                                value = hsv[2]
-                                onColorSelected(col)
-                            }
-                    )
+            // Dynamic Recent Colors Row (Under Wheel)
+            if (recentColors.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterHorizontally)
+                ) {
+                    recentColors.take(8).forEach { col ->
+                        val isSelected = (col == activeColorInt)
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .background(Color(col))
+                                .border(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) Color.White else Color(0x33FFFFFF),
+                                    shape = CircleShape
+                                )
+                                .clickable {
+                                    val hsv = FloatArray(3)
+                                    android.graphics.Color.colorToHSV(col, hsv)
+                                    hue = hsv[0]
+                                    saturation = hsv[1]
+                                    value = hsv[2]
+                                    onColorSelected(col)
+                                    onAddRecentColor(col)
+                                }
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             HorizontalDivider(color = Color(0x25FFFFFF), thickness = 1.dp)
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // Preview & Done Row
+            // Preview Row (Swatch + Hex value) - Clean, No "Done" button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.Center
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(32.dp)
+                            .size(24.dp)
                             .clip(CircleShape)
                             .background(Color(activeColorInt))
                             .border(1.5.dp, Color.White, CircleShape)
                     )
                     Text(
                         text = String.format("#%06X", (0xFFFFFF and activeColorInt)),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xCCFFFFFF)
-                    )
-                }
-
-                Surface(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { onClose() },
-                    color = Color(0xFF3949AB),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        text = "Done",
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
+                        color = Color(0xEEFFFFFF)
                     )
                 }
             }

@@ -8,6 +8,7 @@ import androidx.graphics.lowlatency.BufferInfo
 import androidx.graphics.lowlatency.GLFrontBufferedRenderer
 import androidx.graphics.opengl.egl.EGLManager
 import com.antigrav.milton.core.brush.BrushDab
+import com.antigrav.milton.core.layer.LayerManager
 import com.antigrav.milton.core.tile.RasterTile
 import com.antigrav.milton.core.tile.TileCoord
 import com.antigrav.milton.core.tile.TileMap
@@ -22,13 +23,15 @@ data class DabPacket(
 )
 
 /**
- * OpenGL ES 3.0 renderer coordinating the sparse tile map,
+ * OpenGL ES 3.0 renderer coordinating the sparse multi-layer tile maps,
  * low-latency front buffering, and camera viewport.
  */
 class MiltonCanvasRenderer(
     val viewport: Viewport = Viewport(),
-    val tileMap: TileMap = TileMap()
+    val layerManager: LayerManager = LayerManager()
 ) : GLFrontBufferedRenderer.Callback<DabPacket> {
+
+    val tileMap: TileMap get() = layerManager.activeLayer.tileMap
 
     companion object {
         private const val TAG = "MiltonCanvasRenderer"
@@ -36,6 +39,7 @@ class MiltonCanvasRenderer(
 
     private val dabShader = DabShader()
     private val tileBlitShader = TileBlitShader()
+    private val thumbnailRenderer = LayerThumbnailRenderer()
 
     private val tileOrthoMatrix = FloatArray(16)
     private val screenOrthoMatrix = FloatArray(16)
@@ -80,6 +84,7 @@ class MiltonCanvasRenderer(
         if (!isGlInitialized) {
             dabShader.initGl()
             tileBlitShader.initGl()
+            thumbnailRenderer.initGl()
             isGlInitialized = true
             Log.d(TAG, "OpenGL ES shaders and VAOs initialized successfully")
         }
@@ -128,7 +133,9 @@ class MiltonCanvasRenderer(
         ensureGlInitialized()
         if (param.dabs.isEmpty()) return
 
-        Log.i(TAG, "onDrawFrontBufferedLayer: dabs=${param.dabs.size}, buffer=${bufferInfo.width}x${bufferInfo.height}, fbo=${bufferInfo.frameBufferId}")
+        val activeLayer = layerManager.activeLayer
+        if (!activeLayer.isVisible || activeLayer.opacity <= 0.001f) return
+
         viewport.updateScreenSize(width, height)
 
         // Render dabs directly to the low-latency front buffer for instantaneous visual feedback
@@ -144,6 +151,7 @@ class MiltonCanvasRenderer(
         )
 
         val mvp = computeFinalMvpMatrix(bufferInfo, transform)
+        val activeOpacity = activeLayer.opacity
         for (dab in param.dabs) {
             val dabColor = if (dab.isEraser) backgroundColorRgb else dab.colorRgb
             dabShader.renderDab(
@@ -151,7 +159,7 @@ class MiltonCanvasRenderer(
                 centerY = dab.y,
                 radius = dab.radius,
                 colorRgb = dabColor,
-                alpha = dab.alpha,
+                alpha = dab.alpha * activeOpacity,
                 hardness = dab.hardness,
                 brushMode = dab.brushMode,
                 pressure = dab.pressure,
@@ -174,23 +182,23 @@ class MiltonCanvasRenderer(
         // 0. Handle requested undo / redo on the GL thread
         var undos = pendingUndoCount.getAndSet(0)
         while (undos > 0) {
-            undoManager.undo(tileMap)
+            undoManager.undo(layerManager)
             undos--
         }
         var redos = pendingRedoCount.getAndSet(0)
         while (redos > 0) {
-            undoManager.redo(tileMap)
+            undoManager.redo(layerManager)
             redos--
         }
 
-        // 1. Drain and stamp all accumulated stroke dabs into the tile FBOs on this render thread
+        // 1. Drain and stamp all accumulated stroke dabs into active layer tile FBOs
         val dabsToStamp = mutableListOf<BrushDab>()
         while (true) {
             val dab = pendingDabsForCommit.poll() ?: break
             dabsToStamp.add(dab)
         }
-        Log.i(TAG, "onDrawMultiBufferedLayer: buffer=${bufferInfo.width}x${bufferInfo.height}, dabsToStamp=${dabsToStamp.size}")
         if (dabsToStamp.isNotEmpty()) {
+            val activeLayer = layerManager.activeLayer
             val affectedTiles = mutableSetOf<RasterTile>()
             val tileSize = TileCoord.TILE_SIZE.toFloat()
             for (dab in dabsToStamp) {
@@ -200,16 +208,26 @@ class MiltonCanvasRenderer(
                 val maxTy = floor((dab.y + dab.radius) / tileSize).toInt()
                 for (ty in minTy..maxTy) {
                     for (tx in minTx..maxTx) {
-                        val tile = tileMap.getOrCreateTile(tx, ty)
-                        tile.ensureResident(tileMap.cacheDir)
+                        val tile = activeLayer.tileMap.getOrCreateTile(tx, ty)
+                        tile.ensureResident(activeLayer.tileMap.cacheDir)
                         tile.hasContent = true
                         affectedTiles.add(tile)
                     }
                 }
             }
-            undoManager.capturePreStrokeTiles(affectedTiles)
-            stampDabsIntoTiles(dabsToStamp)
-            undoManager.commitStroke(tileMap)
+            undoManager.capturePreStrokeTiles(activeLayer.id, affectedTiles)
+            stampDabsIntoTiles(activeLayer.tileMap, dabsToStamp)
+            undoManager.commitStroke(activeLayer.id, activeLayer.tileMap)
+
+            // Capture updated thumbnail for active layer
+            val visibleBounds = viewport.getVisibleWorldBounds()
+            activeLayer.thumbnailBitmap = thumbnailRenderer.captureLayerThumbnail(
+                activeLayer,
+                visibleBounds,
+                tileBlitShader
+            )
+            layerManager.onLayersChangedListener?.invoke()
+
             requestTrimBudget()
         }
 
@@ -223,17 +241,22 @@ class MiltonCanvasRenderer(
         GLES30.glClearColor(r, g, b, 1.0f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
 
-        // 3. Query and blit all visible tiles
+        // 3. Query and blit all visible tiles across all visible layers bottom-to-top
         val visibleBounds = viewport.getVisibleWorldBounds()
-        val visibleTiles = tileMap.getVisibleTiles(visibleBounds)
+        val allLayers = layerManager.layers
 
-        if (visibleTiles.isNotEmpty()) {
-            GLES30.glEnable(GLES30.GL_BLEND)
-            GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
 
-            val mvp = computeFinalMvpMatrix(bufferInfo, transform)
-            tileBlitShader.begin(mvp)
+        val mvp = computeFinalMvpMatrix(bufferInfo, transform)
+        tileBlitShader.begin(mvp)
 
+        for (layer in allLayers) {
+            if (!layer.isVisible || layer.opacity <= 0.001f) continue
+            val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds)
+            if (visibleTiles.isEmpty()) continue
+
+            tileBlitShader.setOpacity(layer.opacity)
             for (tile in visibleTiles) {
                 if (!tile.isInitialized || !tile.hasContent) continue
                 tileBlitShader.renderTile(
@@ -242,16 +265,16 @@ class MiltonCanvasRenderer(
                     textureId = tile.textureId
                 )
             }
-            tileBlitShader.end()
         }
+        tileBlitShader.end()
 
         // 4. Enforce VRAM tile budget only when requested (stroke committed or gesture ended)
         if (pendingTrimBudget.compareAndSet(true, false)) {
-            tileMap.trimToBudget(visibleTiles)
+            layerManager.trimAllToBudget(visibleBounds)
         }
     }
 
-    private fun stampDabsIntoTiles(dabs: List<BrushDab>) {
+    private fun stampDabsIntoTiles(targetTileMap: TileMap, dabs: List<BrushDab>) {
         if (dabs.isEmpty()) return
 
         val tileSize = TileCoord.TILE_SIZE.toFloat()
@@ -270,8 +293,8 @@ class MiltonCanvasRenderer(
 
         for ((coord, tileDabs) in tileDabsMap) {
             val (tx, ty) = coord
-            val tile = tileMap.getOrCreateTile(tx, ty)
-            tile.ensureResident(tileMap.cacheDir)
+            val tile = targetTileMap.getOrCreateTile(tx, ty)
+            tile.ensureResident(targetTileMap.cacheDir)
             tile.hasContent = true
 
             tile.bindFbo()
@@ -310,7 +333,8 @@ class MiltonCanvasRenderer(
         if (isGlInitialized) {
             dabShader.releaseGl()
             tileBlitShader.releaseGl()
-            tileMap.releaseAll()
+            thumbnailRenderer.releaseGl()
+            layerManager.releaseAll()
             isGlInitialized = false
         }
     }

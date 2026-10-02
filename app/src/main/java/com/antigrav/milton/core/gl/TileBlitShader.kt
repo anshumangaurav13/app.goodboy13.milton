@@ -21,6 +21,7 @@ class TileBlitShader {
     private var uTileSizeLoc: Int = -1
     private var uTextureLoc: Int = -1
     private var uFlipYLoc: Int = -1
+    private var uOpacityLoc: Int = -1
 
     fun initGl() {
         val vertexShaderCode = """
@@ -44,13 +45,14 @@ class TileBlitShader {
             precision mediump float;
             in vec2 vTexCoord;
             uniform sampler2D uTexture;
+            uniform float uOpacity;
             out vec4 fragColor;
             void main() {
                 vec4 tex = texture(uTexture, vTexCoord);
                 if (tex.a <= 0.001) {
                     discard;
                 }
-                fragColor = tex;
+                fragColor = tex * uOpacity;
             }
         """.trimIndent()
 
@@ -60,6 +62,7 @@ class TileBlitShader {
         uTileSizeLoc = GLES30.glGetUniformLocation(programId, "uTileSize")
         uTextureLoc = GLES30.glGetUniformLocation(programId, "uTexture")
         uFlipYLoc = GLES30.glGetUniformLocation(programId, "uFlipY")
+        uOpacityLoc = GLES30.glGetUniformLocation(programId, "uOpacity")
 
         // Setup static Unit Quad in VBO + VAO
         val vaos = IntArray(1)
@@ -106,7 +109,14 @@ class TileBlitShader {
         GLES30.glUniform1i(uTextureLoc, 0)
         GLES30.glUniform1f(uTileSizeLoc, TileCoord.TILE_SIZE.toFloat())
         GLES30.glUniform1i(uFlipYLoc, if (flipY) 1 else 0)
+        GLES30.glUniform1f(uOpacityLoc, 1.0f)
         GLES30.glBindVertexArray(vaoId)
+    }
+
+    fun setOpacity(opacity: Float) {
+        if (programId != 0 && uOpacityLoc != -1) {
+            GLES30.glUniform1f(uOpacityLoc, opacity.coerceIn(0f, 1f))
+        }
     }
 
     fun renderTile(worldLeft: Float, worldTop: Float, textureId: Int) {
