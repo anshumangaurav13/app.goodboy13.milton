@@ -218,7 +218,10 @@ class MainActivity : ComponentActivity() {
                 fun exportImage(isPng: Boolean) {
                     scope.launch(Dispatchers.IO) {
                         storageManager.flushAutosaveNow(documentTitle, canvasView)
-                        val bitmap = CanvasExportEngine.renderVisibleAreaToBitmap(
+                        val bitmap = canvasView.renderer.renderVisibleAreaGl(
+                            canvasView = canvasView,
+                            maxDimension = 8192
+                        ) ?: CanvasExportEngine.renderVisibleAreaToBitmap(
                             viewport = canvasView.renderer.viewport,
                             layerManager = canvasView.layerManager,
                             backgroundColorRgb = canvasView.backgroundColorRgb,

@@ -1,5 +1,6 @@
 package com.antigrav.milton.core.gl
 
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.opengl.GLES30
 import android.opengl.Matrix
@@ -22,6 +23,8 @@ import com.antigrav.milton.ui.MiltonCanvasView
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.floor
 import kotlin.math.roundToInt
@@ -207,8 +210,6 @@ class MiltonCanvasRenderer(
         val activeLayer = layerManager.activeLayer
         if (!activeLayer.isVisible || activeLayer.opacity <= 0.001f) return
 
-        viewport.updateScreenSize(width, height)
-
         // Render dabs directly to the low-latency front buffer for instantaneous visual feedback
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, bufferInfo.frameBufferId)
         GLES30.glViewport(0, 0, bufferInfo.width, bufferInfo.height)
@@ -257,7 +258,6 @@ class MiltonCanvasRenderer(
         params: Collection<DabPacket>
     ) {
         ensureGlInitialized()
-        viewport.updateScreenSize(width, height)
 
         // Drain any pending GL tasks
         while (true) {
@@ -384,6 +384,164 @@ class MiltonCanvasRenderer(
         // 6. Enforce VRAM tile budget only when requested (stroke committed or gesture ended)
         if (pendingTrimBudget.compareAndSet(true, false)) {
             layerManager.trimAllToBudget(visibleBounds)
+        }
+    }
+
+    /**
+     * GPU-accelerated export of the visible canvas area at canvas resolution.
+     * Guaranteed zero seams, identical color mixing and rotation as on-screen.
+     */
+    fun renderVisibleAreaGl(
+        canvasView: MiltonCanvasView,
+        maxDimension: Int = 8192,
+        timeoutMs: Long = 2000
+    ): Bitmap? {
+        val screenW = viewport.screenWidth.toFloat()
+        val screenH = viewport.screenHeight.toFloat()
+        if (screenW <= 1f || screenH <= 1f) return null
+
+        val rawWidth = (screenW / viewport.zoom).roundToInt().coerceAtLeast(64)
+        val rawHeight = (screenH / viewport.zoom).roundToInt().coerceAtLeast(64)
+
+        val scale = if (rawWidth > maxDimension || rawHeight > maxDimension) {
+            val maxRaw = maxOf(rawWidth, rawHeight).toFloat()
+            maxDimension / maxRaw
+        } else {
+            1.0f
+        }
+
+        val exportWidth = (rawWidth * scale).roundToInt().coerceIn(64, maxDimension)
+        val exportHeight = (rawHeight * scale).roundToInt().coerceIn(64, maxDimension)
+
+        val latch = CountDownLatch(1)
+        var resultBitmap: Bitmap? = null
+
+        runOnGlThread {
+            try {
+                resultBitmap = renderVisibleAreaGlInternal(exportWidth, exportHeight)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed GL offscreen export", e)
+            } finally {
+                latch.countDown()
+            }
+        }
+        canvasView.requestRedraw()
+
+        val ok = latch.await(timeoutMs, TimeUnit.MILLISECONDS)
+        if (!ok) {
+            Log.w(TAG, "GL offscreen export timed out after ${timeoutMs}ms, falling back to CPU")
+        }
+        return resultBitmap
+    }
+
+    private fun renderVisibleAreaGlInternal(exportWidth: Int, exportHeight: Int): Bitmap? {
+        ensureGlInitialized()
+
+        val fbos = IntArray(1)
+        GLES30.glGenFramebuffers(1, fbos, 0)
+        val fboId = fbos[0]
+
+        val textures = IntArray(1)
+        GLES30.glGenTextures(1, textures, 0)
+        val texId = textures[0]
+
+        try {
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texId)
+            GLES30.glTexImage2D(
+                GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA8,
+                exportWidth, exportHeight, 0,
+                GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null
+            )
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fboId)
+            GLES30.glFramebufferTexture2D(
+                GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0,
+                GLES30.GL_TEXTURE_2D, texId, 0
+            )
+
+            val status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
+            if (status != GLES30.GL_FRAMEBUFFER_COMPLETE) {
+                Log.e(TAG, "Export FBO is incomplete: status=$status")
+                return null
+            }
+
+            GLES30.glViewport(0, 0, exportWidth, exportHeight)
+            val r = Color.red(backgroundColorRgb) / 255.0f
+            val g = Color.green(backgroundColorRgb) / 255.0f
+            val b = Color.blue(backgroundColorRgb) / 255.0f
+            GLES30.glClearColor(r, g, b, 1.0f)
+            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+
+            val screenW = viewport.screenWidth.toFloat()
+            val screenH = viewport.screenHeight.toFloat()
+
+            val exportOrtho = FloatArray(16)
+            Matrix.orthoM(exportOrtho, 0, 0f, screenW, 0f, screenH, -1f, 1f)
+
+            val worldToView = FloatArray(16)
+            Matrix.setIdentityM(worldToView, 0)
+            if (viewport.isFlippedHorizontally) {
+                val cx = viewport.screenWidth * 0.5f
+                Matrix.translateM(worldToView, 0, cx, 0f, 0f)
+                Matrix.scaleM(worldToView, 0, -1f, 1f, 1f)
+                Matrix.translateM(worldToView, 0, -cx, 0f, 0f)
+            }
+            Matrix.translateM(worldToView, 0, viewport.panX, viewport.panY, 0f)
+            Matrix.scaleM(worldToView, 0, viewport.zoom, viewport.zoom, 1.0f)
+            if (viewport.rotationDegrees != 0f) {
+                Matrix.rotateM(worldToView, 0, viewport.rotationDegrees, 0f, 0f, 1f)
+            }
+
+            val exportMvp = FloatArray(16)
+            Matrix.multiplyMM(exportMvp, 0, exportOrtho, 0, worldToView, 0)
+
+            val visibleBounds = viewport.getVisibleWorldBounds()
+            val allLayers = layerManager.layers
+
+            tileBlitShader.begin(exportMvp, flipY = true, backgroundColorRgb = backgroundColorRgb)
+            for (layer in allLayers) {
+                if (!layer.isVisible || layer.opacity <= 0.001f) continue
+                val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds)
+                if (visibleTiles.isEmpty()) continue
+
+                tileBlitShader.setOpacity(layer.opacity)
+                for (tile in visibleTiles) {
+                    if (!tile.isInitialized || !tile.hasContent) {
+                        if (tile.isOnDisk) {
+                            tile.ensureResident(layer.tileMap.cacheDir)
+                        }
+                    }
+                    if (tile.isInitialized && tile.hasContent) {
+                        tileBlitShader.renderTile(
+                            worldLeft = tile.coord.worldLeft,
+                            worldTop = tile.coord.worldTop,
+                            textureId = tile.textureId
+                        )
+                    }
+                }
+            }
+            tileBlitShader.end()
+
+            val buf = ByteBuffer.allocateDirect(exportWidth * exportHeight * 4)
+                .order(ByteOrder.nativeOrder())
+            GLES30.glReadPixels(0, 0, exportWidth, exportHeight, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, buf)
+
+            val bitmap = Bitmap.createBitmap(exportWidth, exportHeight, Bitmap.Config.ARGB_8888)
+            buf.position(0)
+            bitmap.copyPixelsFromBuffer(buf)
+            return bitmap
+        } finally {
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+            if (fboId != 0) {
+                GLES30.glDeleteFramebuffers(1, fbos, 0)
+            }
+            if (texId != 0) {
+                GLES30.glDeleteTextures(1, textures, 0)
+            }
         }
     }
 

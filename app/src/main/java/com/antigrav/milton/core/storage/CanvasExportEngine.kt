@@ -27,7 +27,8 @@ object CanvasExportEngine {
     private const val TAG = "CanvasExportEngine"
 
     /**
-     * Composites visible tiles across all visible layers into a Bitmap at 1:1 canvas resolution.
+     * Composites visible tiles across all visible layers into a Bitmap at 1:1 canvas resolution,
+     * faithfully reproducing canvas rotation, zoom, horizontal flip, and screen framing with zero tile seams.
      */
     fun renderVisibleAreaToBitmap(
         viewport: Viewport,
@@ -36,9 +37,11 @@ object CanvasExportEngine {
         storageManager: DocumentStorageManager? = null,
         maxDimension: Int = 8192
     ): Bitmap {
-        val bounds = viewport.getVisibleWorldBounds()
-        val rawWidth = (bounds.right - bounds.left).roundToInt().coerceAtLeast(64)
-        val rawHeight = (bounds.bottom - bounds.top).roundToInt().coerceAtLeast(64)
+        val screenW = viewport.screenWidth.toFloat()
+        val screenH = viewport.screenHeight.toFloat()
+
+        val rawWidth = (screenW / viewport.zoom).roundToInt().coerceAtLeast(64)
+        val rawHeight = (screenH / viewport.zoom).roundToInt().coerceAtLeast(64)
 
         // Scale proportionally if exceeds maximum memory dimensions
         val scale = if (rawWidth > maxDimension || rawHeight > maxDimension) {
@@ -51,7 +54,7 @@ object CanvasExportEngine {
         val width = (rawWidth * scale).roundToInt().coerceIn(64, maxDimension)
         val height = (rawHeight * scale).roundToInt().coerceIn(64, maxDimension)
 
-        Log.i(TAG, "Exporting visible canvas area: world=($rawWidth x $rawHeight) -> export=($width x $height), scale=$scale")
+        Log.i(TAG, "Exporting visible canvas area: screen=($screenW x $screenH), world=($rawWidth x $rawHeight) -> export=($width x $height), scale=$scale, rot=${viewport.rotationDegrees}")
 
         val outputBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(outputBitmap)
@@ -59,8 +62,39 @@ object CanvasExportEngine {
         // 1. Fill background with canvas paper color
         canvas.drawColor(backgroundColorRgb)
 
+        // Compute 4 screen corners in world space
+        val p0 = viewport.screenToWorld(0f, 0f)
+        val p1 = viewport.screenToWorld(screenW, 0f)
+        val p2 = viewport.screenToWorld(screenW, screenH)
+        val p3 = viewport.screenToWorld(0f, screenH)
+
+        val minX = minOf(p0.x, p1.x, p2.x, p3.x)
+        val maxX = maxOf(p0.x, p1.x, p2.x, p3.x)
+        val minY = minOf(p0.y, p1.y, p2.y, p3.y)
+        val maxY = maxOf(p0.y, p1.y, p2.y, p3.y)
+        val bounds = com.antigrav.milton.core.model.WorldRect(minX, minY, maxX, maxY)
+
+        // Transformation matrix: world coordinates -> export bitmap coordinates
+        val worldToExportMatrix = android.graphics.Matrix()
+        val srcPts = floatArrayOf(
+            p0.x, p0.y,
+            p1.x, p1.y,
+            p3.x, p3.y
+        )
+        val dstPts = floatArrayOf(
+            0f, 0f,
+            width.toFloat(), 0f,
+            0f, height.toFloat()
+        )
+        worldToExportMatrix.setPolyToPoly(srcPts, 0, dstPts, 0, 3)
+
         val tempTileBitmap = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
-        val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+        // Disable anti-alias and filter bitmap to prevent transparent border bleeding & tile seams
+        val paint = Paint().apply {
+            isAntiAlias = false
+            isFilterBitmap = false
+        }
+        val tileMatrix = android.graphics.Matrix()
 
         DirectBufferPool.useBuffer { tileBuffer ->
             // 2. Composite visible layers bottom-to-top
@@ -101,14 +135,11 @@ object CanvasExportEngine {
                     tileBuffer.position(0)
                     tempTileBitmap.copyPixelsFromBuffer(tileBuffer)
 
-                    val destLeft = (tile.coord.worldLeft - bounds.left) * scale
-                    val destTop = (tile.coord.worldTop - bounds.top) * scale
-                    val destRight = destLeft + 512f * scale
-                    val destBottom = destTop + 512f * scale
+                    tileMatrix.reset()
+                    tileMatrix.postTranslate(tile.coord.worldLeft, tile.coord.worldTop)
+                    tileMatrix.postConcat(worldToExportMatrix)
 
-                    val destRect = android.graphics.RectF(destLeft, destTop, destRight, destBottom)
-                    val srcRect = android.graphics.Rect(0, 0, 512, 512)
-                    canvas.drawBitmap(tempTileBitmap, srcRect, destRect, paint)
+                    canvas.drawBitmap(tempTileBitmap, tileMatrix, paint)
                 }
             }
         }
