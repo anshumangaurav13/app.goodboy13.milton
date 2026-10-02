@@ -564,11 +564,15 @@ class DocumentStorageManager(private val context: Context) {
         pendingCompressedTiles.clear()
         autosaveTilesDir.listFiles()?.forEach { it.delete() }
 
+        val viewport = canvasView.renderer.viewport
+        val defaultPanX = if (viewport.screenWidth > 1) viewport.screenWidth * 0.5f else 0f
+        val defaultPanY = if (viewport.screenHeight > 1) viewport.screenHeight * 0.5f else 0f
+
         val newMeta = DocumentMetadata(
             title = "Untitled Artwork",
             backgroundColorRgb = 0xFFF8F8F7.toInt(),
-            viewportPanX = 0f,
-            viewportPanY = 0f,
+            viewportPanX = defaultPanX,
+            viewportPanY = defaultPanY,
             viewportZoom = 0.5f,
             viewportRotation = 0f,
             isFlippedHorizontally = false,
@@ -587,6 +591,9 @@ class DocumentStorageManager(private val context: Context) {
 
         withContext(Dispatchers.Main) {
             loadMetadataIntoCanvas(newMeta, autosaveTilesDir, canvasView)
+            canvasView.renderer.viewport.reset()
+            canvasView.requestRedraw()
+            canvasView.onViewportChanged?.invoke(canvasView.renderer.viewport.zoom, canvasView.renderer.viewport.rotationDegrees)
         }
         newMeta
     }
