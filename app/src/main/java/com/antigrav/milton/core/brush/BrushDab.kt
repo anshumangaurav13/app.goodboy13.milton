@@ -38,7 +38,7 @@ data class BrushProperties(
     var brushMode: Int = 1,
     var stabilizer: Float = 0.10f,
     var sizeBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.20f),
-    var opacityBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.20f)
+    var opacityBezierConfig: BezierControlPoints = PressureCurveDefaults.SOFT.copy(minPercent = 0.20f)
 ) {
     // Legacy alias
     var bezierConfig: BezierControlPoints
@@ -62,7 +62,7 @@ data class BrushProperties(
     private val savedStabilizers = mutableMapOf(
         BrushType.PEN to 0.05f,
         BrushType.PENCIL to 0.10f,
-        BrushType.PAINTBRUSH to 0.15f,
+        BrushType.PAINTBRUSH to 0.05f,
         BrushType.ERASER to 0.0f
     )
 
@@ -75,7 +75,7 @@ data class BrushProperties(
 
     private val savedOpacityBeziers = mutableMapOf(
         BrushType.PEN to PressureCurveDefaults.LINEAR.copy(minPercent = 1.0f, maxPercent = 1.0f),
-        BrushType.PENCIL to PressureCurveDefaults.STANDARD.copy(minPercent = 0.20f, maxPercent = 1.0f),
+        BrushType.PENCIL to PressureCurveDefaults.SOFT.copy(minPercent = 0.20f, maxPercent = 1.0f),
         BrushType.PAINTBRUSH to PressureCurveDefaults.STANDARD.copy(minPercent = 0.25f, maxPercent = 1.0f),
         BrushType.ERASER to PressureCurveDefaults.LINEAR.copy(minPercent = 1.0f, maxPercent = 1.0f)
     )

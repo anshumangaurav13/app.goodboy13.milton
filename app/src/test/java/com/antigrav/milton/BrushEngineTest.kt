@@ -150,7 +150,7 @@ class BrushEngineTest {
         org.junit.Assert.assertEquals(0.10f, props.stabilizer, 0.001f)
 
         props.applyPreset(BrushType.PAINTBRUSH)
-        org.junit.Assert.assertEquals(0.15f, props.stabilizer, 0.001f)
+        org.junit.Assert.assertEquals(0.05f, props.stabilizer, 0.001f)
 
         props.applyPreset(BrushType.ERASER)
         org.junit.Assert.assertEquals(0.0f, props.stabilizer, 0.001f)
