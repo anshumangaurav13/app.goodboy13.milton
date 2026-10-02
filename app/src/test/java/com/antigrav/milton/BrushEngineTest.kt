@@ -31,4 +31,21 @@ class BrushEngineTest {
         assertTrue(dabs.first().x > 0f)
         assertTrue(dabs.last().x <= 100f)
     }
+
+    @Test
+    fun testMicroMovementInterpolation() {
+        // High frequency events (e.g. 240Hz stylus) where each event moves only 0.5px
+        val engine = BrushEngine(BrushProperties(size = 20f, spacing = 0.15f))
+        engine.startStroke(0f, 0f, 1f)
+
+        var totalDabs = 0
+        // Move 100px in 200 micro-steps of 0.5px each
+        for (i in 1..200) {
+            val dabs = engine.addPoint(i * 0.5f, 0f, 1f)
+            totalDabs += dabs.size
+        }
+
+        // With radius 10 and spacing 0.15, stepSize is 3.0px. Over 100px, expect ~33 dabs
+        assertTrue("Expected ~33 dabs across micro-movements but got $totalDabs", totalDabs in 30..35)
+    }
 }

@@ -11,17 +11,18 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
     private var lastX: Float = 0f
     private var lastY: Float = 0f
     private var lastPressure: Float = 1.0f
-    private var residualDistance: Float = 0f
+    private var distanceFromLastDab: Float = 0f
     private var isStrokeActive: Boolean = false
 
     fun startStroke(worldX: Float, worldY: Float, pressure: Float): List<BrushDab> {
         isStrokeActive = true
         lastX = worldX
         lastY = worldY
-        lastPressure = pressure.coerceIn(0.01f, 1.0f)
-        residualDistance = 0f
+        val clampedP = pressure.coerceIn(0.01f, 1.0f)
+        lastPressure = clampedP
+        distanceFromLastDab = 0f
 
-        val radius = max(properties.minRadius, (properties.size * 0.5f) * lastPressure)
+        val radius = max(properties.minRadius, (properties.size * 0.5f) * clampedP)
         val initialDab = BrushDab(
             x = worldX,
             y = worldY,
@@ -42,21 +43,21 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
         val dy = worldY - lastY
         val segmentDist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
 
-        if (segmentDist < 0.1f) {
+        if (segmentDist < 0.001f) {
             return emptyList()
         }
 
         val dabs = mutableListOf<BrushDab>()
-        var currentDist = residualDistance
 
-        // Estimate current radius
         val avgPressure = (lastPressure + clampedPressure) * 0.5f
         val radius = max(properties.minRadius, (properties.size * 0.5f) * avgPressure)
         val stepSize = max(0.8f, radius * properties.spacing * 2.0f)
 
-        while (currentDist + stepSize <= segmentDist) {
-            currentDist += stepSize
-            val t = (currentDist / segmentDist).coerceIn(0f, 1f)
+        var d = stepSize - distanceFromLastDab
+        var lastPlacedD = -1f
+
+        while (d <= segmentDist) {
+            val t = (d / segmentDist).coerceIn(0f, 1f)
             val ix = lastX + dx * t
             val iy = lastY + dy * t
             val ip = lastPressure + (clampedPressure - lastPressure) * t
@@ -71,9 +72,16 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
                     colorRgb = properties.colorRgb
                 )
             )
+            lastPlacedD = d
+            d += stepSize
         }
 
-        residualDistance = segmentDist - currentDist
+        if (lastPlacedD >= 0f) {
+            distanceFromLastDab = segmentDist - lastPlacedD
+        } else {
+            distanceFromLastDab += segmentDist
+        }
+
         lastX = worldX
         lastY = worldY
         lastPressure = clampedPressure
@@ -83,7 +91,7 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
 
     fun endStroke(): List<BrushDab> {
         isStrokeActive = false
-        residualDistance = 0f
+        distanceFromLastDab = 0f
         return emptyList()
     }
 }
