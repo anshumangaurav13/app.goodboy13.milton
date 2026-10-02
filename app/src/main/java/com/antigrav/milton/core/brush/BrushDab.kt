@@ -1,0 +1,21 @@
+package com.antigrav.milton.core.brush
+
+/**
+ * A single stamped raster dab in world coordinates.
+ */
+data class BrushDab(
+    val x: Float,
+    val y: Float,
+    val radius: Float,
+    val alpha: Float,
+    val colorRgb: Int
+)
+
+data class BrushProperties(
+    var size: Float = 14.0f,
+    var colorRgb: Int = 0xFF1E1E1E.toInt(),
+    var opacity: Float = 1.0f,
+    var spacing: Float = 0.15f,
+    var hardness: Float = 0.85f,
+    var minRadius: Float = 1.0f
+)
