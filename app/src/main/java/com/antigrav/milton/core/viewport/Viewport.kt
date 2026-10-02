@@ -17,7 +17,7 @@ import kotlin.math.sin
 class Viewport {
     var panX: Float = 0f
     var panY: Float = 0f
-    var zoom: Float = 1.0f
+    var zoom: Float = 0.5f
         set(value) {
             field = value.coerceIn(0.02f, 50.0f)
         }
@@ -124,7 +124,7 @@ class Viewport {
     fun reset() {
         panX = screenWidth * 0.5f
         panY = screenHeight * 0.5f
-        zoom = 1.0f
+        zoom = 0.5f
         rotationDegrees = 0f
     }
 }

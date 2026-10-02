@@ -260,6 +260,7 @@ class MiltonCanvasView @JvmOverloads constructor(
             MotionEvent.ACTION_CANCEL -> {
                 Log.i(TAG, "Stylus CANCEL")
                 brushEngine.endStroke()
+                renderer.clearPendingDabs()
                 frontBufferedRenderer?.cancel()
                 brushEngine.properties.isEraser = isEraserMode
             }

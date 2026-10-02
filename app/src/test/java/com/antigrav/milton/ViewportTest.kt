@@ -62,4 +62,13 @@ class ViewportTest {
         assertEquals(screenX, roundTripScreen.x, 0.01f)
         assertEquals(screenY, roundTripScreen.y, 0.01f)
     }
+
+    @Test
+    fun testDefaultZoomIsFiftyPercent() {
+        val viewport = Viewport()
+        assertEquals(0.5f, viewport.zoom, 0.001f)
+        viewport.zoom = 2.0f
+        viewport.reset()
+        assertEquals(0.5f, viewport.zoom, 0.001f)
+    }
 }

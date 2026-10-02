@@ -37,14 +37,14 @@ data class BrushProperties(
     private val savedSizes = mutableMapOf(
         BrushType.PEN to 8.0f,
         BrushType.PENCIL to 5.0f,
-        BrushType.PAINTBRUSH to 26.0f,
+        BrushType.PAINTBRUSH to 24.0f,
         BrushType.ERASER to 32.0f
     )
 
     private val savedOpacities = mutableMapOf(
         BrushType.PEN to 1.0f,
-        BrushType.PENCIL to 0.55f,
-        BrushType.PAINTBRUSH to 0.85f,
+        BrushType.PENCIL to 0.65f,
+        BrushType.PAINTBRUSH to 0.80f,
         BrushType.ERASER to 1.0f
     )
 
@@ -67,7 +67,7 @@ data class BrushProperties(
             }
             BrushType.PENCIL -> {
                 hardness = 0.40f
-                spacing = 0.06f
+                spacing = 0.08f
                 isEraser = false
                 brushMode = 1
             }

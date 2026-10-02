@@ -66,7 +66,7 @@ class MainActivity : ComponentActivity() {
                 var brushColor by remember { mutableIntStateOf(QUICK_PALETTE_COLORS[0]) }
                 var canUndo by remember { mutableStateOf(false) }
                 var canRedo by remember { mutableStateOf(false) }
-                var zoomLevel by remember { mutableFloatStateOf(1.0f) }
+                var zoomLevel by remember { mutableFloatStateOf(0.5f) }
                 var isZenMode by remember { mutableStateOf(false) }
 
                 DisposableEffect(canvasView) {

@@ -113,6 +113,10 @@ class MiltonCanvasRenderer(
         pendingDabsForCommit.addAll(dabs)
     }
 
+    fun clearPendingDabs() {
+        pendingDabsForCommit.clear()
+    }
+
     override fun onDrawFrontBufferedLayer(
         eglManager: EGLManager,
         width: Int,
@@ -126,7 +130,6 @@ class MiltonCanvasRenderer(
 
         Log.i(TAG, "onDrawFrontBufferedLayer: dabs=${param.dabs.size}, buffer=${bufferInfo.width}x${bufferInfo.height}, fbo=${bufferInfo.frameBufferId}")
         viewport.updateScreenSize(width, height)
-        pendingDabsForCommit.addAll(param.dabs)
 
         // Render dabs directly to the low-latency front buffer for instantaneous visual feedback
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, bufferInfo.frameBufferId)
@@ -178,12 +181,6 @@ class MiltonCanvasRenderer(
         while (redos > 0) {
             undoManager.redo(tileMap)
             redos--
-        }
-
-        for (packet in params) {
-            if (packet.dabs.isNotEmpty()) {
-                pendingDabsForCommit.addAll(packet.dabs)
-            }
         }
 
         // 1. Drain and stamp all accumulated stroke dabs into the tile FBOs on this render thread
@@ -254,149 +251,63 @@ class MiltonCanvasRenderer(
         }
     }
 
-    private var scratchFboId = 0
-    private var scratchTextureId = 0
-
-    private fun initScratchFbo() {
-        if (scratchFboId != 0) return
-        val texs = IntArray(1)
-        GLES30.glGenTextures(1, texs, 0)
-        scratchTextureId = texs[0]
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, scratchTextureId)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
-        GLES30.glTexImage2D(
-            GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA8,
-            TileCoord.TILE_SIZE, TileCoord.TILE_SIZE, 0,
-            GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null
-        )
-
-        val fbos = IntArray(1)
-        GLES30.glGenFramebuffers(1, fbos, 0)
-        scratchFboId = fbos[0]
-        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, scratchFboId)
-        GLES30.glFramebufferTexture2D(
-            GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0,
-            GLES30.GL_TEXTURE_2D, scratchTextureId, 0
-        )
-        GLES30.glClearColor(0f, 0f, 0f, 0f)
-        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
-        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
-    }
-
     private fun stampDabsIntoTiles(dabs: List<BrushDab>) {
         if (dabs.isEmpty()) return
-        initScratchFbo()
 
         val tileSize = TileCoord.TILE_SIZE.toFloat()
-        // Group by strokeId so overlapping dabs within the same stroke do not multiply into solid opacity
-        val strokeGroups = dabs.groupBy { it.strokeId }
-
-        for ((_, strokeDabs) in strokeGroups) {
-            val tileDabsMap = mutableMapOf<Pair<Int, Int>, MutableList<BrushDab>>()
-            for (dab in strokeDabs) {
-                val minTx = floor((dab.x - dab.radius) / tileSize).toInt()
-                val maxTx = floor((dab.x + dab.radius) / tileSize).toInt()
-                val minTy = floor((dab.y - dab.radius) / tileSize).toInt()
-                val maxTy = floor((dab.y + dab.radius) / tileSize).toInt()
-                for (ty in minTy..maxTy) {
-                    for (tx in minTx..maxTx) {
-                        tileDabsMap.getOrPut(tx to ty) { mutableListOf() }.add(dab)
-                    }
+        val tileDabsMap = mutableMapOf<Pair<Int, Int>, MutableList<BrushDab>>()
+        for (dab in dabs) {
+            val minTx = floor((dab.x - dab.radius) / tileSize).toInt()
+            val maxTx = floor((dab.x + dab.radius) / tileSize).toInt()
+            val minTy = floor((dab.y - dab.radius) / tileSize).toInt()
+            val maxTy = floor((dab.y + dab.radius) / tileSize).toInt()
+            for (ty in minTy..maxTy) {
+                for (tx in minTx..maxTx) {
+                    tileDabsMap.getOrPut(tx to ty) { mutableListOf() }.add(dab)
                 }
             }
+        }
 
-            for ((coord, tileDabs) in tileDabsMap) {
-                val (tx, ty) = coord
-                val tile = tileMap.getOrCreateTile(tx, ty)
-                tile.ensureResident(tileMap.cacheDir)
-                tile.hasContent = true
+        for ((coord, tileDabs) in tileDabsMap) {
+            val (tx, ty) = coord
+            val tile = tileMap.getOrCreateTile(tx, ty)
+            tile.ensureResident(tileMap.cacheDir)
+            tile.hasContent = true
 
-                val eraserDabs = tileDabs.filter { it.isEraser }
-                val paintDabs = tileDabs.filter { !it.isEraser }
+            tile.bindFbo()
+            GLES30.glEnable(GLES30.GL_BLEND)
+            GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
 
-                if (eraserDabs.isNotEmpty()) {
-                    tile.bindFbo()
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                    GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
+            for (dab in tileDabs) {
+                if (dab.isEraser) {
                     GLES30.glBlendFunc(GLES30.GL_ZERO, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-                    for (dab in eraserDabs) {
-                        val localX = dab.x - (tx * tileSize)
-                        val localY = dab.y - (ty * tileSize)
-                        dabShader.renderDab(
-                            centerX = localX,
-                            centerY = localY,
-                            radius = dab.radius,
-                            colorRgb = 0,
-                            alpha = dab.alpha,
-                            hardness = dab.hardness,
-                            brushMode = dab.brushMode,
-                            pressure = dab.pressure,
-                            worldOffsetX = tx * tileSize,
-                            worldOffsetY = ty * tileSize,
-                            projectionMatrix = tileOrthoMatrix
-                        )
-                    }
-                    tile.unbindFbo()
-                }
-
-                if (paintDabs.isNotEmpty()) {
-                    // Accumulate dabs into scratch FBO with GL_MAX so the stroke does not saturate to solid black
-                    GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, scratchFboId)
-                    GLES30.glViewport(0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE)
-                    GLES30.glClearColor(0f, 0f, 0f, 0f)
-                    GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
-
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                    GLES30.glBlendEquation(GLES30.GL_MAX)
-
-                    for (dab in paintDabs) {
-                        val localX = dab.x - (tx * tileSize)
-                        val localY = dab.y - (ty * tileSize)
-                        dabShader.renderDab(
-                            centerX = localX,
-                            centerY = localY,
-                            radius = dab.radius,
-                            colorRgb = dab.colorRgb,
-                            alpha = dab.alpha,
-                            hardness = dab.hardness,
-                            brushMode = dab.brushMode,
-                            pressure = dab.pressure,
-                            worldOffsetX = tx * tileSize,
-                            worldOffsetY = ty * tileSize,
-                            projectionMatrix = tileOrthoMatrix
-                        )
-                    }
-
-                    // Blit stroke texture into real tile with premultiplied blend (flipY = true matches tile FBO orientation)
-                    tile.bindFbo()
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                    GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
+                } else {
                     GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-
-                    tileBlitShader.begin(tileOrthoMatrix, flipY = true)
-                    tileBlitShader.renderTile(0f, 0f, scratchTextureId)
-                    tileBlitShader.end()
-
-                    tile.unbindFbo()
                 }
+
+                val localX = dab.x - (tx * tileSize)
+                val localY = dab.y - (ty * tileSize)
+                val color = if (dab.isEraser) 0 else dab.colorRgb
+                dabShader.renderDab(
+                    centerX = localX,
+                    centerY = localY,
+                    radius = dab.radius,
+                    colorRgb = color,
+                    alpha = dab.alpha,
+                    hardness = dab.hardness,
+                    brushMode = dab.brushMode,
+                    pressure = dab.pressure,
+                    worldOffsetX = tx * tileSize,
+                    worldOffsetY = ty * tileSize,
+                    projectionMatrix = tileOrthoMatrix
+                )
             }
+            tile.unbindFbo()
         }
     }
 
     fun cleanup() {
         if (isGlInitialized) {
-            if (scratchFboId != 0) {
-                GLES30.glDeleteFramebuffers(1, intArrayOf(scratchFboId), 0)
-                scratchFboId = 0
-            }
-            if (scratchTextureId != 0) {
-                GLES30.glDeleteTextures(1, intArrayOf(scratchTextureId), 0)
-                scratchTextureId = 0
-            }
             dabShader.releaseGl()
             tileBlitShader.releaseGl()
             tileMap.releaseAll()
