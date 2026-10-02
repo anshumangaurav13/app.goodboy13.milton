@@ -10,40 +10,41 @@ data class BrushDab(
     val alpha: Float,
     val colorRgb: Int,
     val isEraser: Boolean = false,
-    val hardness: Float = 0.85f
+    val hardness: Float = 0.85f,
+    val brushMode: Int = 0, // 0 = Pen/Eraser, 1 = Pencil, 2 = Paintbrush
+    val pressure: Float = 0.5f,
+    val strokeId: Long = 0L
 )
 
 enum class BrushType(val displayName: String) {
     PEN("Pen"),
     PENCIL("Pencil"),
-    ROUND_BRUSH("Round Brush"),
-    MARKER("Marker"),
+    PAINTBRUSH("Paintbrush"),
     ERASER("Eraser")
 }
 
 data class BrushProperties(
     var brushType: BrushType = BrushType.PEN,
-    var size: Float = 10.0f,
+    var size: Float = 8.0f,
     var colorRgb: Int = 0xFF111111.toInt(),
     var opacity: Float = 1.0f,
-    var spacing: Float = 0.12f,
-    var hardness: Float = 0.92f,
+    var spacing: Float = 0.10f,
+    var hardness: Float = 0.94f,
     var minRadius: Float = 1.5f,
-    var isEraser: Boolean = false
+    var isEraser: Boolean = false,
+    var brushMode: Int = 0
 ) {
     private val savedSizes = mutableMapOf(
-        BrushType.PEN to 10.0f,
-        BrushType.PENCIL to 6.0f,
-        BrushType.ROUND_BRUSH to 28.0f,
-        BrushType.MARKER to 42.0f,
+        BrushType.PEN to 8.0f,
+        BrushType.PENCIL to 5.0f,
+        BrushType.PAINTBRUSH to 26.0f,
         BrushType.ERASER to 32.0f
     )
 
     private val savedOpacities = mutableMapOf(
         BrushType.PEN to 1.0f,
         BrushType.PENCIL to 0.55f,
-        BrushType.ROUND_BRUSH to 1.0f,
-        BrushType.MARKER to 0.35f,
+        BrushType.PAINTBRUSH to 0.85f,
         BrushType.ERASER to 1.0f
     )
 
@@ -53,35 +54,34 @@ data class BrushProperties(
         savedOpacities[brushType] = opacity
 
         brushType = type
-        size = savedSizes[type] ?: 12f
+        size = savedSizes[type] ?: 10f
         opacity = savedOpacities[type] ?: 1.0f
         minRadius = (size * 0.12f).coerceAtLeast(1.2f)
 
         when (type) {
             BrushType.PEN -> {
-                hardness = 0.92f
-                spacing = 0.12f
-                isEraser = false
-            }
-            BrushType.PENCIL -> {
-                hardness = 0.35f
-                spacing = 0.08f
-                isEraser = false
-            }
-            BrushType.ROUND_BRUSH -> {
-                hardness = 0.70f
-                spacing = 0.15f
-                isEraser = false
-            }
-            BrushType.MARKER -> {
-                hardness = 0.88f
+                hardness = 0.94f
                 spacing = 0.10f
                 isEraser = false
+                brushMode = 0
+            }
+            BrushType.PENCIL -> {
+                hardness = 0.40f
+                spacing = 0.06f
+                isEraser = false
+                brushMode = 1
+            }
+            BrushType.PAINTBRUSH -> {
+                hardness = 0.25f
+                spacing = 0.08f
+                isEraser = false
+                brushMode = 2
             }
             BrushType.ERASER -> {
                 hardness = 0.85f
-                spacing = 0.15f
+                spacing = 0.12f
                 isEraser = true
+                brushMode = 0
             }
         }
     }

@@ -20,6 +20,8 @@ class DabShader {
     private var uRadiusLoc: Int = -1
     private var uColorLoc: Int = -1
     private var uHardnessLoc: Int = -1
+    private var uBrushModeLoc: Int = -1
+    private var uPressureLoc: Int = -1
 
     fun initGl() {
         val vertexShaderCode = """
@@ -29,27 +31,77 @@ class DabShader {
             uniform vec2 uCenter;
             uniform float uRadius;
             out vec2 vLocalCoord;
+            out vec2 vWorldPos;
             void main() {
                 vLocalCoord = aPosition;
                 vec2 worldPos = uCenter + aPosition * uRadius;
+                vWorldPos = worldPos;
                 gl_Position = uProjection * vec4(worldPos, 0.0, 1.0);
             }
         """.trimIndent()
 
         val fragmentShaderCode = """
             #version 300 es
-            precision mediump float;
+            precision highp float;
             in vec2 vLocalCoord;
+            in vec2 vWorldPos;
+
             uniform vec4 uColor;
             uniform float uHardness;
+            uniform int uBrushMode; // 0 = Pen/Eraser, 1 = Pencil, 2 = Paintbrush
+            uniform float uPressure;
+
             out vec4 fragColor;
+
+            float hash(vec2 p) {
+                vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+                p3 += dot(p3, p3.yzx + 33.33);
+                return fract((p3.x + p3.y) * p3.z);
+            }
+
+            float paperTooth(vec2 p) {
+                vec2 i = floor(p);
+                vec2 f = fract(p);
+                f = f * f * (3.0 - 2.0 * f);
+                float a = hash(i);
+                float b = hash(i + vec2(1.0, 0.0));
+                float c = hash(i + vec2(0.0, 1.0));
+                float d = hash(i + vec2(1.0, 1.0));
+                return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+            }
+
             void main() {
                 float dist = length(vLocalCoord);
                 if (dist > 1.0) {
                     discard;
                 }
-                float alpha = smoothstep(1.0, uHardness, dist) * uColor.a;
-                // Premultiplied alpha output
+
+                float alpha = 0.0;
+
+                if (uBrushMode == 1) {
+                    // --- PENCIL (Graphite texture with paper tooth grain) ---
+                    float edge = smoothstep(1.0, 0.20, dist);
+                    float tooth1 = paperTooth(vWorldPos * 0.40);
+                    float tooth2 = paperTooth(vWorldPos * 0.85);
+                    float tooth = tooth1 * 0.65 + tooth2 * 0.35;
+
+                    float threshold = mix(0.58, 0.22, clamp(uPressure, 0.0, 1.0));
+                    float toothBite = smoothstep(threshold - 0.20, threshold + 0.20, tooth);
+                    alpha = edge * toothBite * uColor.a;
+                } else if (uBrushMode == 2) {
+                    // --- PAINTBRUSH (Soft Feathered Radial Falloff) ---
+                    float edge = smoothstep(1.0, uHardness, dist);
+                    float inner = 1.0 - dist * dist;
+                    alpha = mix(edge, inner * edge, 0.4) * uColor.a;
+                } else {
+                    // --- PEN / ERASER (Clean sub-pixel anti-aliased edge) ---
+                    alpha = smoothstep(1.0, uHardness, dist) * uColor.a;
+                }
+
+                if (alpha <= 0.001) {
+                    discard;
+                }
+
                 fragColor = vec4(uColor.rgb * alpha, alpha);
             }
         """.trimIndent()
@@ -60,6 +112,8 @@ class DabShader {
         uRadiusLoc = GLES30.glGetUniformLocation(programId, "uRadius")
         uColorLoc = GLES30.glGetUniformLocation(programId, "uColor")
         uHardnessLoc = GLES30.glGetUniformLocation(programId, "uHardness")
+        uBrushModeLoc = GLES30.glGetUniformLocation(programId, "uBrushMode")
+        uPressureLoc = GLES30.glGetUniformLocation(programId, "uPressure")
 
         // Setup static Unit Quad in VBO + VAO
         val vaos = IntArray(1)
@@ -106,6 +160,8 @@ class DabShader {
         colorRgb: Int,
         alpha: Float,
         hardness: Float,
+        brushMode: Int = 0,
+        pressure: Float = 0.5f,
         projectionMatrix: FloatArray
     ) {
         if (programId == 0) return
@@ -121,6 +177,8 @@ class DabShader {
         val blue = (colorRgb and 0xFF) / 255.0f
         GLES30.glUniform4f(uColorLoc, red, green, blue, alpha)
         GLES30.glUniform1f(uHardnessLoc, hardness.coerceIn(0.01f, 0.99f))
+        GLES30.glUniform1i(uBrushModeLoc, brushMode)
+        GLES30.glUniform1f(uPressureLoc, pressure.coerceIn(0.01f, 1.0f))
 
         GLES30.glBindVertexArray(vaoId)
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)

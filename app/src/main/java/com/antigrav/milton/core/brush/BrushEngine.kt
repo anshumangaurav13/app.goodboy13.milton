@@ -13,9 +13,11 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
     private var lastPressure: Float = 0.1f
     private var distanceFromLastDab: Float = 0f
     private var isStrokeActive: Boolean = false
+    private var currentStrokeId: Long = 0L
 
     fun startStroke(worldX: Float, worldY: Float, pressure: Float): List<BrushDab> {
         isStrokeActive = true
+        currentStrokeId = System.nanoTime()
         lastX = worldX
         lastY = worldY
         val clampedP = if (pressure <= 0.001f) 0.05f else pressure.coerceIn(0.01f, 1.0f)
@@ -23,14 +25,23 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
         distanceFromLastDab = 0f
 
         val radius = max(properties.minRadius, (properties.size * 0.5f) * lastPressure)
+        val dabAlpha = if (properties.brushMode == 2) {
+            properties.opacity * (0.35f + 0.65f * lastPressure)
+        } else {
+            properties.opacity
+        }
+
         val initialDab = BrushDab(
             x = worldX,
             y = worldY,
             radius = radius,
-            alpha = properties.opacity,
+            alpha = dabAlpha,
             colorRgb = properties.colorRgb,
             isEraser = properties.isEraser,
-            hardness = properties.hardness
+            hardness = properties.hardness,
+            brushMode = properties.brushMode,
+            pressure = lastPressure,
+            strokeId = currentStrokeId
         )
         return listOf(initialDab)
     }
@@ -67,16 +78,24 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
             val iy = lastY + dy * t
             val ip = prevP + (currentPressure - prevP) * t
             val ir = max(properties.minRadius, (properties.size * 0.5f) * ip)
+            val dabAlpha = if (properties.brushMode == 2) {
+                properties.opacity * (0.35f + 0.65f * ip)
+            } else {
+                properties.opacity
+            }
 
             dabs.add(
                 BrushDab(
                     x = ix,
                     y = iy,
                     radius = ir,
-                    alpha = properties.opacity,
+                    alpha = dabAlpha,
                     colorRgb = properties.colorRgb,
                     isEraser = properties.isEraser,
-                    hardness = properties.hardness
+                    hardness = properties.hardness,
+                    brushMode = properties.brushMode,
+                    pressure = ip,
+                    strokeId = currentStrokeId
                 )
             )
             lastPlacedD = d

@@ -55,22 +55,22 @@ class BrushEngineTest {
         props.applyPreset(com.antigrav.milton.core.brush.BrushType.PEN)
         assertTrue(props.hardness > 0.90f)
         assertTrue(!props.isEraser)
+        assertTrue(props.brushMode == 0)
 
         props.applyPreset(com.antigrav.milton.core.brush.BrushType.PENCIL)
-        assertTrue(props.hardness < 0.50f)
-        assertTrue(props.opacity < 0.80f)
+        assertTrue(props.hardness <= 0.45f)
+        assertTrue(props.spacing <= 0.08f)
         assertTrue(!props.isEraser)
+        assertTrue(props.brushMode == 1)
 
-        props.applyPreset(com.antigrav.milton.core.brush.BrushType.ROUND_BRUSH)
-        assertTrue(props.hardness in 0.65f..0.75f)
+        props.applyPreset(com.antigrav.milton.core.brush.BrushType.PAINTBRUSH)
+        assertTrue(props.hardness <= 0.30f)
         assertTrue(!props.isEraser)
-
-        props.applyPreset(com.antigrav.milton.core.brush.BrushType.MARKER)
-        assertTrue(props.opacity < 0.50f)
-        assertTrue(!props.isEraser)
+        assertTrue(props.brushMode == 2)
 
         props.applyPreset(com.antigrav.milton.core.brush.BrushType.ERASER)
         assertTrue(props.isEraser)
+        assertTrue(props.brushMode == 0)
     }
 
     @Test

@@ -20,6 +20,7 @@ class TileBlitShader {
     private var uTilePosLoc: Int = -1
     private var uTileSizeLoc: Int = -1
     private var uTextureLoc: Int = -1
+    private var uFlipYLoc: Int = -1
 
     fun initGl() {
         val vertexShaderCode = """
@@ -28,9 +29,11 @@ class TileBlitShader {
             uniform mat4 uMvpMatrix;
             uniform vec2 uTilePos;
             uniform float uTileSize;
+            uniform int uFlipY;
             out vec2 vTexCoord;
             void main() {
-                vTexCoord = vec2(aPosition.x, 1.0 - aPosition.y);
+                float ty = (uFlipY == 1) ? (1.0 - aPosition.y) : aPosition.y;
+                vTexCoord = vec2(aPosition.x, ty);
                 vec2 worldPos = uTilePos + aPosition * uTileSize;
                 gl_Position = uMvpMatrix * vec4(worldPos, 0.0, 1.0);
             }
@@ -56,6 +59,7 @@ class TileBlitShader {
         uTilePosLoc = GLES30.glGetUniformLocation(programId, "uTilePos")
         uTileSizeLoc = GLES30.glGetUniformLocation(programId, "uTileSize")
         uTextureLoc = GLES30.glGetUniformLocation(programId, "uTexture")
+        uFlipYLoc = GLES30.glGetUniformLocation(programId, "uFlipY")
 
         // Setup static Unit Quad in VBO + VAO
         val vaos = IntArray(1)
@@ -95,12 +99,13 @@ class TileBlitShader {
         }
     }
 
-    fun begin(mvpMatrix: FloatArray) {
+    fun begin(mvpMatrix: FloatArray, flipY: Boolean = true) {
         if (programId == 0) return
         GLES30.glUseProgram(programId)
         GLES30.glUniformMatrix4fv(uMvpMatrixLoc, 1, false, mvpMatrix, 0)
         GLES30.glUniform1i(uTextureLoc, 0)
         GLES30.glUniform1f(uTileSizeLoc, TileCoord.TILE_SIZE.toFloat())
+        GLES30.glUniform1i(uFlipYLoc, if (flipY) 1 else 0)
         GLES30.glBindVertexArray(vaoId)
     }
 

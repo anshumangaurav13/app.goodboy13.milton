@@ -28,7 +28,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.antigrav.milton.core.brush.BrushType
 import com.antigrav.milton.ui.MiltonCanvasView
 import com.antigrav.milton.ui.MiltonTabletUi
-import com.antigrav.milton.ui.ARTIST_PALETTE_COLORS
+import com.antigrav.milton.ui.QUICK_PALETTE_COLORS
 
 class MainActivity : ComponentActivity() {
 
@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity() {
                 var brushType by remember { mutableStateOf(BrushType.PEN) }
                 var brushSize by remember { mutableFloatStateOf(canvasView.brushSize) }
                 var brushOpacity by remember { mutableFloatStateOf(canvasView.brushOpacity) }
-                var brushColor by remember { mutableIntStateOf(ARTIST_PALETTE_COLORS[0]) }
+                var brushColor by remember { mutableIntStateOf(QUICK_PALETTE_COLORS[0]) }
                 var canUndo by remember { mutableStateOf(false) }
                 var canRedo by remember { mutableStateOf(false) }
                 var zoomLevel by remember { mutableFloatStateOf(1.0f) }
