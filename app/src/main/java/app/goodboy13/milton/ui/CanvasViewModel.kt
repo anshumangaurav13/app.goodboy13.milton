@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import app.goodboy13.milton.core.brush.BrushType
 import app.goodboy13.milton.core.layer.Layer
 import app.goodboy13.milton.core.model.BezierControlPoints
+import app.goodboy13.milton.core.model.PressureCurveDefaults
 import app.goodboy13.milton.core.storage.CanvasExportEngine
 import app.goodboy13.milton.core.storage.DocumentMetadata
 import app.goodboy13.milton.core.storage.DocumentStorageManager
@@ -36,10 +37,12 @@ class CanvasViewModel : ViewModel() {
         CanvasUiState(
             tool = ToolUiState(
                 brushType = BrushType.PENCIL,
-                brushSize = 10f,
-                brushOpacity = 1.0f,
+                brushSize = 35f,
+                brushOpacity = 0.75f,
                 brushStabilizer = 0.10f,
                 brushColorRgb = 0xFF333333.toInt(),
+                sizeBezierConfig = PressureCurveDefaults.STANDARD.copy(minPercent = 0.05f),
+                opacityBezierConfig = PressureCurveDefaults.SOFT.copy(minPercent = 0.20f),
                 recentColors = listOf(
                     0xFF333333.toInt(), // Graphite Default
                     0xFF111111.toInt(), // Ink Black
@@ -63,7 +66,7 @@ class CanvasViewModel : ViewModel() {
             ),
             document = DocumentUiState(
                 documentTitle = "Untitled Artwork",
-                canvasBackgroundColor = 0xFFFFFFFF.toInt()
+                canvasBackgroundColor = 0xFFF6F4ED.toInt()
             )
         )
     )

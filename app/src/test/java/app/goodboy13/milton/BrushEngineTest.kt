@@ -69,8 +69,8 @@ class BrushEngineTest {
         assertTrue(!props.isEraser)
         assertTrue(props.brushMode == 1)
         assertTrue(props.size == 35.0f)
-        assertTrue(props.opacity == 0.40f)
-        assertTrue(props.sizeBezierConfig.minPercent == 0.20f)
+        assertTrue(props.opacity == 0.75f)
+        assertTrue(props.sizeBezierConfig.minPercent == 0.05f)
         assertTrue(props.opacityBezierConfig.minPercent == 0.20f)
 
         props.applyPreset(app.goodboy13.milton.core.brush.BrushType.PAINTBRUSH)
@@ -84,7 +84,10 @@ class BrushEngineTest {
         props.applyPreset(app.goodboy13.milton.core.brush.BrushType.ERASER)
         assertTrue(props.isEraser)
         assertTrue(props.brushMode == 0)
-        assertTrue(props.size == 64.0f)
+        assertTrue(props.size == 120.0f)
+        assertTrue(props.sizeBezierConfig.minPercent == 0.45f)
+        assertTrue(props.opacity == 1.0f)
+        assertTrue(props.opacityBezierConfig.minPercent == 0.0f)
     }
 
     @Test

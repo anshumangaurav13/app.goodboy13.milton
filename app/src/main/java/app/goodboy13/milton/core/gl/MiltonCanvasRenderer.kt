@@ -61,8 +61,8 @@ class MiltonCanvasRenderer(
     val thumbnailRenderer get() = sceneRenderer.thumbnailRenderer
     val strokeCompositeShader get() = sceneRenderer.strokeCompositeShader
 
-    // Clean neutral canvas background color (paper default)
-    var backgroundColorRgb: Int = Color.rgb(248, 248, 247)
+    // Clean neutral canvas background color (paper default: Warm Paper #f6f4ed)
+    var backgroundColorRgb: Int = 0xFFF6F4ED.toInt()
 
     var onLayerThumbnailUpdated: ((layerId: Long, bitmap: Bitmap?) -> Unit)?
         get() = engine.onLayerThumbnailUpdated

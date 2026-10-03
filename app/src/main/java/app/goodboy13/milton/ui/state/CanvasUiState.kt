@@ -3,6 +3,7 @@ package app.goodboy13.milton.ui.state
 import app.goodboy13.milton.core.brush.BrushType
 import app.goodboy13.milton.core.layer.Layer
 import app.goodboy13.milton.core.model.BezierControlPoints
+import app.goodboy13.milton.core.model.PressureCurveDefaults
 import app.goodboy13.milton.core.storage.SavedProjectSummary
 import app.goodboy13.milton.ui.EyedropperReticleState
 import app.goodboy13.milton.ui.QUICK_PALETTE_COLORS
@@ -12,12 +13,12 @@ import app.goodboy13.milton.ui.QUICK_PALETTE_COLORS
  */
 data class ToolUiState(
     val brushType: BrushType = BrushType.PENCIL,
-    val brushSize: Float = 10f,
-    val brushOpacity: Float = 1.0f,
+    val brushSize: Float = 35f,
+    val brushOpacity: Float = 0.75f,
     val brushStabilizer: Float = 0.10f,
     val brushColorRgb: Int = 0xFF333333.toInt(),
-    val sizeBezierConfig: BezierControlPoints = BezierControlPoints(),
-    val opacityBezierConfig: BezierControlPoints = BezierControlPoints(),
+    val sizeBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.05f),
+    val opacityBezierConfig: BezierControlPoints = PressureCurveDefaults.SOFT.copy(minPercent = 0.20f),
     val isEraserMode: Boolean = false,
     val isEyedropperActive: Boolean = false,
     val recentColors: List<Int> = QUICK_PALETTE_COLORS,
@@ -44,7 +45,7 @@ data class ViewportUiState(
 data class DocumentUiState(
     val documentTitle: String = "Untitled Artwork",
     val activeProjectId: String? = null,
-    val canvasBackgroundColor: Int = 0xFFF8F8F7.toInt(),
+    val canvasBackgroundColor: Int = 0xFFF6F4ED.toInt(),
     val savedProjects: List<SavedProjectSummary> = emptyList(),
     val totalSavedProjectsSize: String = "0 KB",
     val currentProjectDiskSize: String = "0 KB",

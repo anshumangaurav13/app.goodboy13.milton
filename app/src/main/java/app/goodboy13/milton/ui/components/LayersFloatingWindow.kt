@@ -99,7 +99,7 @@ fun LayersFloatingWindow(
     onMoveLayerDown: (Long) -> Unit,
     onReorderLayer: (fromStorageIndex: Int, toStorageIndex: Int) -> Unit = { _, _ -> },
     onReorderLayers: (List<Long>) -> Unit = {},
-    backgroundColorRgb: Int = 0xFFFFFFFF.toInt(),
+    backgroundColorRgb: Int = 0xFFF6F4ED.toInt(),
     onChangeBackgroundColor: (Int) -> Unit = {},
     onClose: () -> Unit,
     containerWidth: Int,

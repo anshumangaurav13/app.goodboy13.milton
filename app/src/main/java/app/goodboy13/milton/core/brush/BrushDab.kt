@@ -30,14 +30,14 @@ data class BrushProperties(
     var brushType: BrushType = BrushType.PENCIL,
     var size: Float = 35.0f,
     var colorRgb: Int = 0xFF333333.toInt(), // Nice graphite default
-    var opacity: Float = 0.40f,
+    var opacity: Float = 0.75f,
     var spacing: Float = 0.08f,
     var hardness: Float = 0.40f,
     var minRadius: Float = 1.5f,
     var isEraser: Boolean = false,
     var brushMode: Int = 1,
     var stabilizer: Float = 0.10f,
-    var sizeBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.20f),
+    var sizeBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.05f),
     var opacityBezierConfig: BezierControlPoints = PressureCurveDefaults.SOFT.copy(minPercent = 0.20f)
 ) {
     // Legacy alias
@@ -49,12 +49,12 @@ data class BrushProperties(
         BrushType.PEN to 30.0f,
         BrushType.PENCIL to 35.0f,
         BrushType.PAINTBRUSH to 250.0f,
-        BrushType.ERASER to 64.0f
+        BrushType.ERASER to 120.0f
     )
 
     private val savedOpacities = mutableMapOf(
         BrushType.PEN to 1.0f,
-        BrushType.PENCIL to 0.40f,
+        BrushType.PENCIL to 0.75f,
         BrushType.PAINTBRUSH to 0.60f,
         BrushType.ERASER to 1.0f
     )
@@ -68,16 +68,16 @@ data class BrushProperties(
 
     private val savedSizeBeziers = mutableMapOf(
         BrushType.PEN to PressureCurveDefaults.STANDARD.copy(minPercent = 0.15f),
-        BrushType.PENCIL to PressureCurveDefaults.STANDARD.copy(minPercent = 0.20f),
+        BrushType.PENCIL to PressureCurveDefaults.STANDARD.copy(minPercent = 0.05f),
         BrushType.PAINTBRUSH to PressureCurveDefaults.STANDARD.copy(minPercent = 0.45f),
-        BrushType.ERASER to PressureCurveDefaults.LINEAR
+        BrushType.ERASER to PressureCurveDefaults.STANDARD.copy(minPercent = 0.45f)
     )
 
     private val savedOpacityBeziers = mutableMapOf(
         BrushType.PEN to PressureCurveDefaults.LINEAR.copy(minPercent = 1.0f, maxPercent = 1.0f),
         BrushType.PENCIL to PressureCurveDefaults.SOFT.copy(minPercent = 0.20f, maxPercent = 1.0f),
         BrushType.PAINTBRUSH to PressureCurveDefaults.STANDARD.copy(minPercent = 0.25f, maxPercent = 1.0f),
-        BrushType.ERASER to PressureCurveDefaults.LINEAR.copy(minPercent = 1.0f, maxPercent = 1.0f)
+        BrushType.ERASER to PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f)
     )
 
     fun applyPreset(type: BrushType) {
@@ -90,7 +90,7 @@ data class BrushProperties(
 
         brushType = type
         size = savedSizes[type] ?: 35f
-        opacity = savedOpacities[type] ?: 0.40f
+        opacity = savedOpacities[type] ?: 0.75f
         stabilizer = savedStabilizers[type] ?: 0.0f
         sizeBezierConfig = savedSizeBeziers[type] ?: PressureCurveDefaults.STANDARD
         opacityBezierConfig = savedOpacityBeziers[type] ?: PressureCurveDefaults.STANDARD

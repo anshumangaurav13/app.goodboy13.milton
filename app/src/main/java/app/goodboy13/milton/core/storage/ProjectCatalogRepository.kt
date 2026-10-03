@@ -192,7 +192,7 @@ class ProjectCatalogRepository(private val context: Context) {
 
         val newMeta = DocumentMetadata(
             title = "Untitled Artwork",
-            backgroundColorRgb = 0xFFF8F8F7.toInt(),
+            backgroundColorRgb = 0xFFF6F4ED.toInt(),
             viewportPanX = defaultPanX,
             viewportPanY = defaultPanY,
             viewportZoom = 0.5f,

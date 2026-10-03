@@ -148,7 +148,7 @@ class TileBlitShader {
         }
     }
 
-    fun begin(mvpMatrix: FloatArray, flipY: Boolean = true, backgroundColorRgb: Int = 0xFFFFFFFF.toInt()) {
+    fun begin(mvpMatrix: FloatArray, flipY: Boolean = true, backgroundColorRgb: Int = 0xFFF6F4ED.toInt()) {
         if (programId == 0) return
         GLES30.glUseProgram(programId)
         GLES30.glUniformMatrix4fv(uMvpMatrixLoc, 1, false, mvpMatrix, 0)
