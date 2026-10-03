@@ -120,46 +120,11 @@ Milton follows a decoupled, modular architecture designed for high graphics thro
 
 ---
 
-## Building from Source
+## Requirements
 
-### Prerequisites
-
-- **Android Studio**: Android Studio Ladybug / Meerkat or newer
-- **Android SDK**: Compile SDK 35, Minimum SDK 26 (Android 8.0)
-- **JDK**: Java 21
-
-### Clone & Build
-
-```bash
-# Clone the repository
-git clone https://github.com/<YOUR_USERNAME>/Milton.git
-cd Milton
-
-# Build the debug APK
-./gradlew assembleDebug
-
-# Run all unit test suites
-./gradlew test
-```
-
-The resulting debug APK will be generated at `app/build/outputs/apk/debug/app-debug.apk`.
-
-### Release Signing Setup (Optional)
-
-By default, running `./gradlew assembleRelease` automatically falls back to debug signing if no release keystore is provided. To sign with your own key:
-
-1. Copy `keystore.properties.example` to `keystore.properties` (this file is excluded by `.gitignore`):
-   ```bash
-   cp keystore.properties.example keystore.properties
-   ```
-2. Edit `keystore.properties` with your signing credentials:
-   ```properties
-   storeFile=/path/to/your/release-key.jks
-   storePassword=your_keystore_password
-   keyAlias=your_key_alias
-   keyPassword=your_key_password
-   ```
-3. Run `./gradlew assembleRelease`. The signed APK will be at `app/build/outputs/apk/release/app-release.apk`.
+- **Platform**: Android 8.0 (API 26) or newer (optimized for tablets)
+- **Input**: Active pressure-sensitive stylus (Samsung S-Pen, Xiaomi Pen, Lenovo Precision Pen, universal active styluses) and multi-touch
+- **Graphics**: OpenGL ES 3.0+ support
 
 ---
 
