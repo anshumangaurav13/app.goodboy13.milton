@@ -268,6 +268,8 @@ class CanvasViewModel : ViewModel() {
     // -------------------------------------------------------------
 
     fun onViewportChanged(zoom: Float, rotationDegrees: Float) {
+        val current = _uiState.value.viewport
+        if (current.zoomLevel == zoom && current.rotationDegrees == rotationDegrees) return
         _uiState.update {
             it.copy(viewport = it.viewport.copy(zoomLevel = zoom, rotationDegrees = rotationDegrees))
         }

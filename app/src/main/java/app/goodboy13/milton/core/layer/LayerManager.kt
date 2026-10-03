@@ -15,7 +15,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  */
 class LayerManager(
     val cacheBaseDir: File? = null,
-    val maxResidentTilesPerLayer: Int = 48,
+    val maxResidentTilesPerLayer: Int = 256,
     val maxLayers: Int = MAX_LAYERS
 ) {
     companion object {
@@ -28,6 +28,9 @@ class LayerManager(
 
     private val _layers = CopyOnWriteArrayList<Layer>()
     val layers: List<Layer> get() = _layers
+
+    val hasPendingRestores: Boolean
+        get() = _layers.any { it.tileMap.hasPendingRestores }
 
     var structuralRevision by mutableLongStateOf(0L)
         private set

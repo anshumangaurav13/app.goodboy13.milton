@@ -102,7 +102,7 @@ object CanvasExportEngine {
             for (layer in allLayers) {
                 if (!layer.isVisible || layer.opacity <= 0.001f) continue
 
-                val visibleTiles = layer.tileMap.getVisibleTiles(bounds)
+                val visibleTiles = layer.tileMap.getVisibleTiles(bounds, maxRestores = Int.MAX_VALUE)
                 if (visibleTiles.isEmpty()) continue
 
                 paint.alpha = (layer.opacity.coerceIn(0f, 1f) * 255).roundToInt()
@@ -114,9 +114,7 @@ object CanvasExportEngine {
                         storageManager?.getTileBytes(layer.id, tile.coord.tx, tile.coord.ty, layer.tileMap.cacheDir)
                             ?: if (tile.isOnDisk) {
                                 val swap = File(layer.tileMap.cacheDir, "tile_${tile.coord.tx}_${tile.coord.ty}.bin")
-                                if (swap.exists()) {
-                                    app.goodboy13.milton.core.history.UndoManager.decompress(swap.readBytes())
-                                } else null
+                                app.goodboy13.milton.core.tile.RasterTile.readSwapBytes(swap)
                             } else if (tile.isInitialized) {
                                 tile.readPixels()
                             } else null

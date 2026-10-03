@@ -485,7 +485,7 @@ class GlSceneRenderer {
             tileBlitShader.begin(exportMvp, flipY = true, backgroundColorRgb = backgroundColorRgb)
             for (layer in layers) {
                 if (!layer.isVisible || layer.opacity <= 0.001f) continue
-                val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds)
+                val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds, maxRestores = Int.MAX_VALUE)
                 if (visibleTiles.isEmpty()) continue
 
                 tileBlitShader.setOpacity(layer.opacity)

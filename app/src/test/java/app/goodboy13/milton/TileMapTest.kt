@@ -102,4 +102,57 @@ class TileMapTest {
         assertEquals(3, visible.size)
         assertTrue("Massive bounds query should take < 10ms, took ${elapsedMs}ms", elapsedMs < 10.0)
     }
+
+    @Test
+    fun testProgressiveRestorationThrottle() {
+        val cacheDir = tempFolder.newFolder("progressive_test")
+        val tileMap = TileMap(cacheDir = cacheDir, maxResidentTiles = 50)
+
+        // Create 6 tiles and mark them on disk
+        for (i in 0 until 6) {
+            val tile = tileMap.getOrCreateTile(i, 0)
+            tile.isOnDisk = true
+            // Create dummy swap file
+            val file = cacheDir.resolve("tile_${i}_0.bin")
+            file.writeBytes(ByteArray(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4))
+        }
+
+        val bounds = WorldRect(0f, 0f, 3000f, 500f)
+
+        // Query with maxRestores = 2
+        val batch1 = tileMap.getVisibleTiles(bounds, maxRestores = 2)
+        assertEquals(6, batch1.size)
+        assertTrue("hasPendingRestores should be true when more tiles remain on disk", tileMap.hasPendingRestores)
+        assertEquals("Exactly 2 tiles should have been restored", 2, tileMap.residentCount)
+
+        // Next frame: restore next 2
+        tileMap.getVisibleTiles(bounds, maxRestores = 2)
+        assertTrue(tileMap.hasPendingRestores)
+        assertEquals(4, tileMap.residentCount)
+
+        // Next frame: restore final 2
+        tileMap.getVisibleTiles(bounds, maxRestores = 2)
+        assertFalse("hasPendingRestores should be false once all visible tiles are restored", tileMap.hasPendingRestores)
+        assertEquals(6, tileMap.residentCount)
+    }
+
+    @Test
+    fun testRawAndCompressedSwapCompatibility() {
+        val cacheDir = tempFolder.newFolder("swap_compat")
+        val rawFile = cacheDir.resolve("raw.bin")
+        val rawBytes = ByteArray(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4) { (it % 255).toByte() }
+        rawFile.writeBytes(rawBytes)
+
+        val readRaw = app.goodboy13.milton.core.tile.RasterTile.readSwapBytes(rawFile)
+        org.junit.Assert.assertNotNull(readRaw)
+        org.junit.Assert.assertArrayEquals(rawBytes, readRaw)
+
+        val compressedFile = cacheDir.resolve("compressed.bin")
+        val compressed = app.goodboy13.milton.core.history.UndoManager.compress(rawBytes)
+        compressedFile.writeBytes(compressed)
+
+        val readCompressed = app.goodboy13.milton.core.tile.RasterTile.readSwapBytes(compressedFile)
+        org.junit.Assert.assertNotNull(readCompressed)
+        org.junit.Assert.assertArrayEquals(rawBytes, readCompressed)
+    }
 }

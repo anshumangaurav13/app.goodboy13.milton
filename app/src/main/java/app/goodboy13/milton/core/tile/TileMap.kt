@@ -11,9 +11,13 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class TileMap(
     val cacheDir: File? = null,
-    val maxResidentTiles: Int = 96
+    val maxResidentTiles: Int = 256
 ) {
     private val tiles = ConcurrentHashMap<TileCoord, RasterTile>()
+
+    @Volatile
+    var hasPendingRestores: Boolean = false
+        private set
 
     val count: Int get() = tiles.size
 
@@ -42,10 +46,12 @@ class TileMap(
         return tile
     }
 
-    fun getVisibleTiles(bounds: WorldRect): List<RasterTile> {
+    fun getVisibleTiles(bounds: WorldRect, maxRestores: Int = 4): List<RasterTile> {
         val range = TileCoord.getTileRangeForBounds(bounds)
         val result = mutableListOf<RasterTile>()
         val now = System.nanoTime()
+        var restoreCount = 0
+        var pendingFound = false
 
         // Iterate actual existing tiles directly instead of empty coordinate space.
         // This avoids allocating thousands of TileCoord objects and hash lookups when zoomed out.
@@ -55,30 +61,44 @@ class TileMap(
             if (tx in range.minTx..range.maxTx && ty in range.minTy..range.maxTy) {
                 tile.lastAccessTime = now
                 if (tile.isOnDisk) {
-                    tile.restoreFromDisk(cacheDir)
+                    if (restoreCount < maxRestores) {
+                        tile.restoreFromDisk(cacheDir)
+                        restoreCount++
+                    } else {
+                        pendingFound = true
+                    }
                 }
                 result.add(tile)
             }
         }
+        hasPendingRestores = pendingFound
         return result
     }
 
     /**
      * Enforces the VRAM tile budget by paging out the least recently used
      * non-visible tiles to disk storage.
+     * Incorporates hysteresis and a grace period to prevent cache thrashing.
      * Must be called on the GL thread.
      */
     fun trimToBudget(visibleTiles: Collection<RasterTile>) {
-        val visibleSet = visibleTiles.toSet()
-        val residentNonVisible = tiles.values
-            .filter { it.isInitialized && it !in visibleSet }
+        val slack = maxResidentTiles / 8
+        val excess = residentCount - (maxResidentTiles + slack)
+        if (excess <= 0) return
 
-        val excess = residentCount - maxResidentTiles
-        if (excess <= 0 || residentNonVisible.isEmpty()) return
+        val visibleSet = visibleTiles.toSet()
+        val now = System.nanoTime()
+        val gracePeriodNs = 3_000_000_000L // 3 seconds grace period to prevent thrashing on edge pans
+        val enforceGracePeriod = residentCount <= maxResidentTiles * 2
+
+        val residentNonVisible = tiles.values
+            .filter { it.isInitialized && it !in visibleSet && (!enforceGracePeriod || (now - it.lastAccessTime) > gracePeriodNs) }
+
+        if (residentNonVisible.isEmpty()) return
 
         // Sort by lastAccessTime ascending (oldest first)
         val sorted = residentNonVisible.sortedBy { it.lastAccessTime }
-        val toEvict = sorted.take(excess)
+        val toEvict = sorted.take(minOf(excess, 4))
         for (tile in toEvict) {
             tile.evictToDisk(cacheDir)
         }

@@ -22,12 +22,12 @@
 
 <p align="center">
   <a href="https://github.com/anshumangaurav13/app.goodboy13.milton/releases/latest">
-    <img src="https://img.shields.io/badge/Download_APK-v1.0.7_Release-0969DA?style=for-the-badge&logo=android&logoColor=white" alt="Download Latest Release APK" />
+    <img src="https://img.shields.io/badge/Download_APK-v1.0.8_Release-0969DA?style=for-the-badge&logo=android&logoColor=white" alt="Download Latest Release APK" />
   </a>
 </p>
 
 <p align="center">
-  📥 <strong><a href="https://github.com/anshumangaurav13/app.goodboy13.milton/releases/latest">Download the Latest Installable APK (v1.0.7)</a></strong> directly from GitHub Releases.
+  📥 <strong><a href="https://github.com/anshumangaurav13/app.goodboy13.milton/releases/latest">Download the Latest Installable APK (v1.0.8)</a></strong> directly from GitHub Releases.
 </p>
 
 ---

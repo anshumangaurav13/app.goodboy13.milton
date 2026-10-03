@@ -125,10 +125,9 @@ class RasterTile(val coord: TileCoord) {
 
         try {
             val raw = readPixels()
-            val compressed = UndoManager.compress(raw)
             val swapFile = getSwapFile(cacheDir)
             swapFile.parentFile?.mkdirs()
-            swapFile.writeBytes(compressed)
+            swapFile.writeBytes(raw)
             isOnDisk = true
         } catch (e: Exception) {
             Log.e("RasterTile", "Failed to evict tile $coord to disk", e)
@@ -145,9 +144,8 @@ class RasterTile(val coord: TileCoord) {
 
         try {
             val swapFile = getSwapFile(cacheDir)
-            if (swapFile.exists()) {
-                val compressed = swapFile.readBytes()
-                val raw = UndoManager.decompress(compressed)
+            val raw = readSwapBytes(swapFile)
+            if (raw != null) {
                 initGl()
                 writePixels(raw)
                 hasContent = true
@@ -174,6 +172,22 @@ class RasterTile(val coord: TileCoord) {
 
     private fun getSwapFile(cacheDir: File): File {
         return File(cacheDir, "tile_${coord.tx}_${coord.ty}.bin")
+    }
+
+    companion object {
+        /**
+         * Reads tile swap bytes from disk. Supports both lightning-fast raw 1MB streams
+         * and legacy Deflater-compressed files with automatic decompression.
+         */
+        fun readSwapBytes(swapFile: File): ByteArray? {
+            if (!swapFile.exists()) return null
+            val data = swapFile.readBytes()
+            return if (data.size == TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4) {
+                data
+            } else {
+                UndoManager.decompress(data)
+            }
+        }
     }
 
     fun releaseGl() {

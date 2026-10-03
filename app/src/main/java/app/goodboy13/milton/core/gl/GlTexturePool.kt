@@ -15,7 +15,7 @@ import java.util.ArrayDeque
  */
 object GlTexturePool {
     private const val TAG = "GlTexturePool"
-    const val DEFAULT_MAX_POOL_SIZE: Int = 96
+    const val DEFAULT_MAX_POOL_SIZE: Int = 256
 
     var maxPoolSize: Int = DEFAULT_MAX_POOL_SIZE
 

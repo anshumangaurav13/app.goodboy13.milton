@@ -42,18 +42,22 @@ class MiltonCanvasView @JvmOverloads constructor(
     val renderer = MiltonCanvasRenderer(
         layerManager = app.goodboy13.milton.core.layer.LayerManager(
             cacheBaseDir = context.cacheDir.resolve("milton_tile_cache"),
-            maxResidentTilesPerLayer = 48
+            maxResidentTilesPerLayer = 256
         )
     )
     val layerManager: app.goodboy13.milton.core.layer.LayerManager get() = renderer.layerManager
     val brushEngine = BrushEngine()
 
     private var frontBufferedRenderer: GLFrontBufferedRenderer<DabPacket>? = null
+    private var lastViewportPostTime: Long = 0L
 
     init {
         brushEngine.properties.applyPreset(app.goodboy13.milton.core.brush.BrushType.PENCIL)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             isAutoHandwritingEnabled = false
+        }
+        renderer.onRequestRedraw = {
+            post { requestRedraw() }
         }
     }
 
@@ -72,7 +76,11 @@ class MiltonCanvasView @JvmOverloads constructor(
                 zoomFactor, angleDelta
             )
             frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
-            post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - lastViewportPostTime > 64L) {
+                lastViewportPostTime = now
+                post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
+            }
         }
 
         override fun onGestureStart() {
@@ -80,6 +88,8 @@ class MiltonCanvasView @JvmOverloads constructor(
         }
 
         override fun onGestureEnd() {
+            lastViewportPostTime = android.os.SystemClock.uptimeMillis()
+            post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
             renderer.requestTrimBudget()
             frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
         }

@@ -55,6 +55,7 @@ class CanvasEngine(
     var onLayerThumbnailUpdated: ((layerId: Long, bitmap: Bitmap?) -> Unit)? = null
     var onColorPicked: ((Int) -> Unit)? = null
     var isThumbnailCaptureEnabled: Boolean = true
+    var onRequestProgressiveRedraw: (() -> Unit)? = null
 
     private val pendingStrokeFinished = AtomicBoolean(false)
     private val pendingTrimBudget = AtomicBoolean(false)
@@ -201,6 +202,12 @@ class CanvasEngine(
             transform = transform,
             viewport = viewport
         )
+
+        // Progressive streaming: if visible tiles on disk are pending restoration,
+        // schedule next frame to progressively stream them in without stalling gestures.
+        if (layerManager.hasPendingRestores) {
+            onRequestProgressiveRedraw?.invoke()
+        }
 
         // 5. Capture thumbnail when stroke commits or on undo/redo
         if (capturedLayerId != 0L && isThumbnailCaptureEnabled && (isStrokeDone || hadUndo || hadRedo)) {

@@ -44,6 +44,14 @@ class MiltonCanvasRenderer(
         sceneRenderer = sceneRenderer
     )
 
+    var onRequestRedraw: (() -> Unit)? = null
+
+    init {
+        engine.onRequestProgressiveRedraw = {
+            onRequestRedraw?.invoke()
+        }
+    }
+
     val undoManager: UndoManager get() = engine.undoManager
     val undoRedoState get() = engine.undoRedoState
     val tileMap: TileMap get() = layerManager.activeLayer.tileMap
