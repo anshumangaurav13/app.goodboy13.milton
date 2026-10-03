@@ -20,6 +20,22 @@
 
 **Milton for Android** is an infinite canvas sketching and digital painting application tailored for Android tablets and active pressure-sensitive styluses (Samsung S-Pen, Xiaomi Pen, Lenovo Precision Pen, universal active styluses). It provides a virtually boundless workspace where artists can zoom in and out without loss of clarity, sketch without running out of borders, and paint with natural, pressure-sensitive dabs.
 
+<p align="center">
+  <a href="https://github.com/anshumangaurav13/app.goodboy13.milton/releases/latest">
+    <img src="https://img.shields.io/badge/Download_APK-v1.0.7_Release-0969DA?style=for-the-badge&logo=android&logoColor=white" alt="Download Latest Release APK" />
+  </a>
+</p>
+
+<p align="center">
+  📥 <strong><a href="https://github.com/anshumangaurav13/app.goodboy13.milton/releases/latest">Download the Latest Installable APK (v1.0.7)</a></strong> directly from GitHub Releases.
+</p>
+
+---
+
+<p align="center">
+  <img src="docs/screenshot.png" alt="Milton Tablet Canvas Interface" width="90%" />
+</p>
+
 ---
 
 ## Features
