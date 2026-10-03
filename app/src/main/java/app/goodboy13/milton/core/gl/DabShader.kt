@@ -89,32 +89,25 @@ class DabShader {
 
                 float dabAlpha = 0.0;
                 if (uBrushMode == 1) {
-                    // Pencil: continuous canvas weave & paper tooth matching canvas resolution
+                    // Sharp jittery graphite pencil: micro-grit stippling + crisp tooth + edge jitter
                     vec2 canvasCoord = vWorldPos;
 
-                    // 1. Canvas weave pattern (~4.2 canvas pixels per thread cycle)
-                    vec2 threadGrid = canvasCoord * 0.24;
-                    float warp = sin(threadGrid.x * 3.14159265);
-                    float weft = sin(threadGrid.y * 3.14159265);
-                    float crossWeave = warp * weft;
-                    float threadCrown = (cos(threadGrid.x * 6.2831853) + cos(threadGrid.y * 6.2831853)) * 0.25;
-                    float canvasPattern = clamp(0.5 + 0.48 * crossWeave + 0.22 * threadCrown, 0.0, 1.0);
+                    // 1. High-frequency micro-grit and crisp organic paper tooth
+                    float grit1 = hash(floor(canvasCoord * 1.6));
+                    float grit2 = hash(floor(canvasCoord * 0.8 + vec2(23.1, 47.9)));
+                    float toothFine = paperTooth(canvasCoord * 0.9);
+                    float compositeTooth = toothFine * 0.40 + grit1 * 0.35 + grit2 * 0.25;
 
-                    // 2. Continuous multi-scale paper fibers (cold-press cellulose undulations)
-                    float fiberLarge = paperTooth(canvasCoord * 0.12);
-                    float fiberMed = paperTooth(canvasCoord * 0.24 + vec2(17.3, 43.7));
-                    float fiberFine = paperTooth(canvasCoord * 0.44 + vec2(53.1, 29.7));
-
-                    // 3. Composite paper/canvas surface tooth with pronounced bite
-                    float tooth = canvasPattern * 0.35 + fiberLarge * 0.20 + fiberMed * 0.25 + fiberFine * 0.20;
-
-                    // 4. Responsive graphite transfer: sharper tooth bite with prominent paper grain
+                    // 2. Sharp graphite tooth bite threshold
                     float p = clamp(uPressure, 0.0, 1.0);
-                    float threshold = mix(0.52, 0.16, p);
-                    float toothBite = smoothstep(threshold - 0.04, threshold + 0.09, tooth);
+                    float threshold = mix(0.64, 0.16, p);
+                    float toothBite = smoothstep(threshold - 0.02, threshold + 0.03, compositeTooth);
 
-                    // Brush tip radial feather
-                    float edge = smoothstep(1.0, 0.15, dist);
+                    // 3. Stippled edge jitter breaking up the artificial circular tip
+                    float edgeJitter = (hash(floor(vLocalCoord * 14.0) + floor(canvasCoord * 0.4)) - 0.5) * 0.20;
+                    float jitterDist = clamp(dist + edgeJitter, 0.0, 1.0);
+                    float edge = smoothstep(1.0, 0.65, jitterDist);
+
                     dabAlpha = edge * toothBite * uColor.a;
                 } else if (uBrushMode == 2) {
                     // Paintbrush: soft feathered edge
@@ -212,32 +205,25 @@ class DabShader {
 
                 float dabAlpha = 0.0;
                 if (uBrushMode == 1) {
-                    // Pencil: continuous canvas weave & paper tooth matching canvas resolution
+                    // Sharp jittery graphite pencil: micro-grit stippling + crisp tooth + edge jitter
                     vec2 canvasCoord = vWorldPos;
 
-                    // 1. Canvas weave pattern (~4.2 canvas pixels per thread cycle)
-                    vec2 threadGrid = canvasCoord * 0.24;
-                    float warp = sin(threadGrid.x * 3.14159265);
-                    float weft = sin(threadGrid.y * 3.14159265);
-                    float crossWeave = warp * weft;
-                    float threadCrown = (cos(threadGrid.x * 6.2831853) + cos(threadGrid.y * 6.2831853)) * 0.25;
-                    float canvasPattern = clamp(0.5 + 0.48 * crossWeave + 0.22 * threadCrown, 0.0, 1.0);
+                    // 1. High-frequency micro-grit and crisp organic paper tooth
+                    float grit1 = hash(floor(canvasCoord * 1.6));
+                    float grit2 = hash(floor(canvasCoord * 0.8 + vec2(23.1, 47.9)));
+                    float toothFine = paperTooth(canvasCoord * 0.9);
+                    float compositeTooth = toothFine * 0.40 + grit1 * 0.35 + grit2 * 0.25;
 
-                    // 2. Continuous multi-scale paper fibers (cold-press cellulose undulations)
-                    float fiberLarge = paperTooth(canvasCoord * 0.12);
-                    float fiberMed = paperTooth(canvasCoord * 0.24 + vec2(17.3, 43.7));
-                    float fiberFine = paperTooth(canvasCoord * 0.44 + vec2(53.1, 29.7));
-
-                    // 3. Composite paper/canvas surface tooth with pronounced bite
-                    float tooth = canvasPattern * 0.35 + fiberLarge * 0.20 + fiberMed * 0.25 + fiberFine * 0.20;
-
-                    // 4. Responsive graphite transfer: sharper tooth bite with prominent paper grain
+                    // 2. Sharp graphite tooth bite threshold
                     float p = clamp(uPressure, 0.0, 1.0);
-                    float threshold = mix(0.52, 0.16, p);
-                    float toothBite = smoothstep(threshold - 0.04, threshold + 0.09, tooth);
+                    float threshold = mix(0.64, 0.16, p);
+                    float toothBite = smoothstep(threshold - 0.02, threshold + 0.03, compositeTooth);
 
-                    // Brush tip radial feather
-                    float edge = smoothstep(1.0, 0.15, dist);
+                    // 3. Stippled edge jitter breaking up the artificial circular tip
+                    float edgeJitter = (hash(floor(vLocalCoord * 14.0) + floor(canvasCoord * 0.4)) - 0.5) * 0.20;
+                    float jitterDist = clamp(dist + edgeJitter, 0.0, 1.0);
+                    float edge = smoothstep(1.0, 0.65, jitterDist);
+
                     dabAlpha = edge * toothBite * uColor.a;
                 } else if (uBrushMode == 2) {
                     float edge = smoothstep(1.0, uHardness, dist);

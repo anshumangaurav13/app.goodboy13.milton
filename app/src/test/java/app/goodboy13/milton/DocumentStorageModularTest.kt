@@ -6,6 +6,7 @@ import app.goodboy13.milton.core.storage.DocumentMetadata
 import app.goodboy13.milton.core.storage.LayerDescriptor
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -125,5 +126,24 @@ class DocumentStorageModularTest {
         val extractedTile = File(unpackTilesDir, "tile_1_0_0.bin")
         assertTrue(extractedTile.exists())
         assertArrayEquals(mockTileData, extractedTile.readBytes())
+    }
+
+    @Test
+    fun testDocumentMetadataProjectIdAndDirtySerialization() {
+        val meta = DocumentMetadata(
+            title = "Graphite Sketch",
+            projectId = "proj_test_42",
+            hasUnsavedChanges = true
+        )
+        val json = meta.toJson()
+        val parsed = DocumentMetadata.fromJson(json)
+
+        assertEquals("Graphite Sketch", parsed.title)
+        assertEquals("proj_test_42", parsed.projectId)
+        assertTrue(parsed.hasUnsavedChanges)
+
+        parsed.hasUnsavedChanges = false
+        val updatedParsed = DocumentMetadata.fromJson(parsed.toJson())
+        assertFalse(updatedParsed.hasUnsavedChanges)
     }
 }

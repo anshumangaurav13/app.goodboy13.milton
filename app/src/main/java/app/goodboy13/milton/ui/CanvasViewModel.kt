@@ -69,8 +69,31 @@ class CanvasViewModel : ViewModel() {
     )
     val uiState: StateFlow<CanvasUiState> = _uiState.asStateFlow()
 
+    private val _hasUnsavedChanges = MutableStateFlow(false)
+    val hasUnsavedChanges: StateFlow<Boolean> = _hasUnsavedChanges.asStateFlow()
+
     private val _showNewProjectDialog = MutableStateFlow(false)
     val showNewProjectDialog: StateFlow<Boolean> = _showNewProjectDialog.asStateFlow()
+
+    private val _showLoadProjectConfirmationDialog = MutableStateFlow(false)
+    val showLoadProjectConfirmationDialog: StateFlow<Boolean> = _showLoadProjectConfirmationDialog.asStateFlow()
+
+    private val _pendingLoadProjectId = MutableStateFlow<String?>(null)
+    val pendingLoadProjectId: StateFlow<String?> = _pendingLoadProjectId.asStateFlow()
+
+    private val _pendingLoadProjectTitle = MutableStateFlow<String?>("Project")
+    val pendingLoadProjectTitle: StateFlow<String?> = _pendingLoadProjectTitle.asStateFlow()
+
+    fun markUnsavedChanges() {
+        _hasUnsavedChanges.value = true
+    }
+
+    fun isCurrentProjectSaved(canvasView: MiltonCanvasView, storageManager: DocumentStorageManager): Boolean {
+        if (!storageManager.hasCanvasContent(canvasView)) {
+            return true
+        }
+        return storageManager.activeProjectId != null && !_hasUnsavedChanges.value
+    }
 
     // -------------------------------------------------------------
     // Initial Session Binding
@@ -86,6 +109,7 @@ class CanvasViewModel : ViewModel() {
         }
 
         canvasView.renderer.undoManager.onTilesCommittedListener = { deltas ->
+            markUnsavedChanges()
             storageManager.onTilesCommitted(deltas, _uiState.value.document.documentTitle, canvasView)
         }
 
@@ -98,6 +122,7 @@ class CanvasViewModel : ViewModel() {
 
         canvasView.layerManager.onLayersChangedListener = {
             viewModelScope.launch(Dispatchers.Main) {
+                markUnsavedChanges()
                 canvasView.requestRedraw()
                 updateLayers(canvasView.layerManager.layers.toList(), canvasView.layerManager.activeLayerId)
                 storageManager.scheduleAutosave(_uiState.value.document.documentTitle, canvasView)
@@ -124,6 +149,7 @@ class CanvasViewModel : ViewModel() {
 
         canvasView.onStrokeCompleted = { strokeColor ->
             viewModelScope.launch(Dispatchers.Main) {
+                markUnsavedChanges()
                 onStrokeCompleted(strokeColor, storageManager)
             }
         }
@@ -156,10 +182,13 @@ class CanvasViewModel : ViewModel() {
             if (storageManager.hasAutosaveSession()) {
                 val restored = storageManager.restoreAutosave(canvasView)
                 if (restored != null) {
+                    _hasUnsavedChanges.value = restored.hasUnsavedChanges
                     withContext(Dispatchers.Main) {
                         applyDocumentMetadata(restored)
                     }
                 }
+            } else {
+                _hasUnsavedChanges.value = false
             }
             refreshMetricsInternal(storageManager)
         }
@@ -321,11 +350,13 @@ class CanvasViewModel : ViewModel() {
     // -------------------------------------------------------------
 
     fun setDocumentTitle(title: String, canvasView: MiltonCanvasView, storageManager: DocumentStorageManager) {
+        markUnsavedChanges()
         _uiState.update { it.copy(document = it.document.copy(documentTitle = title)) }
         storageManager.scheduleAutosave(title, canvasView)
     }
 
     fun setCanvasBackgroundColor(colorRgb: Int, canvasView: MiltonCanvasView, storageManager: DocumentStorageManager) {
+        markUnsavedChanges()
         canvasView.backgroundColorRgb = colorRgb
         _uiState.update { it.copy(document = it.document.copy(canvasBackgroundColor = colorRgb)) }
         storageManager.scheduleAutosave(_uiState.value.document.documentTitle, canvasView)
@@ -336,10 +367,34 @@ class CanvasViewModel : ViewModel() {
     }
 
     fun handleNewProjectClick(canvasView: MiltonCanvasView, storageManager: DocumentStorageManager, onCreatedDirectly: () -> Unit) {
-        if (storageManager.hasCanvasContent(canvasView)) {
-            _showNewProjectDialog.value = true
-        } else {
+        if (isCurrentProjectSaved(canvasView, storageManager)) {
             createNewBlankProject(canvasView, storageManager, onCreatedDirectly)
+        } else {
+            _showNewProjectDialog.value = true
+        }
+    }
+
+    fun setShowLoadProjectConfirmationDialog(show: Boolean) {
+        _showLoadProjectConfirmationDialog.value = show
+        if (!show) {
+            _pendingLoadProjectId.value = null
+            _pendingLoadProjectTitle.value = "Project"
+        }
+    }
+
+    fun handleLoadProjectClick(
+        canvasView: MiltonCanvasView,
+        storageManager: DocumentStorageManager,
+        projectId: String,
+        projectTitle: String? = null,
+        onLoadedDirectly: (String) -> Unit
+    ) {
+        if (isCurrentProjectSaved(canvasView, storageManager)) {
+            loadProjectFromLibrary(canvasView, storageManager, projectId, onLoadedDirectly)
+        } else {
+            _pendingLoadProjectId.value = projectId
+            _pendingLoadProjectTitle.value = projectTitle ?: "Project"
+            _showLoadProjectConfirmationDialog.value = true
         }
     }
 
@@ -350,6 +405,7 @@ class CanvasViewModel : ViewModel() {
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             val newMeta = storageManager.createNewBlankProject(canvasView)
+            _hasUnsavedChanges.value = false
             refreshMetricsInternal(storageManager)
             withContext(Dispatchers.Main) {
                 applyDocumentMetadata(newMeta)
@@ -366,6 +422,7 @@ class CanvasViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             val title = _uiState.value.document.documentTitle
             storageManager.saveCurrentProjectToLibrary(title, canvasView)
+            _hasUnsavedChanges.value = false
             refreshMetricsInternal(storageManager)
             withContext(Dispatchers.Main) {
                 onSaved()
@@ -381,6 +438,7 @@ class CanvasViewModel : ViewModel() {
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             val loaded = storageManager.loadProjectFromLibrary(projectId, canvasView)
+            _hasUnsavedChanges.value = false
             refreshMetricsInternal(storageManager)
             withContext(Dispatchers.Main) {
                 if (loaded != null) {
@@ -419,6 +477,7 @@ class CanvasViewModel : ViewModel() {
                     refreshMetricsInternal(storageManager)
                     withContext(Dispatchers.Main) {
                         if (imported != null) {
+                            _hasUnsavedChanges.value = false
                             applyDocumentMetadata(imported)
                             onSuccess(imported.title)
                         } else {

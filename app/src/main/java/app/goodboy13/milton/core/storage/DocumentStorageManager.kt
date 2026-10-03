@@ -28,7 +28,10 @@ class DocumentStorageManager(private val context: Context) {
     val projectsDir: File get() = projectCatalog.projectsDir
     var activeProjectId: String?
         get() = projectCatalog.activeProjectId
-        set(value) { projectCatalog.activeProjectId = value }
+        set(value) {
+            projectCatalog.activeProjectId = value
+            autosaveCoordinator.activeProjectId = value
+        }
 
     // --- Autosave Coordinator Operations ---
 
@@ -61,7 +64,11 @@ class DocumentStorageManager(private val context: Context) {
     }
 
     fun restoreAutosave(canvasView: MiltonCanvasView): DocumentMetadata? {
-        return autosaveCoordinator.restoreAutosave(canvasView)
+        val meta = autosaveCoordinator.restoreAutosave(canvasView)
+        if (meta?.projectId != null) {
+            projectCatalog.activeProjectId = meta.projectId
+        }
+        return meta
     }
 
     fun loadMetadataIntoCanvas(

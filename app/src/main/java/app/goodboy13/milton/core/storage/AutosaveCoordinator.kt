@@ -34,6 +34,9 @@ class AutosaveCoordinator(
 
     private var autosaveJob: Job? = null
 
+    var activeProjectId: String? = null
+    var hasUnsavedChanges: Boolean = false
+
     val autosaveDir: File get() = File(context.filesDir, AUTOSAVE_DIR_NAME).apply { mkdirs() }
     val autosaveTilesDir: File get() = File(autosaveDir, TILES_DIR_NAME).apply { mkdirs() }
     val autosaveManifestFile: File get() = File(autosaveDir, MANIFEST_FILE_NAME)
@@ -105,6 +108,7 @@ class AutosaveCoordinator(
         documentTitle: String,
         canvasView: MiltonCanvasView
     ) {
+        hasUnsavedChanges = true
         autosaveJob?.cancel()
         autosaveJob = scope.launch {
             delay(AUTOSAVE_DEBOUNCE_MS)
@@ -168,6 +172,8 @@ class AutosaveCoordinator(
             // 3. Assemble document metadata
             val metadata = DocumentMetadata(
                 title = documentTitle,
+                projectId = activeProjectId,
+                hasUnsavedChanges = hasUnsavedChanges,
                 backgroundColorRgb = canvasView.backgroundColorRgb,
                 viewportPanX = viewport.panX,
                 viewportPanY = viewport.panY,
@@ -231,6 +237,8 @@ class AutosaveCoordinator(
         return try {
             val jsonStr = autosaveManifestFile.readText()
             val metadata = DocumentMetadata.fromJson(jsonStr)
+            activeProjectId = metadata.projectId
+            hasUnsavedChanges = metadata.hasUnsavedChanges
             loadMetadataIntoCanvas(metadata, autosaveTilesDir, canvasView)
             metadata
         } catch (e: Exception) {
@@ -331,6 +339,8 @@ class AutosaveCoordinator(
     }
 
     fun clearAutosaveSession() {
+        activeProjectId = null
+        hasUnsavedChanges = false
         pendingCompressedTiles.clear()
         autosaveTilesDir.listFiles()?.forEach { it.delete() }
         if (autosaveManifestFile.exists()) {

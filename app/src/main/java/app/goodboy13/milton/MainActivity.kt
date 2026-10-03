@@ -86,6 +86,8 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 val uiState by viewModel.uiState.collectAsState()
                 val showNewProjectDialog by viewModel.showNewProjectDialog.collectAsState()
+                val showLoadProjectConfirmationDialog by viewModel.showLoadProjectConfirmationDialog.collectAsState()
+                val pendingLoadProjectTitle by viewModel.pendingLoadProjectTitle.collectAsState()
                 val layerManager = canvasView.layerManager
 
                 // Import .milton project archive launcher
@@ -153,8 +155,10 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         onLoadProject = { projId ->
-                            viewModel.loadProjectFromLibrary(canvasView, storageManager, projId) { title ->
-                                Toast.makeText(this@MainActivity, "Loaded '$title'", Toast.LENGTH_SHORT).show()
+                            val target = storageManager.listSavedProjects().find { it.id == projId }
+                            val title = target?.title ?: "Project"
+                            viewModel.handleLoadProjectClick(canvasView, storageManager, projId, title) { loadedTitle ->
+                                Toast.makeText(this@MainActivity, "Loaded '$loadedTitle'", Toast.LENGTH_SHORT).show()
                             }
                         },
                         onDeleteSavedProject = { projId ->
@@ -204,7 +208,10 @@ class MainActivity : ComponentActivity() {
                             canvasView.deleteLayer(id)
                             viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId)
                         },
-                        onClearLayer = { id -> canvasView.clearLayer(id) },
+                        onClearLayer = { id ->
+                            canvasView.clearLayer(id)
+                            viewModel.markUnsavedChanges()
+                        },
                         onToggleLayerVisibility = { id, isVis ->
                             layerManager.setLayerVisibility(id, isVis)
                             viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId)
@@ -285,6 +292,63 @@ class MainActivity : ComponentActivity() {
                                         }
                                     ) {
                                         Text("Discard & New", color = Color(0xFFFF5252))
+                                    }
+                                }
+                            },
+                            containerColor = Color(0xFF22262E),
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                    }
+
+                    if (showLoadProjectConfirmationDialog) {
+                        val pendingTitle = pendingLoadProjectTitle ?: "Project"
+                        AlertDialog(
+                            onDismissRequest = { viewModel.setShowLoadProjectConfirmationDialog(false) },
+                            title = {
+                                Text("Open Project?", color = Color.White, fontWeight = FontWeight.Bold)
+                            },
+                            text = {
+                                Text(
+                                    "Do you want to save the current artwork before opening '$pendingTitle', or discard changes?",
+                                    color = Color(0xDDFFFFFF)
+                                )
+                            },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        val targetId = viewModel.pendingLoadProjectId.value
+                                        viewModel.setShowLoadProjectConfirmationDialog(false)
+                                        if (targetId != null) {
+                                            viewModel.saveCurrentProjectToLibrary(canvasView, storageManager) {
+                                                viewModel.loadProjectFromLibrary(canvasView, storageManager, targetId) { loadedTitle ->
+                                                    Toast.makeText(this@MainActivity, "Saved and loaded '$loadedTitle'", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Text("Save & Open", color = Color(0xFF64B5F6), fontWeight = FontWeight.Bold)
+                                }
+                            },
+                            dismissButton = {
+                                Row {
+                                    TextButton(
+                                        onClick = { viewModel.setShowLoadProjectConfirmationDialog(false) }
+                                    ) {
+                                        Text("Cancel", color = Color(0x99FFFFFF))
+                                    }
+                                    TextButton(
+                                        onClick = {
+                                            val targetId = viewModel.pendingLoadProjectId.value
+                                            viewModel.setShowLoadProjectConfirmationDialog(false)
+                                            if (targetId != null) {
+                                                viewModel.loadProjectFromLibrary(canvasView, storageManager, targetId) { loadedTitle ->
+                                                    Toast.makeText(this@MainActivity, "Loaded '$loadedTitle'", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        Text("Discard & Open", color = Color(0xFFFF5252))
                                     }
                                 }
                             },

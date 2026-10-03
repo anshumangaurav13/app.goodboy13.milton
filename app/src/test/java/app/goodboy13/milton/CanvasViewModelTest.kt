@@ -90,4 +90,28 @@ class CanvasViewModelTest {
         assertEquals(2, vm.uiState.value.layers.layers.size)
         assertEquals(2L, vm.uiState.value.layers.activeLayerId)
     }
+
+    @Test
+    fun testUnsavedChangesTracking() {
+        val vm = CanvasViewModel()
+        assertFalse(vm.hasUnsavedChanges.value)
+
+        vm.markUnsavedChanges()
+        assertTrue(vm.hasUnsavedChanges.value)
+    }
+
+    @Test
+    fun testLoadProjectConfirmationDialogState() {
+        val vm = CanvasViewModel()
+        assertFalse(vm.showLoadProjectConfirmationDialog.value)
+        assertEquals(null, vm.pendingLoadProjectId.value)
+        assertEquals("Project", vm.pendingLoadProjectTitle.value)
+
+        vm.setShowLoadProjectConfirmationDialog(true)
+        assertTrue(vm.showLoadProjectConfirmationDialog.value)
+
+        vm.setShowLoadProjectConfirmationDialog(false)
+        assertFalse(vm.showLoadProjectConfirmationDialog.value)
+        assertEquals(null, vm.pendingLoadProjectId.value)
+    }
 }

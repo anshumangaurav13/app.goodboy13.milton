@@ -18,6 +18,8 @@ data class DocumentMetadata(
     var viewportRotation: Float = 0f,
     var isFlippedHorizontally: Boolean = false,
     var activeLayerId: Long = 1L,
+    var projectId: String? = null,
+    var hasUnsavedChanges: Boolean = false,
     val layers: MutableList<LayerDescriptor> = mutableListOf()
 ) {
     fun toJson(): String {
@@ -33,6 +35,10 @@ data class DocumentMetadata(
         root.put("viewportRotation", viewportRotation.toDouble())
         root.put("isFlippedHorizontally", isFlippedHorizontally)
         root.put("activeLayerId", activeLayerId)
+        if (projectId != null) {
+            root.put("projectId", projectId)
+        }
+        root.put("hasUnsavedChanges", hasUnsavedChanges)
 
         val layersArray = JSONArray()
         for (l in layers) {
@@ -69,7 +75,9 @@ data class DocumentMetadata(
                 viewportZoom = root.optDouble("viewportZoom", 0.5).toFloat(),
                 viewportRotation = root.optDouble("viewportRotation", 0.0).toFloat(),
                 isFlippedHorizontally = root.optBoolean("isFlippedHorizontally", false),
-                activeLayerId = root.optLong("activeLayerId", 1L)
+                activeLayerId = root.optLong("activeLayerId", 1L),
+                projectId = if (root.has("projectId") && !root.isNull("projectId")) root.getString("projectId") else null,
+                hasUnsavedChanges = root.optBoolean("hasUnsavedChanges", false)
             )
 
             val layersArray = root.optJSONArray("layers")

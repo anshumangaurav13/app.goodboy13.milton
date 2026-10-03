@@ -75,11 +75,25 @@ class ProjectCatalogRepository(private val context: Context) {
         canvasView: MiltonCanvasView,
         autosaveCoordinator: AutosaveCoordinator
     ): SavedProjectSummary = withContext(Dispatchers.IO) {
-        autosaveCoordinator.flushAutosaveNow(documentTitle, canvasView)
         val projId = activeProjectId ?: "proj_${System.currentTimeMillis()}"
         activeProjectId = projId
+        autosaveCoordinator.activeProjectId = projId
+        autosaveCoordinator.hasUnsavedChanges = false
+
+        autosaveCoordinator.flushAutosaveNow(documentTitle, canvasView)
+
         val targetDir = File(projectsDir, projId).apply { mkdirs() }
         val targetTilesDir = File(targetDir, AutosaveCoordinator.TILES_DIR_NAME).apply { mkdirs() }
+
+        val meta = if (autosaveCoordinator.autosaveManifestFile.exists()) {
+            val loadedMeta = DocumentMetadata.fromJson(autosaveCoordinator.autosaveManifestFile.readText())
+            loadedMeta.projectId = projId
+            loadedMeta.hasUnsavedChanges = false
+            autosaveCoordinator.autosaveManifestFile.writeText(loadedMeta.toJson())
+            loadedMeta
+        } else {
+            DocumentMetadata(title = documentTitle, projectId = projId, hasUnsavedChanges = false)
+        }
 
         // Copy manifest
         if (autosaveCoordinator.autosaveManifestFile.exists()) {
@@ -106,12 +120,6 @@ class ProjectCatalogRepository(private val context: Context) {
         var totalSize = File(targetDir, AutosaveCoordinator.MANIFEST_FILE_NAME).length()
         targetTilesDir.listFiles()?.forEach { totalSize += it.length() }
 
-        val meta = if (autosaveCoordinator.autosaveManifestFile.exists()) {
-            DocumentMetadata.fromJson(autosaveCoordinator.autosaveManifestFile.readText())
-        } else {
-            DocumentMetadata(title = documentTitle)
-        }
-
         SavedProjectSummary(
             id = projId,
             title = meta.title,
@@ -135,15 +143,20 @@ class ProjectCatalogRepository(private val context: Context) {
         if (!sourceManifest.exists()) return@withContext null
 
         activeProjectId = projectId
+        autosaveCoordinator.activeProjectId = projectId
+        autosaveCoordinator.hasUnsavedChanges = false
 
         // Replace autosave directory with library project
         autosaveCoordinator.autosaveTilesDir.listFiles()?.forEach { it.delete() }
         sourceTilesDir.listFiles()?.forEach {
             it.copyTo(File(autosaveCoordinator.autosaveTilesDir, it.name), overwrite = true)
         }
-        sourceManifest.copyTo(autosaveCoordinator.autosaveManifestFile, overwrite = true)
 
         val metadata = DocumentMetadata.fromJson(sourceManifest.readText())
+        metadata.projectId = projectId
+        metadata.hasUnsavedChanges = false
+        autosaveCoordinator.autosaveManifestFile.writeText(metadata.toJson())
+
         withContext(Dispatchers.Main) {
             autosaveCoordinator.loadMetadataIntoCanvas(metadata, autosaveCoordinator.autosaveTilesDir, canvasView)
         }
@@ -169,6 +182,8 @@ class ProjectCatalogRepository(private val context: Context) {
         autosaveCoordinator: AutosaveCoordinator
     ): DocumentMetadata = withContext(Dispatchers.IO) {
         activeProjectId = null
+        autosaveCoordinator.activeProjectId = null
+        autosaveCoordinator.hasUnsavedChanges = false
         autosaveCoordinator.clearAutosaveSession()
 
         val viewport = canvasView.renderer.viewport
