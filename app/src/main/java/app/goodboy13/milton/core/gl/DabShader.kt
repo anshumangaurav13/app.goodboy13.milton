@@ -33,12 +33,13 @@ class DabShader {
     fun initGl() {
         val vertexShaderCode = """
             #version 300 es
+            precision highp float;
+            precision highp int;
             layout(location = 0) in vec2 aPosition; // Unit quad [-1..1, -1..1]
             uniform mat4 uProjection;
             uniform vec2 uCenter;
             uniform float uRadius;
             uniform vec2 uWorldOffset;
-            uniform int uBrushMode;
             out vec2 vLocalCoord;
             out vec2 vWorldPos;
             out vec2 vDabCenter;
@@ -46,7 +47,7 @@ class DabShader {
             void main() {
                 vDabCenter = uWorldOffset + uCenter;
                 vRadius = uRadius;
-                float quadRadius = (uBrushMode == 1) ? (uRadius + 2.0) : uRadius;
+                float quadRadius = uRadius + 2.0;
                 vLocalCoord = aPosition * (quadRadius / uRadius);
                 vec2 worldPos = uCenter + aPosition * quadRadius;
                 vWorldPos = uWorldOffset + worldPos;
@@ -59,6 +60,7 @@ class DabShader {
             #version 300 es
             #extension GL_EXT_shader_framebuffer_fetch : require
             precision highp float;
+            precision highp int;
             in vec2 vLocalCoord;
             in vec2 vWorldPos;
             in vec2 vDabCenter;
@@ -187,6 +189,7 @@ class DabShader {
         val fragmentShaderCodeFallback = """
             #version 300 es
             precision highp float;
+            precision highp int;
             in vec2 vLocalCoord;
             in vec2 vWorldPos;
             in vec2 vDabCenter;
