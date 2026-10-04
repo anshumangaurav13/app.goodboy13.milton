@@ -97,7 +97,7 @@ class DabShader {
                 if (uBrushMode == 1) {
                     vec2 pixelCenter = pixelCoord + vec2(0.5);
                     dist = length(pixelCenter - vDabCenter) / vRadius;
-                    if (dist > 1.25) {
+                    if (dist > 1.0) {
                         discard;
                     }
                 } else {
@@ -109,22 +109,22 @@ class DabShader {
 
                 float dabAlpha = 0.0;
                 if (uBrushMode == 1) {
-                    // Sharp jittery graphite pencil: pixel-aligned micro-grit + crisp tooth + edge jitter
-                    // 1. Pixel-aligned micro-grit (1x1) and power-of-two tooth clusters (2x2, 4x4)
-                    float grit1 = hash(pixelCoord);
-                    float grit2 = hash(floor(pixelCoord * 0.5) + vec2(23.0, 47.0));
-                    float tooth4 = hash(floor(pixelCoord * 0.25) + vec2(71.0, 93.0));
-                    float compositeTooth = grit1 * 0.50 + grit2 * 0.30 + tooth4 * 0.20;
+                    // Multi-octave natural paper tooth:
+                    // 1. Fibrous coarse paper tooth
+                    float coarseTooth = paperTooth(pixelCoord * 0.25);
+                    // 2. Medium paper grain
+                    float mediumTooth = paperTooth(pixelCoord * 0.50 + vec2(37.0, 61.0));
+                    // 3. Subtle micro-grit
+                    float microGrit = hash(pixelCoord);
+                    float paper = coarseTooth * 0.45 + mediumTooth * 0.35 + microGrit * 0.20;
 
-                    // 2. Sharp graphite tooth bite threshold
+                    // Dense graphite deposition: deep, rich core with organic paper tooth peaks
                     float p = clamp(uPressure, 0.0, 1.0);
-                    float threshold = mix(0.64, 0.16, p);
-                    float toothBite = smoothstep(threshold - 0.01, threshold + 0.02, compositeTooth);
+                    float threshold = mix(0.48, 0.06, p);
+                    float toothBite = smoothstep(threshold - 0.08, threshold + 0.08, paper);
 
-                    // 3. Pixel-aligned stippled edge jitter breaking up the artificial circular tip
-                    float edgeNoise = (hash(pixelCoord + vec2(101.0, 203.0)) - 0.5) * 0.25;
-                    float jitterDist = clamp(dist + edgeNoise, 0.0, 1.0);
-                    float edge = smoothstep(1.0, 0.70, jitterDist);
+                    // Crisp graphite perimeter with tight edge taper
+                    float edge = smoothstep(1.0, 0.72, dist);
 
                     dabAlpha = edge * toothBite * uColor.a;
                 } else if (uBrushMode == 2) {
@@ -224,7 +224,7 @@ class DabShader {
                 if (uBrushMode == 1) {
                     vec2 pixelCenter = pixelCoord + vec2(0.5);
                     dist = length(pixelCenter - vDabCenter) / vRadius;
-                    if (dist > 1.25) {
+                    if (dist > 1.0) {
                         discard;
                     }
                 } else {
@@ -236,22 +236,22 @@ class DabShader {
 
                 float dabAlpha = 0.0;
                 if (uBrushMode == 1) {
-                    // Sharp jittery graphite pencil: pixel-aligned micro-grit + crisp tooth + edge jitter
-                    // 1. Pixel-aligned micro-grit (1x1) and power-of-two tooth clusters (2x2, 4x4)
-                    float grit1 = hash(pixelCoord);
-                    float grit2 = hash(floor(pixelCoord * 0.5) + vec2(23.0, 47.0));
-                    float tooth4 = hash(floor(pixelCoord * 0.25) + vec2(71.0, 93.0));
-                    float compositeTooth = grit1 * 0.50 + grit2 * 0.30 + tooth4 * 0.20;
+                    // Multi-octave natural paper tooth:
+                    // 1. Fibrous coarse paper tooth
+                    float coarseTooth = paperTooth(pixelCoord * 0.25);
+                    // 2. Medium paper grain
+                    float mediumTooth = paperTooth(pixelCoord * 0.50 + vec2(37.0, 61.0));
+                    // 3. Subtle micro-grit
+                    float microGrit = hash(pixelCoord);
+                    float paper = coarseTooth * 0.45 + mediumTooth * 0.35 + microGrit * 0.20;
 
-                    // 2. Sharp graphite tooth bite threshold
+                    // Dense graphite deposition: deep, rich core with organic paper tooth peaks
                     float p = clamp(uPressure, 0.0, 1.0);
-                    float threshold = mix(0.64, 0.16, p);
-                    float toothBite = smoothstep(threshold - 0.01, threshold + 0.02, compositeTooth);
+                    float threshold = mix(0.48, 0.06, p);
+                    float toothBite = smoothstep(threshold - 0.08, threshold + 0.08, paper);
 
-                    // 3. Pixel-aligned stippled edge jitter breaking up the artificial circular tip
-                    float edgeNoise = (hash(pixelCoord + vec2(101.0, 203.0)) - 0.5) * 0.25;
-                    float jitterDist = clamp(dist + edgeNoise, 0.0, 1.0);
-                    float edge = smoothstep(1.0, 0.70, jitterDist);
+                    // Crisp graphite perimeter with tight edge taper
+                    float edge = smoothstep(1.0, 0.72, dist);
 
                     dabAlpha = edge * toothBite * uColor.a;
                 } else if (uBrushMode == 2) {
