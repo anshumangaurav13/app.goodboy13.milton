@@ -235,10 +235,11 @@ class GlSceneRenderer {
         val tileSize = TileCoord.TILE_SIZE.toFloat()
         val tileDabsMap = mutableMapOf<Pair<Int, Int>, MutableList<BrushDab>>()
         for (dab in dabs) {
-            val minTx = floor((dab.x - dab.radius) / tileSize).toInt()
-            val maxTx = floor((dab.x + dab.radius) / tileSize).toInt()
-            val minTy = floor((dab.y - dab.radius) / tileSize).toInt()
-            val maxTy = floor((dab.y + dab.radius) / tileSize).toInt()
+            val reach = dab.radius + 2.0f
+            val minTx = floor((dab.x - reach) / tileSize).toInt()
+            val maxTx = floor((dab.x + reach) / tileSize).toInt()
+            val minTy = floor((dab.y - reach) / tileSize).toInt()
+            val maxTy = floor((dab.y + reach) / tileSize).toInt()
             for (ty in minTy..maxTy) {
                 for (tx in minTx..maxTx) {
                     tileDabsMap.getOrPut(tx to ty) { mutableListOf() }.add(dab)

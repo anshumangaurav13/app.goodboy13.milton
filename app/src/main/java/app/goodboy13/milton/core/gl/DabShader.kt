@@ -38,11 +38,17 @@ class DabShader {
             uniform vec2 uCenter;
             uniform float uRadius;
             uniform vec2 uWorldOffset;
+            uniform int uBrushMode;
             out vec2 vLocalCoord;
             out vec2 vWorldPos;
+            out vec2 vDabCenter;
+            out float vRadius;
             void main() {
-                vLocalCoord = aPosition;
-                vec2 worldPos = uCenter + aPosition * uRadius;
+                vDabCenter = uWorldOffset + uCenter;
+                vRadius = uRadius;
+                float quadRadius = (uBrushMode == 1) ? (uRadius + 2.0) : uRadius;
+                vLocalCoord = aPosition * (quadRadius / uRadius);
+                vec2 worldPos = uCenter + aPosition * quadRadius;
                 vWorldPos = uWorldOffset + worldPos;
                 gl_Position = uProjection * vec4(worldPos, 0.0, 1.0);
             }
@@ -55,6 +61,8 @@ class DabShader {
             precision highp float;
             in vec2 vLocalCoord;
             in vec2 vWorldPos;
+            in vec2 vDabCenter;
+            in float vRadius;
 
             uniform vec4 uColor;
             uniform float uHardness;
@@ -82,9 +90,19 @@ class DabShader {
             }
 
             void main() {
-                float dist = length(vLocalCoord);
-                if (dist > 1.0) {
-                    discard;
+                float dist = 0.0;
+                if (uBrushMode == 1) {
+                    vec2 pixelCoord = floor(vWorldPos);
+                    vec2 pixelCenter = pixelCoord + vec2(0.5);
+                    dist = length(pixelCenter - vDabCenter) / vRadius;
+                    if (dist > 1.25) {
+                        discard;
+                    }
+                } else {
+                    dist = length(vLocalCoord);
+                    if (dist > 1.0) {
+                        discard;
+                    }
                 }
 
                 float dabAlpha = 0.0;
@@ -171,6 +189,8 @@ class DabShader {
             precision highp float;
             in vec2 vLocalCoord;
             in vec2 vWorldPos;
+            in vec2 vDabCenter;
+            in float vRadius;
 
             uniform vec4 uColor;
             uniform float uHardness;
@@ -198,9 +218,19 @@ class DabShader {
             }
 
             void main() {
-                float dist = length(vLocalCoord);
-                if (dist > 1.0) {
-                    discard;
+                float dist = 0.0;
+                if (uBrushMode == 1) {
+                    vec2 pixelCoord = floor(vWorldPos);
+                    vec2 pixelCenter = pixelCoord + vec2(0.5);
+                    dist = length(pixelCenter - vDabCenter) / vRadius;
+                    if (dist > 1.25) {
+                        discard;
+                    }
+                } else {
+                    dist = length(vLocalCoord);
+                    if (dist > 1.0) {
+                        discard;
+                    }
                 }
 
                 float dabAlpha = 0.0;

@@ -163,10 +163,11 @@ class CanvasEngine(
             val tileSize = TileCoord.TILE_SIZE.toFloat()
 
             for (dab in dabsToCommit) {
-                val minTx = floor((dab.x - dab.radius) / tileSize).toInt()
-                val maxTx = floor((dab.x + dab.radius) / tileSize).toInt()
-                val minTy = floor((dab.y - dab.radius) / tileSize).toInt()
-                val maxTy = floor((dab.y + dab.radius) / tileSize).toInt()
+                val reach = dab.radius + 2.0f
+                val minTx = floor((dab.x - reach) / tileSize).toInt()
+                val maxTx = floor((dab.x + reach) / tileSize).toInt()
+                val minTy = floor((dab.y - reach) / tileSize).toInt()
+                val maxTy = floor((dab.y + reach) / tileSize).toInt()
                 for (ty in minTy..maxTy) {
                     for (tx in minTx..maxTx) {
                         val tile = activeLayer.tileMap.getOrCreateTile(tx, ty)
