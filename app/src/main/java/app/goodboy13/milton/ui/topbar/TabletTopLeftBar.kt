@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -98,7 +99,10 @@ fun TabletTopLeftBar(
     onExportMilton: () -> Unit,
     onExportPng: () -> Unit,
     onExportJpg: () -> Unit,
-    onImportMilton: () -> Unit
+    onImportMilton: () -> Unit,
+    hasReferenceImages: Boolean = false,
+    onAddReferenceImage: () -> Unit = {},
+    onClearReferenceImages: () -> Unit = {}
 ) {
     val barShape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 14.dp)
     var isMenuExpanded by remember { mutableStateOf(false) }
@@ -266,6 +270,38 @@ fun TabletTopLeftBar(
                                             onImportMilton()
                                         }
                                     )
+
+                                    HorizontalDivider(
+                                        color = Color(0x22FFFFFF),
+                                        thickness = 1.dp,
+                                        modifier = Modifier.padding(vertical = 3.dp, horizontal = 6.dp)
+                                    )
+
+                                    // 6. Add Reference Image
+                                    CompactMenuItem(
+                                        icon = Icons.Default.AddPhotoAlternate,
+                                        iconTint = Color(0xFF64B5F6),
+                                        text = "Add Reference",
+                                        onClick = {
+                                            isMenuExpanded = false
+                                            activeSubmenu = LeftBarSubmenu.NONE
+                                            onAddReferenceImage()
+                                        }
+                                    )
+
+                                    if (hasReferenceImages) {
+                                        // 7. Clear Reference Images
+                                        CompactMenuItem(
+                                            icon = Icons.Default.DeleteOutline,
+                                            iconTint = Color(0xFFFF8A80),
+                                            text = "Clear References",
+                                            onClick = {
+                                                isMenuExpanded = false
+                                                activeSubmenu = LeftBarSubmenu.NONE
+                                                onClearReferenceImages()
+                                            }
+                                        )
+                                    }
 
                                     HorizontalDivider(
                                         color = Color(0x22FFFFFF),

@@ -1,5 +1,7 @@
 package app.goodboy13.milton.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -28,6 +30,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.goodboy13.milton.core.brush.BrushType
 import app.goodboy13.milton.core.layer.Layer
@@ -38,6 +41,9 @@ import app.goodboy13.milton.ui.components.ToolParametersFloatingWindow
 import app.goodboy13.milton.ui.components.rememberFloatingWindowState
 import app.goodboy13.milton.ui.palette.ColorPaletteFloatingWindow
 import app.goodboy13.milton.ui.rail.TabletToolRail
+import app.goodboy13.milton.ui.reference.ReferenceImageItem
+import app.goodboy13.milton.ui.reference.ReferenceImageLoader
+import app.goodboy13.milton.ui.reference.ReferenceImageOverlay
 import app.goodboy13.milton.ui.reticle.EyedropperReticleOverlay
 import app.goodboy13.milton.ui.state.CanvasUiActions
 import app.goodboy13.milton.ui.state.CanvasUiState
@@ -72,6 +78,22 @@ fun MiltonTabletUi(
     actions: CanvasUiActions,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    var referenceImages by remember { mutableStateOf<List<ReferenceImageItem>>(emptyList()) }
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            val item = ReferenceImageLoader.loadFromUri(context, uri)
+            if (item != null) {
+                val cascade = (referenceImages.size % 5) * 36f
+                item.offsetX += cascade
+                item.offsetY += cascade
+                referenceImages = referenceImages + item
+            }
+        }
+    }
+
     var showColorPaletteWindow by remember { mutableStateOf(false) }
     var showLayersWindow by remember { mutableStateOf(false) }
     var showToolParametersWindow by remember { mutableStateOf(false) }
@@ -104,6 +126,23 @@ fun MiltonTabletUi(
         val containerW = constraints.maxWidth
         val containerH = constraints.maxHeight
 
+        // Floating Reference Images Overlay (multi-instance, draggable, rotatable, resizable)
+        if (referenceImages.isNotEmpty()) {
+            ReferenceImageOverlay(
+                referenceImages = referenceImages,
+                containerWidth = containerW,
+                containerHeight = containerH,
+                onBringToFront = { item ->
+                    if (referenceImages.lastOrNull()?.id != item.id) {
+                        referenceImages = referenceImages.filter { it.id != item.id } + item
+                    }
+                },
+                onRemove = { toRemove ->
+                    referenceImages = referenceImages.filter { it.id != toRemove.id }
+                }
+            )
+        }
+
         // 0. Top Left Bar (docked to top-left corner, flat against top and left edges, zero gap)
         AnimatedVisibility(
             visible = !state.viewport.isZenMode,
@@ -128,7 +167,10 @@ fun MiltonTabletUi(
                 onExportMilton = actions.document.onExportMilton,
                 onExportPng = actions.document.onExportPng,
                 onExportJpg = actions.document.onExportJpg,
-                onImportMilton = actions.document.onImportMilton
+                onImportMilton = actions.document.onImportMilton,
+                hasReferenceImages = referenceImages.isNotEmpty(),
+                onAddReferenceImage = { imagePickerLauncher.launch("image/*") },
+                onClearReferenceImages = { referenceImages = emptyList() }
             )
         }
 
