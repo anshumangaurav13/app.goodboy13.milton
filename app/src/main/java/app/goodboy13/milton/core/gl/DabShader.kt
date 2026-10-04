@@ -93,8 +93,8 @@ class DabShader {
 
             void main() {
                 float dist = 0.0;
+                vec2 pixelCoord = floor(vWorldPos + vec2(0.01));
                 if (uBrushMode == 1) {
-                    vec2 pixelCoord = floor(vWorldPos);
                     vec2 pixelCenter = pixelCoord + vec2(0.5);
                     dist = length(pixelCenter - vDabCenter) / vRadius;
                     if (dist > 1.25) {
@@ -110,8 +110,6 @@ class DabShader {
                 float dabAlpha = 0.0;
                 if (uBrushMode == 1) {
                     // Sharp jittery graphite pencil: pixel-aligned micro-grit + crisp tooth + edge jitter
-                    vec2 pixelCoord = floor(vWorldPos);
-
                     // 1. Pixel-aligned micro-grit (1x1) and power-of-two tooth clusters (2x2, 4x4)
                     float grit1 = hash(pixelCoord);
                     float grit2 = hash(floor(pixelCoord * 0.5) + vec2(23.0, 47.0));
@@ -222,8 +220,8 @@ class DabShader {
 
             void main() {
                 float dist = 0.0;
+                vec2 pixelCoord = floor(vWorldPos + vec2(0.01));
                 if (uBrushMode == 1) {
-                    vec2 pixelCoord = floor(vWorldPos);
                     vec2 pixelCenter = pixelCoord + vec2(0.5);
                     dist = length(pixelCenter - vDabCenter) / vRadius;
                     if (dist > 1.25) {
@@ -239,8 +237,6 @@ class DabShader {
                 float dabAlpha = 0.0;
                 if (uBrushMode == 1) {
                     // Sharp jittery graphite pencil: pixel-aligned micro-grit + crisp tooth + edge jitter
-                    vec2 pixelCoord = floor(vWorldPos);
-
                     // 1. Pixel-aligned micro-grit (1x1) and power-of-two tooth clusters (2x2, 4x4)
                     float grit1 = hash(pixelCoord);
                     float grit2 = hash(floor(pixelCoord * 0.5) + vec2(23.0, 47.0));
