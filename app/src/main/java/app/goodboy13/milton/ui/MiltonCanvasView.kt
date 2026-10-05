@@ -214,6 +214,15 @@ class MiltonCanvasView @JvmOverloads constructor(
         }
 
     var isEyedropperMode: Boolean = false
+        set(value) {
+            field = value
+            if (!value) {
+                isEyedropperHovering = false
+                isEyedropperTouching = false
+                onEyedropperReticleChanged?.invoke(EyedropperReticleState(isVisible = false))
+            }
+        }
+
     var onColorPicked: ((Int) -> Unit)? = null
     var onEyedropperReticleChanged: ((EyedropperReticleState) -> Unit)? = null
     var onStrokeCompleted: ((Int) -> Unit)? = null
@@ -222,6 +231,7 @@ class MiltonCanvasView @JvmOverloads constructor(
     private var lastEyedropperScreenX: Float = 0f
     private var lastEyedropperScreenY: Float = 0f
     private var isEyedropperTouching: Boolean = false
+    private var isEyedropperHovering: Boolean = false
 
     fun undo() {
         renderer.requestUndo()
@@ -274,14 +284,20 @@ class MiltonCanvasView @JvmOverloads constructor(
     var isShiftHeld: Boolean = false
 
     fun setModifierState(space: Boolean, ctrl: Boolean, alt: Boolean, r: Boolean, shift: Boolean) {
+        val altWasHeld = isAltHeld
         isSpaceHeld = space
         isCtrlHeld = ctrl
         isAltHeld = alt
         isRHeld = r
         isShiftHeld = shift
-        if (!alt && activeSpringMode == SpringLoadedMode.EYEDROPPER) {
-            onEyedropperReticleChanged?.invoke(EyedropperReticleState(isVisible = false))
-            activeSpringMode = SpringLoadedMode.NONE
+        if (!alt && altWasHeld) {
+            isEyedropperHovering = false
+            if (activeSpringMode == SpringLoadedMode.EYEDROPPER) {
+                activeSpringMode = SpringLoadedMode.NONE
+            }
+            if (!isEyedropperMode) {
+                onEyedropperReticleChanged?.invoke(EyedropperReticleState(isVisible = false))
+            }
         }
     }
 
@@ -351,7 +367,7 @@ class MiltonCanvasView @JvmOverloads constructor(
         renderer.onColorPicked = { color ->
             post {
                 lastSampledColor = color
-                if (isEyedropperTouching) {
+                if (isEyedropperTouching || isEyedropperHovering) {
                     onEyedropperReticleChanged?.invoke(
                         EyedropperReticleState(
                             screenX = lastEyedropperScreenX,
@@ -387,9 +403,71 @@ class MiltonCanvasView @JvmOverloads constructor(
         Log.i(TAG, "onSizeChanged: width=$w, height=$h")
     }
 
+    override fun onHoverEvent(event: MotionEvent): Boolean {
+        if (handleEyedropperHover(event)) {
+            return true
+        }
+        return super.onHoverEvent(event)
+    }
+
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE ||
+            event.actionMasked == MotionEvent.ACTION_HOVER_ENTER ||
+            event.actionMasked == MotionEvent.ACTION_HOVER_EXIT) {
+            if (handleEyedropperHover(event)) {
+                return true
+            }
+        }
+        return super.onGenericMotionEvent(event)
+    }
+
+    private fun handleEyedropperHover(event: MotionEvent): Boolean {
+        val action = event.actionMasked
+        val isEyedropperActive = isEyedropperMode || isAltHeld
+
+        if (!isEyedropperActive) {
+            if (isEyedropperHovering) {
+                isEyedropperHovering = false
+                onEyedropperReticleChanged?.invoke(EyedropperReticleState(isVisible = false))
+            }
+            return false
+        }
+
+        when (action) {
+            MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
+                isEyedropperHovering = true
+                lastEyedropperScreenX = event.x
+                lastEyedropperScreenY = event.y
+                val worldPos = renderer.viewport.screenToWorld(event.x, event.y)
+                renderer.requestColorPick(worldPos.x, worldPos.y)
+                requestRedraw()
+                onEyedropperReticleChanged?.invoke(
+                    EyedropperReticleState(
+                        screenX = event.x,
+                        screenY = event.y,
+                        color = lastSampledColor,
+                        isVisible = true
+                    )
+                )
+                return true
+            }
+            MotionEvent.ACTION_HOVER_EXIT -> {
+                isEyedropperHovering = false
+                if (!isEyedropperTouching) {
+                    onEyedropperReticleChanged?.invoke(
+                        EyedropperReticleState(isVisible = false)
+                    )
+                }
+                return true
+            }
+        }
+        return false
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             requestUnbufferedDispatch(event)
+            isEyedropperHovering = false
         }
 
         val action = event.actionMasked
@@ -404,6 +482,7 @@ class MiltonCanvasView @JvmOverloads constructor(
             when (action) {
                 MotionEvent.ACTION_DOWN -> {
                     isEyedropperTouching = true
+                    isEyedropperHovering = false
                     renderer.requestColorPick(worldPos.x, worldPos.y)
                     requestRedraw()
                     onEyedropperReticleChanged?.invoke(
@@ -417,6 +496,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                 }
                 MotionEvent.ACTION_MOVE -> {
                     isEyedropperTouching = true
+                    isEyedropperHovering = false
                     renderer.requestColorPick(worldPos.x, worldPos.y)
                     requestRedraw()
                     onEyedropperReticleChanged?.invoke(
@@ -430,6 +510,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                 }
                 MotionEvent.ACTION_UP -> {
                     isEyedropperTouching = false
+                    isEyedropperHovering = false
                     isEyedropperMode = false
                     onEyedropperReticleChanged?.invoke(
                         EyedropperReticleState(isVisible = false)
@@ -439,6 +520,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     isEyedropperTouching = false
+                    isEyedropperHovering = false
                     isEyedropperMode = false
                     onEyedropperReticleChanged?.invoke(
                         EyedropperReticleState(isVisible = false)
