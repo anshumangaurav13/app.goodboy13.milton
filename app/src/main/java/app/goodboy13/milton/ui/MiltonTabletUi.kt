@@ -97,6 +97,7 @@ fun MiltonTabletUi(
     var showColorPaletteWindow by remember { mutableStateOf(false) }
     var showLayersWindow by remember { mutableStateOf(false) }
     var showToolParametersWindow by remember { mutableStateOf(false) }
+    var showKeyboardShortcutsDialog by remember { mutableStateOf(false) }
 
     // Preserve window open/closed states across fullscreen (Zen mode) toggles
     var preZenToolParams by remember { mutableStateOf(false) }
@@ -170,7 +171,9 @@ fun MiltonTabletUi(
                 onImportMilton = actions.document.onImportMilton,
                 hasReferenceImages = referenceImages.isNotEmpty(),
                 onAddReferenceImage = { imagePickerLauncher.launch("image/*") },
-                onClearReferenceImages = { referenceImages = emptyList() }
+                onClearReferenceImages = { referenceImages = emptyList() },
+                onShowKeyboardShortcuts = { showKeyboardShortcutsDialog = true },
+                onIsEditingTitleChange = actions.document.onTextInputActiveChanged
             )
         }
 
@@ -336,6 +339,13 @@ fun MiltonTabletUi(
         if (state.tool.eyedropperReticleState.isVisible) {
             EyedropperReticleOverlay(
                 state = state.tool.eyedropperReticleState
+            )
+        }
+
+        // 7. Keyboard Shortcuts Modal Dialog
+        if (showKeyboardShortcutsDialog) {
+            app.goodboy13.milton.ui.dialogs.KeyboardShortcutsDialog(
+                onDismissRequest = { showKeyboardShortcutsDialog = false }
             )
         }
     }

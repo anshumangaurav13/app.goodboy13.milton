@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Save
@@ -102,7 +103,9 @@ fun TabletTopLeftBar(
     onImportMilton: () -> Unit,
     hasReferenceImages: Boolean = false,
     onAddReferenceImage: () -> Unit = {},
-    onClearReferenceImages: () -> Unit = {}
+    onClearReferenceImages: () -> Unit = {},
+    onShowKeyboardShortcuts: () -> Unit = {},
+    onIsEditingTitleChange: (Boolean) -> Unit = {}
 ) {
     val barShape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 14.dp)
     var isMenuExpanded by remember { mutableStateOf(false) }
@@ -110,6 +113,10 @@ fun TabletTopLeftBar(
     var isEditingTitle by remember { mutableStateOf(false) }
     var tempTitle by remember(documentTitle) { mutableStateOf(documentTitle) }
     val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(isEditingTitle) {
+        onIsEditingTitleChange(isEditingTitle)
+    }
 
     Surface(
         modifier = Modifier
@@ -303,13 +310,25 @@ fun TabletTopLeftBar(
                                         )
                                     }
 
+                                    // 8. Keyboard Shortcuts
+                                    CompactMenuItem(
+                                        icon = Icons.Default.Keyboard,
+                                        iconTint = Color(0xFF80CBC4),
+                                        text = "Keyboard Shortcuts",
+                                        onClick = {
+                                            isMenuExpanded = false
+                                            activeSubmenu = LeftBarSubmenu.NONE
+                                            onShowKeyboardShortcuts()
+                                        }
+                                    )
+
                                     HorizontalDivider(
                                         color = Color(0x22FFFFFF),
                                         thickness = 1.dp,
                                         modifier = Modifier.padding(vertical = 3.dp, horizontal = 6.dp)
                                     )
 
-                                    // 6. Metrics Footer (RAM & Disk)
+                                    // 9. Metrics Footer (RAM & Disk)
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()

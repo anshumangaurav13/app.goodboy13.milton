@@ -53,6 +53,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var canvasView: MiltonCanvasView
     private lateinit var storageManager: DocumentStorageManager
     private lateinit var viewModel: CanvasViewModel
+    private lateinit var shortcutHandler: app.goodboy13.milton.input.KeyboardShortcutHandler
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,14 +74,107 @@ class MainActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
-            brushType = BrushType.PENCIL
-            brushColorRgb = 0xFF333333.toInt()
+            loadToolPreferences(applicationContext)
             isFocusable = true
             isFocusableInTouchMode = true
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 isAutoHandwritingEnabled = false
             }
         }
+
+        shortcutHandler = app.goodboy13.milton.input.KeyboardShortcutHandler(object : app.goodboy13.milton.input.KeyboardShortcutActions {
+            override fun onModifierChanged(
+                isSpaceHeld: Boolean,
+                isCtrlHeld: Boolean,
+                isAltHeld: Boolean,
+                isRHeld: Boolean,
+                isShiftHeld: Boolean
+            ) {
+                canvasView.setModifierState(isSpaceHeld, isCtrlHeld, isAltHeld, isRHeld, isShiftHeld)
+            }
+
+            override fun onToggleCanvasFlip() {
+                viewModel.toggleCanvasFlip(canvasView)
+            }
+
+            override fun onResetView() {
+                viewModel.resetCanvas(canvasView)
+            }
+
+            override fun onToggleZoom50or100() {
+                canvasView.toggleZoom50or100()
+            }
+
+            override fun onResetRotation() {
+                canvasView.resetRotation()
+            }
+
+            override fun onSelectPaintbrush() {
+                viewModel.selectPaintbrush(canvasView)
+            }
+
+            override fun onCyclePenPencil() {
+                viewModel.cyclePenPencil(canvasView)
+            }
+
+            override fun onCycleEraser() {
+                viewModel.cycleEraser(canvasView)
+            }
+
+            override fun onToggleEyedropper() {
+                viewModel.toggleEyedropper(canvasView)
+            }
+
+            override fun onStepBrushSize(increase: Boolean) {
+                canvasView.stepBrushSize(increase)
+            }
+
+            override fun onSetBrushOpacity(opacity: Float) {
+                viewModel.setBrushOpacity(opacity, canvasView)
+            }
+
+            override fun onSwapRecentColor() {
+                viewModel.swapRecentColor(canvasView)
+            }
+
+            override fun onResetDefaultColor() {
+                viewModel.resetDefaultColor(canvasView)
+            }
+
+            override fun onUndo() {
+                canvasView.undo()
+            }
+
+            override fun onRedo() {
+                canvasView.redo()
+            }
+
+            override fun onSaveProject() {
+                viewModel.saveCurrentProjectToLibrary(canvasView, storageManager) {
+                    Toast.makeText(this@MainActivity, "Saved project to library", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            override fun onAddNewLayer() {
+                viewModel.addNewLayer(canvasView)
+            }
+
+            override fun onClearActiveLayer() {
+                viewModel.clearActiveLayer(canvasView)
+            }
+
+            override fun onSelectLayerAbove() {
+                viewModel.selectLayerAbove(canvasView)
+            }
+
+            override fun onSelectLayerBelow() {
+                viewModel.selectLayerBelow(canvasView)
+            }
+
+            override fun onToggleZenMode() {
+                viewModel.setZenMode(!viewModel.uiState.value.viewport.isZenMode)
+            }
+        })
 
         setContent {
             MaterialTheme {
@@ -193,7 +287,8 @@ class MainActivity : ComponentActivity() {
                                 Toast.makeText(this@MainActivity, "Saved to Pictures/Milton & ready to share", Toast.LENGTH_SHORT).show()
                             }
                         },
-                        onImportMilton = { importMiltonLauncher.launch(arrayOf("*/*")) }
+                        onImportMilton = { importMiltonLauncher.launch(arrayOf("*/*")) },
+                        onTextInputActiveChanged = { viewModel.setTextInputActive(it) }
                     ),
                     layers = LayerActions(
                         onSelectLayer = { id ->
@@ -361,8 +456,40 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (::viewModel.isInitialized && viewModel.isTextInputActive.value) {
+            return super.dispatchKeyEvent(event)
+        }
+
+        if (::shortcutHandler.isInitialized) {
+            if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+                if (shortcutHandler.handleKeyDown(event.keyCode, event)) {
+                    return true
+                }
+            } else if (event.action == android.view.KeyEvent.ACTION_UP) {
+                if (shortcutHandler.handleKeyUp(event.keyCode, event)) {
+                    return true
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus && ::shortcutHandler.isInitialized) {
+            shortcutHandler.resetModifiers()
+        }
+    }
+
     override fun onPause() {
         super.onPause()
+        if (::shortcutHandler.isInitialized) {
+            shortcutHandler.resetModifiers()
+        }
+        if (::canvasView.isInitialized) {
+            canvasView.saveToolPreferences(applicationContext)
+        }
         if (::canvasView.isInitialized && ::storageManager.isInitialized && ::viewModel.isInitialized) {
             runBlocking(Dispatchers.IO) {
                 storageManager.flushAutosaveNow(viewModel.uiState.value.document.documentTitle, canvasView)

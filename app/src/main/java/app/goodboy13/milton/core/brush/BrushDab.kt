@@ -123,4 +123,32 @@ data class BrushProperties(
             }
         }
     }
+
+    fun loadPreferences(context: android.content.Context) {
+        for (t in BrushType.values()) {
+            savedSizes[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolSize(context, t, savedSizes[t] ?: 35f)
+            savedOpacities[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolOpacity(context, t, savedOpacities[t] ?: 0.75f)
+            savedStabilizers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolStabilizer(context, t, savedStabilizers[t] ?: 0.10f)
+            savedSizeBeziers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolSizeBezier(context, t, savedSizeBeziers[t] ?: PressureCurveDefaults.STANDARD)
+            savedOpacityBeziers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolOpacityBezier(context, t, savedOpacityBeziers[t] ?: PressureCurveDefaults.STANDARD)
+        }
+        val active = app.goodboy13.milton.core.preferences.ToolPreferences.loadActiveBrushType(context)
+        applyPreset(active)
+    }
+
+    fun savePreferences(context: android.content.Context) {
+        savedSizes[brushType] = size
+        savedOpacities[brushType] = opacity
+        savedStabilizers[brushType] = stabilizer
+        savedSizeBeziers[brushType] = sizeBezierConfig
+        savedOpacityBeziers[brushType] = opacityBezierConfig
+        app.goodboy13.milton.core.preferences.ToolPreferences.saveActiveBrushType(context, brushType)
+        for (t in BrushType.values()) {
+            savedSizes[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolSize(context, t, it) }
+            savedOpacities[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolOpacity(context, t, it) }
+            savedStabilizers[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolStabilizer(context, t, it) }
+            savedSizeBeziers[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolSizeBezier(context, t, it) }
+            savedOpacityBeziers[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolOpacityBezier(context, t, it) }
+        }
+    }
 }

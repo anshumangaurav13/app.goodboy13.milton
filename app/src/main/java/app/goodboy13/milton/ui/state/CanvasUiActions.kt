@@ -44,7 +44,8 @@ data class DocumentActions(
     val onExportMilton: () -> Unit = {},
     val onExportPng: () -> Unit = {},
     val onExportJpg: () -> Unit = {},
-    val onImportMilton: () -> Unit = {}
+    val onImportMilton: () -> Unit = {},
+    val onTextInputActiveChanged: (Boolean) -> Unit = {}
 )
 
 /**

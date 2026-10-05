@@ -87,6 +87,15 @@ class CanvasViewModel : ViewModel() {
     private val _pendingLoadProjectTitle = MutableStateFlow<String?>("Project")
     val pendingLoadProjectTitle: StateFlow<String?> = _pendingLoadProjectTitle.asStateFlow()
 
+    private val _isTextInputActive = MutableStateFlow(false)
+    val isTextInputActive: StateFlow<Boolean> = _isTextInputActive.asStateFlow()
+
+    private var appContext: Context? = null
+
+    fun setTextInputActive(active: Boolean) {
+        _isTextInputActive.value = active
+    }
+
     fun markUnsavedChanges() {
         _hasUnsavedChanges.value = true
     }
@@ -103,7 +112,13 @@ class CanvasViewModel : ViewModel() {
     // -------------------------------------------------------------
 
     fun bindCanvasEvents(canvasView: MiltonCanvasView, storageManager: DocumentStorageManager) {
+        appContext = canvasView.context.applicationContext
+        loadToolPreferences(canvasView.context.applicationContext, canvasView)
         initFromCanvasView(canvasView, storageManager)
+
+        canvasView.onBrushSizeChangedInteractively = { newSize ->
+            setBrushSize(newSize, canvasView)
+        }
 
         viewModelScope.launch {
             canvasView.renderer.undoRedoState.collect { state ->
@@ -155,6 +170,27 @@ class CanvasViewModel : ViewModel() {
                 markUnsavedChanges()
                 onStrokeCompleted(strokeColor, storageManager)
             }
+        }
+    }
+
+    fun loadToolPreferences(context: Context, canvasView: MiltonCanvasView) {
+        canvasView.loadToolPreferences(context)
+        val activeType = canvasView.brushType
+        val color = app.goodboy13.milton.core.preferences.ToolPreferences.loadBrushColor(context, canvasView.brushColorRgb)
+        val recents = app.goodboy13.milton.core.preferences.ToolPreferences.loadRecentColors(context)
+        _uiState.update { state ->
+            state.copy(
+                tool = state.tool.copy(
+                    brushType = activeType,
+                    brushSize = canvasView.brushSize,
+                    brushOpacity = canvasView.brushOpacity,
+                    brushStabilizer = canvasView.brushStabilizer,
+                    brushColorRgb = color,
+                    sizeBezierConfig = canvasView.sizeBezierConfig,
+                    opacityBezierConfig = canvasView.opacityBezierConfig,
+                    recentColors = recents
+                )
+            )
         }
     }
 
@@ -221,6 +257,9 @@ class CanvasViewModel : ViewModel() {
 
     fun setBrushType(type: BrushType, canvasView: MiltonCanvasView) {
         canvasView.brushType = type
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveActiveBrushType(ctx, type)
+        }
         _uiState.update {
             it.copy(
                 tool = it.tool.copy(
@@ -237,31 +276,49 @@ class CanvasViewModel : ViewModel() {
 
     fun setBrushSize(size: Float, canvasView: MiltonCanvasView) {
         canvasView.brushSize = size
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveToolSize(ctx, canvasView.brushType, size)
+        }
         _uiState.update { it.copy(tool = it.tool.copy(brushSize = size)) }
     }
 
     fun setBrushOpacity(opacity: Float, canvasView: MiltonCanvasView) {
         canvasView.brushOpacity = opacity
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveToolOpacity(ctx, canvasView.brushType, opacity)
+        }
         _uiState.update { it.copy(tool = it.tool.copy(brushOpacity = opacity)) }
     }
 
     fun setBrushStabilizer(stabilizer: Float, canvasView: MiltonCanvasView) {
         canvasView.brushStabilizer = stabilizer
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveToolStabilizer(ctx, canvasView.brushType, stabilizer)
+        }
         _uiState.update { it.copy(tool = it.tool.copy(brushStabilizer = stabilizer)) }
     }
 
     fun setBrushColor(colorRgb: Int, canvasView: MiltonCanvasView) {
         canvasView.brushColorRgb = colorRgb
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveBrushColor(ctx, colorRgb)
+        }
         _uiState.update { it.copy(tool = it.tool.copy(brushColorRgb = colorRgb)) }
     }
 
     fun setSizeBezierConfig(config: BezierControlPoints, canvasView: MiltonCanvasView) {
         canvasView.sizeBezierConfig = config
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveToolSizeBezier(ctx, canvasView.brushType, config)
+        }
         _uiState.update { it.copy(tool = it.tool.copy(sizeBezierConfig = config)) }
     }
 
     fun setOpacityBezierConfig(config: BezierControlPoints, canvasView: MiltonCanvasView) {
         canvasView.opacityBezierConfig = config
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveToolOpacityBezier(ctx, canvasView.brushType, config)
+        }
         _uiState.update { it.copy(tool = it.tool.copy(opacityBezierConfig = config)) }
     }
 
@@ -274,6 +331,9 @@ class CanvasViewModel : ViewModel() {
     fun onColorPicked(colorRgb: Int, canvasView: MiltonCanvasView) {
         canvasView.brushColorRgb = colorRgb
         canvasView.isEyedropperMode = false
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveBrushColor(ctx, colorRgb)
+        }
         _uiState.update {
             it.copy(tool = it.tool.copy(brushColorRgb = colorRgb, isEyedropperActive = false))
         }
@@ -291,8 +351,77 @@ class CanvasViewModel : ViewModel() {
     fun addRecentColor(colorRgb: Int) {
         _uiState.update { state ->
             val updated = (listOf(colorRgb) + state.tool.recentColors.filter { it != colorRgb }).take(12)
+            appContext?.let { ctx ->
+                app.goodboy13.milton.core.preferences.ToolPreferences.saveRecentColors(ctx, updated)
+            }
             state.copy(tool = state.tool.copy(recentColors = updated))
         }
+    }
+
+    private var previousBrushBeforeEraser: BrushType = BrushType.PENCIL
+
+    fun cyclePenPencil(canvasView: MiltonCanvasView) {
+        val current = _uiState.value.tool.brushType
+        val next = if (current == BrushType.PEN) BrushType.PENCIL else BrushType.PEN
+        setBrushType(next, canvasView)
+    }
+
+    fun cycleEraser(canvasView: MiltonCanvasView) {
+        val current = _uiState.value.tool.brushType
+        if (current == BrushType.ERASER) {
+            setBrushType(previousBrushBeforeEraser, canvasView)
+        } else {
+            previousBrushBeforeEraser = current
+            setBrushType(BrushType.ERASER, canvasView)
+        }
+    }
+
+    fun selectPaintbrush(canvasView: MiltonCanvasView) {
+        setBrushType(BrushType.PAINTBRUSH, canvasView)
+    }
+
+    fun swapRecentColor(canvasView: MiltonCanvasView) {
+        val recents = _uiState.value.tool.recentColors
+        val current = _uiState.value.tool.brushColorRgb
+        val target = recents.firstOrNull { it != current }
+        if (target != null) {
+            setBrushColor(target, canvasView)
+        }
+    }
+
+    fun resetDefaultColor(canvasView: MiltonCanvasView) {
+        setBrushColor(0xFF333333.toInt(), canvasView)
+    }
+
+    fun selectLayerAbove(canvasView: MiltonCanvasView) {
+        val layers = canvasView.layerManager.layers
+        val currentIdx = layers.indexOfFirst { it.id == canvasView.layerManager.activeLayerId }
+        if (currentIdx in 0 until layers.size - 1) {
+            val nextId = layers[currentIdx + 1].id
+            canvasView.layerManager.selectLayer(nextId)
+            updateLayers(layers, nextId)
+        }
+    }
+
+    fun selectLayerBelow(canvasView: MiltonCanvasView) {
+        val layers = canvasView.layerManager.layers
+        val currentIdx = layers.indexOfFirst { it.id == canvasView.layerManager.activeLayerId }
+        if (currentIdx > 0) {
+            val prevId = layers[currentIdx - 1].id
+            canvasView.layerManager.selectLayer(prevId)
+            updateLayers(layers, prevId)
+        }
+    }
+
+    fun clearActiveLayer(canvasView: MiltonCanvasView) {
+        val activeId = canvasView.layerManager.activeLayerId
+        canvasView.clearLayer(activeId)
+        markUnsavedChanges()
+    }
+
+    fun addNewLayer(canvasView: MiltonCanvasView) {
+        canvasView.addLayer()
+        updateLayers(canvasView.layerManager.layers.toList(), canvasView.layerManager.activeLayerId)
     }
 
     // -------------------------------------------------------------

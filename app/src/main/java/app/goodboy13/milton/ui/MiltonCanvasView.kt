@@ -258,10 +258,88 @@ class MiltonCanvasView @JvmOverloads constructor(
         renderer.clearLayer(this, layerId)
     }
 
+    enum class SpringLoadedMode {
+        NONE,
+        PAN,
+        SCRUBBY_ZOOM,
+        ROTATE,
+        BRUSH_RESIZE,
+        EYEDROPPER
+    }
+
+    var isSpaceHeld: Boolean = false
+    var isCtrlHeld: Boolean = false
+    var isAltHeld: Boolean = false
+    var isRHeld: Boolean = false
+    var isShiftHeld: Boolean = false
+
+    fun setModifierState(space: Boolean, ctrl: Boolean, alt: Boolean, r: Boolean, shift: Boolean) {
+        isSpaceHeld = space
+        isCtrlHeld = ctrl
+        isAltHeld = alt
+        isRHeld = r
+        isShiftHeld = shift
+        if (!alt && activeSpringMode == SpringLoadedMode.EYEDROPPER) {
+            onEyedropperReticleChanged?.invoke(EyedropperReticleState(isVisible = false))
+            activeSpringMode = SpringLoadedMode.NONE
+        }
+    }
+
+    var onBrushSizeChangedInteractively: ((Float) -> Unit)? = null
+
+    private var activeSpringMode: SpringLoadedMode = SpringLoadedMode.NONE
+    private var springStartScreenX: Float = 0f
+    private var springStartScreenY: Float = 0f
+    private var springLastScreenX: Float = 0f
+    private var springLastScreenY: Float = 0f
+    private var springStartBrushSize: Float = 35f
+    private var springLastAngle: Float = 0f
+
     fun resetCanvas() {
         renderer.viewport.reset()
         frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
         post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
+    }
+
+    fun resetRotation() {
+        renderer.viewport.rotationDegrees = 0f
+        requestRedraw()
+        post { onViewportChanged?.invoke(renderer.viewport.zoom, 0f) }
+    }
+
+    fun toggleZoom50or100() {
+        val targetZoom = if (kotlin.math.abs(renderer.viewport.zoom - 1.0f) < 0.08f) 0.5f else 1.0f
+        val cx = renderer.viewport.screenWidth * 0.5f
+        val cy = renderer.viewport.screenHeight * 0.5f
+        val factor = targetZoom / renderer.viewport.zoom
+        renderer.viewport.applyGesture(cx, cy, cx, cy, factor, 0f)
+        requestRedraw()
+        post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
+    }
+
+    fun stepBrushSize(increase: Boolean) {
+        val current = brushSize
+        val step = when {
+            current < 10f -> 1f
+            current < 30f -> 2f
+            current < 70f -> 5f
+            current < 150f -> 10f
+            current < 300f -> 25f
+            else -> 50f
+        }
+        val newSize = if (increase) (current + step).coerceAtMost(1000f) else (current - step).coerceAtLeast(1f)
+        brushSize = newSize
+        onBrushSizeChangedInteractively?.invoke(newSize)
+    }
+
+    fun loadToolPreferences(context: Context) {
+        brushEngine.properties.loadPreferences(context)
+        brushColorRgb = app.goodboy13.milton.core.preferences.ToolPreferences.loadBrushColor(context, brushColorRgb)
+    }
+
+    fun saveToolPreferences(context: Context) {
+        brushEngine.properties.savePreferences(context)
+        app.goodboy13.milton.core.preferences.ToolPreferences.saveBrushColor(context, brushColorRgb)
     }
 
     fun requestRedraw() {
@@ -382,12 +460,173 @@ class MiltonCanvasView @JvmOverloads constructor(
             }
         }
 
-        // 2. Pure touch / fingers: Never draw! Route exclusively to gesture detector
+        // 2. Spring-loaded viewport modifiers (Held Key + Drag)
+        if (action == MotionEvent.ACTION_DOWN) {
+            activeSpringMode = when {
+                isCtrlHeld && isAltHeld -> SpringLoadedMode.BRUSH_RESIZE
+                isCtrlHeld && isSpaceHeld -> SpringLoadedMode.SCRUBBY_ZOOM
+                isSpaceHeld -> SpringLoadedMode.PAN
+                isRHeld -> SpringLoadedMode.ROTATE
+                isAltHeld -> SpringLoadedMode.EYEDROPPER
+                else -> SpringLoadedMode.NONE
+            }
+        }
+
+        if (activeSpringMode != SpringLoadedMode.NONE) {
+            parent?.requestDisallowInterceptTouchEvent(true)
+            val px = if (stylusIndex != -1) event.getX(stylusIndex) else event.x
+            val py = if (stylusIndex != -1) event.getY(stylusIndex) else event.y
+
+            when (activeSpringMode) {
+                SpringLoadedMode.PAN -> {
+                    when (action) {
+                        MotionEvent.ACTION_DOWN -> {
+                            springLastScreenX = px
+                            springLastScreenY = py
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            renderer.viewport.applyGesture(springLastScreenX, springLastScreenY, px, py, 1.0f, 0f)
+                            frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+                            val now = android.os.SystemClock.uptimeMillis()
+                            if (now - lastViewportPostTime > 32L) {
+                                lastViewportPostTime = now
+                                post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
+                            }
+                            springLastScreenX = px
+                            springLastScreenY = py
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            renderer.requestTrimBudget()
+                            frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+                            post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
+                            activeSpringMode = SpringLoadedMode.NONE
+                        }
+                    }
+                }
+                SpringLoadedMode.SCRUBBY_ZOOM -> {
+                    when (action) {
+                        MotionEvent.ACTION_DOWN -> {
+                            springStartScreenX = px
+                            springStartScreenY = py
+                            springLastScreenX = px
+                            springLastScreenY = py
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            val dx = px - springLastScreenX
+                            val dy = py - springLastScreenY
+                            val delta = (dx - dy) * 0.008f
+                            val zoomFactor = (1.0f + delta).coerceIn(0.5f, 2.0f)
+                            renderer.viewport.applyGesture(springStartScreenX, springStartScreenY, springStartScreenX, springStartScreenY, zoomFactor, 0f)
+                            frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+                            val now = android.os.SystemClock.uptimeMillis()
+                            if (now - lastViewportPostTime > 32L) {
+                                lastViewportPostTime = now
+                                post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
+                            }
+                            springLastScreenX = px
+                            springLastScreenY = py
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            renderer.requestTrimBudget()
+                            frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+                            post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
+                            activeSpringMode = SpringLoadedMode.NONE
+                        }
+                    }
+                }
+                SpringLoadedMode.ROTATE -> {
+                    val cx = renderer.viewport.screenWidth * 0.5f
+                    val cy = renderer.viewport.screenHeight * 0.5f
+                    when (action) {
+                        MotionEvent.ACTION_DOWN -> {
+                            springLastAngle = Math.toDegrees(kotlin.math.atan2((py - cy).toDouble(), (px - cx).toDouble())).toFloat()
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            val curAngle = Math.toDegrees(kotlin.math.atan2((py - cy).toDouble(), (px - cx).toDouble())).toFloat()
+                            var deltaAngle = curAngle - springLastAngle
+                            while (deltaAngle > 180f) deltaAngle -= 360f
+                            while (deltaAngle < -180f) deltaAngle += 360f
+                            renderer.viewport.applyGesture(cx, cy, cx, cy, 1.0f, deltaAngle)
+                            frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+                            val now = android.os.SystemClock.uptimeMillis()
+                            if (now - lastViewportPostTime > 32L) {
+                                lastViewportPostTime = now
+                                post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
+                            }
+                            springLastAngle = curAngle
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            renderer.requestTrimBudget()
+                            frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+                            post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
+                            activeSpringMode = SpringLoadedMode.NONE
+                        }
+                    }
+                }
+                SpringLoadedMode.BRUSH_RESIZE -> {
+                    when (action) {
+                        MotionEvent.ACTION_DOWN -> {
+                            springStartScreenX = px
+                            springStartBrushSize = brushSize
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            val dx = px - springStartScreenX
+                            val newSize = (springStartBrushSize + dx * 0.6f).coerceIn(1.0f, 1000f)
+                            brushSize = newSize
+                            onBrushSizeChangedInteractively?.invoke(newSize)
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            onBrushSizeChangedInteractively?.invoke(brushSize)
+                            activeSpringMode = SpringLoadedMode.NONE
+                        }
+                    }
+                }
+                SpringLoadedMode.EYEDROPPER -> {
+                    val worldPos = renderer.viewport.screenToWorld(px, py)
+                    lastEyedropperScreenX = px
+                    lastEyedropperScreenY = py
+                    when (action) {
+                        MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                            isEyedropperTouching = true
+                            renderer.requestColorPick(worldPos.x, worldPos.y)
+                            requestRedraw()
+                            onEyedropperReticleChanged?.invoke(
+                                EyedropperReticleState(
+                                    screenX = px,
+                                    screenY = py,
+                                    color = lastSampledColor,
+                                    isVisible = true
+                                )
+                            )
+                        }
+                        MotionEvent.ACTION_UP -> {
+                            isEyedropperTouching = false
+                            onEyedropperReticleChanged?.invoke(
+                                EyedropperReticleState(isVisible = false)
+                            )
+                            onColorPicked?.invoke(lastSampledColor)
+                            activeSpringMode = SpringLoadedMode.NONE
+                        }
+                        MotionEvent.ACTION_CANCEL -> {
+                            isEyedropperTouching = false
+                            onEyedropperReticleChanged?.invoke(
+                                EyedropperReticleState(isVisible = false)
+                            )
+                            activeSpringMode = SpringLoadedMode.NONE
+                        }
+                    }
+                }
+                SpringLoadedMode.NONE -> {}
+            }
+            return true
+        }
+
+        // 3. Pure touch / fingers: Never draw! Route exclusively to gesture detector
         if (stylusIndex == -1) {
             return gestureDetector.onTouchEvent(event)
         }
 
-        // 3. Hardware Stylus: Pure drawing
+        // 4. Hardware Stylus: Pure drawing
         gestureDetector.stopFling()
         parent?.requestDisallowInterceptTouchEvent(true)
 
