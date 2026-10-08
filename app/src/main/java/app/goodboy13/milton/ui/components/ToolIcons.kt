@@ -303,6 +303,59 @@ fun LassoIcon(tint: Color, modifier: Modifier = Modifier) {
 }
 
 /**
+ * Custom vector icon for Liquify Tool:
+ * Features a dynamic swirl / fluid vortex distortion spiral with center warp core.
+ */
+@Composable
+fun LiquifyIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(24.dp)) {
+        val w = size.width
+        val scale = w / 24f
+        val strokeW = 1.75f * scale
+
+        // Fluid swirl vortex spiral
+        val spiralPath = Path().apply {
+            moveTo(12f * scale, 12f * scale)
+            cubicTo(
+                14f * scale, 10f * scale,
+                15f * scale, 7.5f * scale,
+                12f * scale, 5.5f * scale
+            )
+            cubicTo(
+                8f * scale, 3.5f * scale,
+                4.5f * scale, 8f * scale,
+                5.5f * scale, 13f * scale
+            )
+            cubicTo(
+                6.5f * scale, 18.5f * scale,
+                13f * scale, 20.5f * scale,
+                18.5f * scale, 17f * scale
+            )
+            cubicTo(
+                21f * scale, 15f * scale,
+                21.5f * scale, 11f * scale,
+                19f * scale, 8.5f * scale
+            )
+        }
+        drawPath(
+            path = spiralPath,
+            color = tint,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = strokeW,
+                cap = StrokeCap.Round
+            )
+        )
+
+        // Center warp dot
+        drawCircle(
+            color = tint,
+            radius = 1.8f * scale,
+            center = Offset(12f * scale, 12f * scale)
+        )
+    }
+}
+
+/**
  * Custom vector icon for Flip Canvas Horizontally:
  * Shows mirrored geometric triangles reflected across a central vertical symmetry axis.
  */

@@ -208,7 +208,8 @@ class CanvasViewModel : ViewModel() {
                     brushOpacity = canvasView.brushOpacity,
                     brushStabilizer = canvasView.brushStabilizer,
                     sizeBezierConfig = canvasView.sizeBezierConfig,
-                    opacityBezierConfig = canvasView.opacityBezierConfig
+                    opacityBezierConfig = canvasView.opacityBezierConfig,
+                    liquifyMode = canvasView.liquifyMode
                 ),
                 viewport = state.viewport.copy(
                     isCanvasFlipped = canvasView.isCanvasFlipped
@@ -275,7 +276,7 @@ class CanvasViewModel : ViewModel() {
             canvasView.selectionManager.cancelTransform(canvasView)
         }
         canvasView.brushType = type
-        if (type == BrushType.LASSO) {
+        if (type == BrushType.LASSO || type == BrushType.LIQUIFY) {
             val defaultTargets = setOf(_uiState.value.layers.activeLayerId)
             _uiState.update { it.copy(selectedTransformLayerIds = defaultTargets) }
             canvasView.selectedTransformLayerIds = defaultTargets
@@ -291,7 +292,8 @@ class CanvasViewModel : ViewModel() {
                     brushOpacity = canvasView.brushOpacity,
                     brushStabilizer = canvasView.brushStabilizer,
                     sizeBezierConfig = canvasView.sizeBezierConfig,
-                    opacityBezierConfig = canvasView.opacityBezierConfig
+                    opacityBezierConfig = canvasView.opacityBezierConfig,
+                    liquifyMode = canvasView.liquifyMode
                 )
             )
         }
@@ -299,6 +301,17 @@ class CanvasViewModel : ViewModel() {
 
     fun selectLasso(canvasView: MiltonCanvasView) {
         setBrushType(BrushType.LASSO, canvasView)
+    }
+
+    fun selectLiquify(canvasView: MiltonCanvasView) {
+        setBrushType(BrushType.LIQUIFY, canvasView)
+    }
+
+    fun setLiquifyMode(mode: app.goodboy13.milton.core.native.MiltonNative.LiquifyMode, canvasView: MiltonCanvasView) {
+        canvasView.liquifyMode = mode
+        _uiState.update { state ->
+            state.copy(tool = state.tool.copy(liquifyMode = mode))
+        }
     }
 
     fun toggleTransformLayer(layerId: Long, canvasView: MiltonCanvasView) {

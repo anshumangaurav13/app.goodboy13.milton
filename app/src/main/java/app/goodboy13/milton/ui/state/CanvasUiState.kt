@@ -22,7 +22,8 @@ data class ToolUiState(
     val isEraserMode: Boolean = false,
     val isEyedropperActive: Boolean = false,
     val recentColors: List<Int> = QUICK_PALETTE_COLORS,
-    val eyedropperReticleState: EyedropperReticleState = EyedropperReticleState()
+    val eyedropperReticleState: EyedropperReticleState = EyedropperReticleState(),
+    val liquifyMode: app.goodboy13.milton.core.native.MiltonNative.LiquifyMode = app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH
 )
 
 /**

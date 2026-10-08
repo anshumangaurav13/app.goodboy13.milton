@@ -164,4 +164,58 @@ object MiltonNative {
         patchOriginX: Int,
         patchOriginY: Int
     ): Boolean
+
+    // ========================================================================
+    // #5 LIQUIFY TOOL
+    // ========================================================================
+
+    enum class LiquifyMode(val id: Int) {
+        PUSH(0),
+        EXPAND(1),
+        PINCH(2),
+        TWIRL_CW(3),
+        TWIRL_CCW(4),
+        RECONSTRUCT(5)
+    }
+
+    @JvmStatic
+    external fun liquifyPatch(
+        patchRgba: ByteArray,
+        origRgba: ByteArray?,
+        width: Int,
+        height: Int,
+        patchOriginX: Float,
+        patchOriginY: Float,
+        centerX: Float,
+        centerY: Float,
+        radius: Float,
+        strength: Float,
+        mode: Int,
+        dirX: Float,
+        dirY: Float
+    ): Boolean
+
+    @JvmStatic
+    external fun extractTileRegion(
+        tileRgba: ByteArray,
+        tileOriginX: Int,
+        tileOriginY: Int,
+        patchRgba: ByteArray,
+        patchW: Int,
+        patchH: Int,
+        patchOriginX: Int,
+        patchOriginY: Int
+    ): Boolean
+
+    @JvmStatic
+    external fun blitPatchToTileOverwrite(
+        tileRgba: ByteArray,
+        tileOriginX: Int,
+        tileOriginY: Int,
+        patchRgba: ByteArray,
+        patchW: Int,
+        patchH: Int,
+        patchOriginX: Int,
+        patchOriginY: Int
+    ): Boolean
 }

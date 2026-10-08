@@ -266,6 +266,7 @@ class SelectionTransformManager {
         val session = current.session
         canvasView.renderer.runOnGlThread {
             try {
+                val affectedLayers = mutableListOf<Pair<Long, app.goodboy13.milton.core.tile.TileMap>>()
                 for (layerId in session.targetLayerIds) {
                     val layer = canvasView.layerManager.layers.find { it.id == layerId } ?: continue
                     val patch = session.layerPatches[layerId] ?: continue
@@ -329,8 +330,11 @@ class SelectionTransformManager {
                         }
                     }
 
-                    // Finalize undo delta for this layer
-                    canvasView.renderer.undoManager.commitStroke(layerId, layer.tileMap)
+                    affectedLayers.add(layerId to layer.tileMap)
+                }
+
+                if (affectedLayers.isNotEmpty()) {
+                    canvasView.renderer.undoManager.commitMultiLayerStroke(affectedLayers)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error committing transform", e)

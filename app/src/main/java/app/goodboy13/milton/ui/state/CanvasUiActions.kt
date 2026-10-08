@@ -14,7 +14,8 @@ data class ToolActions(
     val onBrushColorChange: (Int) -> Unit = {},
     val onSizeBezierConfigChange: (BezierControlPoints) -> Unit = {},
     val onOpacityBezierConfigChange: (BezierControlPoints) -> Unit = {},
-    val onToggleEyedropper: () -> Unit = {}
+    val onToggleEyedropper: () -> Unit = {},
+    val onLiquifyModeChange: (app.goodboy13.milton.core.native.MiltonNative.LiquifyMode) -> Unit = {}
 )
 
 /**

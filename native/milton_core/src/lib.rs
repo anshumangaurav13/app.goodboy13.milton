@@ -4,6 +4,7 @@ pub mod tile_swap;
 pub mod export;
 pub mod sub_tile;
 pub mod selection;
+pub mod liquify;
 
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JFloatArray, JIntArray, JString};
@@ -538,6 +539,162 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_blitPa
     }
 
     selection::blit_patch_to_tile(
+        &mut tile,
+        tile_origin_x,
+        tile_origin_y,
+        &patch,
+        patch_w as usize,
+        patch_h as usize,
+        patch_origin_x,
+        patch_origin_y,
+    );
+
+    let tile_slice: &[i8] =
+        unsafe { std::slice::from_raw_parts(tile.as_ptr() as *const i8, tile.len()) };
+
+    if env.set_byte_array_region(&tile_rgba, 0, tile_slice).is_err() {
+        return JNI_FALSE;
+    }
+
+    JNI_TRUE
+}
+
+// ============================================================================
+// #5 LIQUIFY TOOL JNI BINDINGS
+// ============================================================================
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifyPatch<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    patch_rgba: JByteArray<'local>,
+    orig_rgba: JByteArray<'local>,
+    width: jint,
+    height: jint,
+    patch_origin_x: jfloat,
+    patch_origin_y: jfloat,
+    center_x: jfloat,
+    center_y: jfloat,
+    radius: jfloat,
+    strength: jfloat,
+    mode: jint,
+    dir_x: jfloat,
+    dir_y: jfloat,
+) -> jboolean {
+    let mut patch = match env.convert_byte_array(&patch_rgba) {
+        Ok(b) => b,
+        Err(_) => return JNI_FALSE,
+    };
+    let orig = if !orig_rgba.is_null() {
+        env.convert_byte_array(&orig_rgba).ok()
+    } else {
+        None
+    };
+
+    if patch.len() < (width as usize) * (height as usize) * 4 {
+        return JNI_FALSE;
+    }
+
+    liquify::liquify_patch(
+        &mut patch,
+        orig.as_deref(),
+        width as usize,
+        height as usize,
+        patch_origin_x as f32,
+        patch_origin_y as f32,
+        center_x as f32,
+        center_y as f32,
+        radius as f32,
+        strength as f32,
+        liquify::LiquifyMode::from_i32(mode),
+        dir_x as f32,
+        dir_y as f32,
+    );
+
+    let patch_slice: &[i8] =
+        unsafe { std::slice::from_raw_parts(patch.as_ptr() as *const i8, patch.len()) };
+
+    if env.set_byte_array_region(&patch_rgba, 0, patch_slice).is_err() {
+        return JNI_FALSE;
+    }
+
+    JNI_TRUE
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_extractTileRegion<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    tile_rgba: JByteArray<'local>,
+    tile_origin_x: jint,
+    tile_origin_y: jint,
+    patch_rgba: JByteArray<'local>,
+    patch_w: jint,
+    patch_h: jint,
+    patch_origin_x: jint,
+    patch_origin_y: jint,
+) -> jboolean {
+    let tile = match env.convert_byte_array(&tile_rgba) {
+        Ok(b) => b,
+        Err(_) => return JNI_FALSE,
+    };
+    let mut patch = match env.convert_byte_array(&patch_rgba) {
+        Ok(b) => b,
+        Err(_) => return JNI_FALSE,
+    };
+
+    if tile.len() < 512 * 512 * 4 || patch.len() < (patch_w as usize) * (patch_h as usize) * 4 {
+        return JNI_FALSE;
+    }
+
+    liquify::extract_tile_region(
+        &tile,
+        tile_origin_x,
+        tile_origin_y,
+        &mut patch,
+        patch_w as usize,
+        patch_h as usize,
+        patch_origin_x,
+        patch_origin_y,
+    );
+
+    let patch_slice: &[i8] =
+        unsafe { std::slice::from_raw_parts(patch.as_ptr() as *const i8, patch.len()) };
+
+    if env.set_byte_array_region(&patch_rgba, 0, patch_slice).is_err() {
+        return JNI_FALSE;
+    }
+
+    JNI_TRUE
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_blitPatchToTileOverwrite<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    tile_rgba: JByteArray<'local>,
+    tile_origin_x: jint,
+    tile_origin_y: jint,
+    patch_rgba: JByteArray<'local>,
+    patch_w: jint,
+    patch_h: jint,
+    patch_origin_x: jint,
+    patch_origin_y: jint,
+) -> jboolean {
+    let mut tile = match env.convert_byte_array(&tile_rgba) {
+        Ok(b) => b,
+        Err(_) => return JNI_FALSE,
+    };
+    let patch = match env.convert_byte_array(&patch_rgba) {
+        Ok(b) => b,
+        Err(_) => return JNI_FALSE,
+    };
+
+    if tile.len() < 512 * 512 * 4 || patch.len() < (patch_w as usize) * (patch_h as usize) * 4 {
+        return JNI_FALSE;
+    }
+
+    liquify::blit_patch_to_tile_overwrite(
         &mut tile,
         tile_origin_x,
         tile_origin_y,

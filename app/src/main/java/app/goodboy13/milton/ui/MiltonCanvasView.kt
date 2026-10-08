@@ -50,6 +50,7 @@ class MiltonCanvasView @JvmOverloads constructor(
     val layerManager: app.goodboy13.milton.core.layer.LayerManager get() = renderer.layerManager
     val brushEngine = BrushEngine()
     val selectionManager = SelectionTransformManager()
+    val liquifyManager = app.goodboy13.milton.core.liquify.LiquifyManager()
     var selectedTransformLayerIds: Set<Long> = emptySet()
 
     private var frontBufferedRenderer: GLFrontBufferedRenderer<DabPacket>? = null
@@ -151,6 +152,13 @@ class MiltonCanvasView @JvmOverloads constructor(
         set(value) {
             brushEngine.properties.applyPreset(value)
             isEraserMode = (value == app.goodboy13.milton.core.brush.BrushType.ERASER)
+        }
+
+    var liquifyMode: app.goodboy13.milton.core.native.MiltonNative.LiquifyMode
+        get() = liquifyManager.mode
+        set(value) {
+            liquifyManager.mode = value
+            brushEngine.properties.liquifyMode = value
         }
 
     var isEraserMode: Boolean = false
@@ -534,44 +542,6 @@ class MiltonCanvasView @JvmOverloads constructor(
             return true
         }
 
-        // 0b. Lasso Selection Mode
-        if (brushType == app.goodboy13.milton.core.brush.BrushType.LASSO) {
-            if (selectionManager.state.value is SelectionState.ActiveTransform) {
-                if (event.pointerCount >= 2) {
-                    return gestureDetector.onTouchEvent(event)
-                }
-                return false
-            }
-
-            if (event.pointerCount >= 2) {
-                return gestureDetector.onTouchEvent(event)
-            }
-
-            parent?.requestDisallowInterceptTouchEvent(true)
-            val worldPos = renderer.viewport.screenToWorld(event.x, event.y)
-
-            when (action) {
-                MotionEvent.ACTION_DOWN -> {
-                    selectionManager.startLasso(worldPos)
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    selectionManager.addLassoPoint(worldPos)
-                }
-                MotionEvent.ACTION_UP -> {
-                    val targets = if (selectedTransformLayerIds.isNotEmpty()) {
-                        selectedTransformLayerIds
-                    } else {
-                        setOf(layerManager.activeLayerId)
-                    }
-                    selectionManager.finishLasso(this, targets)
-                }
-                MotionEvent.ACTION_CANCEL -> {
-                    selectionManager.cancelLasso()
-                }
-            }
-            return true
-        }
-
         val pointerCount = event.pointerCount
 
         // 1. Identify if any pointer is a hardware stylus
@@ -759,6 +729,75 @@ class MiltonCanvasView @JvmOverloads constructor(
         val rawPressure = event.getPressure(stylusIndex)
         val pressure = if (rawPressure <= 0.001f) 0.05f else rawPressure.coerceIn(0.01f, 1.0f)
         val worldPos = renderer.viewport.screenToWorld(sx, sy)
+
+        // 4a. Lasso Selection Mode (Stylus only!)
+        if (brushType == app.goodboy13.milton.core.brush.BrushType.LASSO) {
+            if (selectionManager.state.value is SelectionState.ActiveTransform) {
+                return false
+            }
+
+            when (action) {
+                MotionEvent.ACTION_DOWN -> {
+                    selectionManager.startLasso(worldPos)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    selectionManager.addLassoPoint(worldPos)
+                }
+                MotionEvent.ACTION_UP -> {
+                    val targets = if (selectedTransformLayerIds.isNotEmpty()) {
+                        selectedTransformLayerIds
+                    } else {
+                        setOf(layerManager.activeLayerId)
+                    }
+                    selectionManager.finishLasso(this, targets)
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    selectionManager.cancelLasso()
+                }
+            }
+            return true
+        }
+
+        // 4b. Liquify Mode (Stylus only!)
+        if (brushType == app.goodboy13.milton.core.brush.BrushType.LIQUIFY) {
+            when (action) {
+                MotionEvent.ACTION_DOWN -> {
+                    val targets = if (selectedTransformLayerIds.isNotEmpty()) {
+                        selectedTransformLayerIds
+                    } else {
+                        setOf(layerManager.activeLayerId)
+                    }
+                    liquifyManager.startStroke(worldPos.x, worldPos.y, targets)
+                    if (liquifyManager.mode != app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH) {
+                        liquifyManager.applyDab(
+                            this,
+                            worldPos.x,
+                            worldPos.y,
+                            brushSize,
+                            brushOpacity,
+                            pressure
+                        )
+                    }
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    liquifyManager.applyDab(
+                        this,
+                        worldPos.x,
+                        worldPos.y,
+                        brushSize,
+                        brushOpacity,
+                        pressure
+                    )
+                }
+                MotionEvent.ACTION_UP -> {
+                    liquifyManager.finishStroke(this)
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    liquifyManager.cancelStroke(this)
+                }
+            }
+            return true
+        }
 
         val stylusTool = event.getToolType(stylusIndex)
         val buttonState = event.buttonState

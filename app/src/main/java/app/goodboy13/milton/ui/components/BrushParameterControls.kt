@@ -275,6 +275,8 @@ fun ToolParametersFloatingWindow(
     onSizeBezierConfigChange: (BezierControlPoints) -> Unit,
     opacityBezierConfig: BezierControlPoints,
     onOpacityBezierConfigChange: (BezierControlPoints) -> Unit,
+    liquifyMode: app.goodboy13.milton.core.native.MiltonNative.LiquifyMode = app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH,
+    onLiquifyModeChange: (app.goodboy13.milton.core.native.MiltonNative.LiquifyMode) -> Unit = {},
     onClose: () -> Unit,
     containerWidth: Int,
     containerHeight: Int,
@@ -298,6 +300,7 @@ fun ToolParametersFloatingWindow(
                 BrushType.PAINTBRUSH -> PaintbrushIcon(tint = Color(0xFFA5D6A7), modifier = Modifier.size(16.dp))
                 BrushType.ERASER -> EraserIcon(tint = Color(0xFFEF9A9A), modifier = Modifier.size(16.dp))
                 BrushType.LASSO -> LassoIcon(tint = Color(0xFFCE93D8), modifier = Modifier.size(16.dp))
+                BrushType.LIQUIFY -> LiquifyIcon(tint = Color(0xFF4DD0E1), modifier = Modifier.size(16.dp))
             }
         }
     ) {
@@ -305,110 +308,200 @@ fun ToolParametersFloatingWindow(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            // Live S-curve stroke preview
-            StrokePreviewBox(
-                brushType = brushType,
-                brushSize = brushSize,
-                brushOpacity = brushOpacity,
-                brushColorRgb = brushColorRgb,
-                sizeBezierConfig = sizeBezierConfig,
-                opacityBezierConfig = opacityBezierConfig
-            )
+            if (brushType == BrushType.LASSO) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF22262E))
+                        .border(1.dp, Color(0x30FFFFFF), RoundedCornerShape(8.dp))
+                        .padding(10.dp)
+                ) {
+                    Text(
+                        text = "Draw around elements with stylus to select & transform.\n\nOpen Layers menu to select multiple layers.",
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                        color = Color.White.copy(alpha = 0.8f)
+                    )
+                }
+            } else if (brushType == BrushType.LIQUIFY) {
+                // Size Scrubber (10px .. 500px)
+                ValueDragControl(
+                    label = "Size",
+                    value = brushSize,
+                    onValueChange = onBrushSizeChange,
+                    valueRange = 10f..500f,
+                    unit = "px",
+                    displayDecimals = 1,
+                    fillColor = Color(0xFF4DD0E1)
+                )
 
-            // Size Scrubber (1px .. 500px)
-            ValueDragControl(
-                label = "Size",
-                value = brushSize,
-                onValueChange = onBrushSizeChange,
-                valueRange = 1f..500f,
-                unit = "px",
-                displayDecimals = 1,
-                fillColor = Color(0xFF64B5F6)
-            )
+                // Strength Scrubber (stored in opacity)
+                ValueDragControl(
+                    label = "Strength",
+                    value = brushOpacity * 100f,
+                    onValueChange = { onBrushOpacityChange(it / 100f) },
+                    valueRange = 5f..100f,
+                    unit = "%",
+                    displayDecimals = 0,
+                    fillColor = Color(0xFFFFB74D)
+                )
 
-            // Collapsible Size Dynamics Accordion
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(6.dp))
-                    .clickable { showSizeDynamics = !showSizeDynamics }
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
                 Text(
-                    text = "Size Pressure Curve",
+                    text = "Mode",
                     fontSize = 11.sp,
-                    color = if (showSizeDynamics) Color(0xFF64B5F6) else Color.White.copy(alpha = 0.65f),
-                    fontWeight = FontWeight.Medium
+                    color = Color.White.copy(alpha = 0.65f),
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(top = 2.dp)
                 )
-                Icon(
-                    imageVector = if (showSizeDynamics) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = null,
-                    tint = if (showSizeDynamics) Color(0xFF64B5F6) else Color.White.copy(alpha = 0.5f),
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-            AnimatedVisibility(visible = showSizeDynamics) {
-                BezierCurveGraph(
-                    config = sizeBezierConfig,
-                    onConfigChange = onSizeBezierConfigChange,
-                    curveColor = Color(0xFF64B5F6)
-                )
-            }
 
-            // Opacity Scrubber (1% .. 100%)
-            ValueDragControl(
-                label = "Opacity",
-                value = brushOpacity * 100f,
-                onValueChange = { onBrushOpacityChange(it / 100f) },
-                valueRange = 1f..100f,
-                unit = "%",
-                displayDecimals = 0,
-                fillColor = Color(0xFFFFB74D)
-            )
-
-            // Collapsible Opacity Dynamics Accordion
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(6.dp))
-                    .clickable { showOpacityDynamics = !showOpacityDynamics }
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Opacity Pressure Curve",
-                    fontSize = 11.sp,
-                    color = if (showOpacityDynamics) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.65f),
-                    fontWeight = FontWeight.Medium
+                val modes = listOf(
+                    "Push" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH,
+                    "Expand" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.EXPAND,
+                    "Pinch" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PINCH,
+                    "Twirl CW" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.TWIRL_CW,
+                    "Twirl CCW" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.TWIRL_CCW,
+                    "Reconstruct" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.RECONSTRUCT
                 )
-                Icon(
-                    imageVector = if (showOpacityDynamics) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = null,
-                    tint = if (showOpacityDynamics) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.5f),
-                    modifier = Modifier.size(16.dp)
+
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    for (pair in modes.chunked(2)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            for ((label, m) in pair) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(28.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (liquifyMode == m) Color(0xFF3949AB) else Color(0xFF22262E))
+                                        .border(
+                                            width = 1.dp,
+                                            color = if (liquifyMode == m) Color(0xFF90CAF9) else Color(0x30FFFFFF),
+                                            shape = RoundedCornerShape(6.dp)
+                                        )
+                                        .clickable { onLiquifyModeChange(m) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        fontSize = 10.5.sp,
+                                        fontWeight = if (liquifyMode == m) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (liquifyMode == m) Color.White else Color.White.copy(alpha = 0.75f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Live S-curve stroke preview
+                StrokePreviewBox(
+                    brushType = brushType,
+                    brushSize = brushSize,
+                    brushOpacity = brushOpacity,
+                    brushColorRgb = brushColorRgb,
+                    sizeBezierConfig = sizeBezierConfig,
+                    opacityBezierConfig = opacityBezierConfig
+                )
+
+                // Size Scrubber (1px .. 500px)
+                ValueDragControl(
+                    label = "Size",
+                    value = brushSize,
+                    onValueChange = onBrushSizeChange,
+                    valueRange = 1f..500f,
+                    unit = "px",
+                    displayDecimals = 1,
+                    fillColor = Color(0xFF64B5F6)
+                )
+
+                // Collapsible Size Dynamics Accordion
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { showSizeDynamics = !showSizeDynamics }
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Size Pressure Curve",
+                        fontSize = 11.sp,
+                        color = if (showSizeDynamics) Color(0xFF64B5F6) else Color.White.copy(alpha = 0.65f),
+                        fontWeight = FontWeight.Medium
+                    )
+                    Icon(
+                        imageVector = if (showSizeDynamics) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = if (showSizeDynamics) Color(0xFF64B5F6) else Color.White.copy(alpha = 0.5f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                AnimatedVisibility(visible = showSizeDynamics) {
+                    BezierCurveGraph(
+                        config = sizeBezierConfig,
+                        onConfigChange = onSizeBezierConfigChange,
+                        curveColor = Color(0xFF64B5F6)
+                    )
+                }
+
+                // Opacity Scrubber (1% .. 100%)
+                ValueDragControl(
+                    label = "Opacity",
+                    value = brushOpacity * 100f,
+                    onValueChange = { onBrushOpacityChange(it / 100f) },
+                    valueRange = 1f..100f,
+                    unit = "%",
+                    displayDecimals = 0,
+                    fillColor = Color(0xFFFFB74D)
+                )
+
+                // Collapsible Opacity Dynamics Accordion
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { showOpacityDynamics = !showOpacityDynamics }
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Opacity Pressure Curve",
+                        fontSize = 11.sp,
+                        color = if (showOpacityDynamics) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.65f),
+                        fontWeight = FontWeight.Medium
+                    )
+                    Icon(
+                        imageVector = if (showOpacityDynamics) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = if (showOpacityDynamics) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.5f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                AnimatedVisibility(visible = showOpacityDynamics) {
+                    BezierCurveGraph(
+                        config = opacityBezierConfig,
+                        onConfigChange = onOpacityBezierConfigChange,
+                        curveColor = Color(0xFFFFB74D)
+                    )
+                }
+
+                // Stabilizer Scrubber (0% .. 100%)
+                ValueDragControl(
+                    label = "Stabilizer",
+                    value = brushStabilizer * 100f,
+                    onValueChange = { onBrushStabilizerChange(it / 100f) },
+                    valueRange = 0f..100f,
+                    unit = "%",
+                    displayDecimals = 0,
+                    fillColor = Color(0xFF81C784)
                 )
             }
-            AnimatedVisibility(visible = showOpacityDynamics) {
-                BezierCurveGraph(
-                    config = opacityBezierConfig,
-                    onConfigChange = onOpacityBezierConfigChange,
-                    curveColor = Color(0xFFFFB74D)
-                )
-            }
-
-            // Stabilizer Scrubber (0% .. 100%)
-            ValueDragControl(
-                label = "Stabilizer",
-                value = brushStabilizer * 100f,
-                onValueChange = { onBrushStabilizerChange(it / 100f) },
-                valueRange = 0f..100f,
-                unit = "%",
-                displayDecimals = 0,
-                fillColor = Color(0xFF81C784)
-            )
         }
     }
 }

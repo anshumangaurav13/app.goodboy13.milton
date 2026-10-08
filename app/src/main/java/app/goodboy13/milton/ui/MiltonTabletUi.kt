@@ -229,6 +229,8 @@ fun MiltonTabletUi(
                 onSizeBezierConfigChange = actions.tool.onSizeBezierConfigChange,
                 opacityBezierConfig = state.tool.opacityBezierConfig,
                 onOpacityBezierConfigChange = actions.tool.onOpacityBezierConfigChange,
+                liquifyMode = state.tool.liquifyMode,
+                onLiquifyModeChange = actions.tool.onLiquifyModeChange,
                 onClose = { showToolParametersWindow = false },
                 containerWidth = containerW,
                 containerHeight = containerH,
@@ -331,7 +333,7 @@ fun MiltonTabletUi(
             LayersFloatingWindow(
                 layers = state.layers.layers,
                 activeLayerId = state.layers.activeLayerId,
-                isTransformMode = (state.tool.brushType == BrushType.LASSO),
+                isTransformMode = (state.tool.brushType == BrushType.LASSO || state.tool.brushType == BrushType.LIQUIFY),
                 selectedTransformLayerIds = state.selectedTransformLayerIds,
                 onToggleTransformLayer = actions.layers.onToggleTransformLayer,
                 onSelectLayer = actions.layers.onSelectLayer,

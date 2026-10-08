@@ -119,96 +119,97 @@ class UndoManager(val maxHistorySize: Int = 30) {
     }
 
     /**
-     * Call after stamping stroke dabs to finalize the stroke command into the undo stack.
+     * Call after stamping stroke dabs or committing a multi-layer action to finalize the stroke command into the undo stack.
      */
-    fun commitStroke(layerId: Long, tileMap: TileMap) {
+    fun commitMultiLayerStroke(layers: Collection<Pair<Long, TileMap>>) {
         if (pendingPreStrokeRaw.isEmpty()) return
 
+        val layerMap = layers.associate { it.first to it.second }
         val deltas = mutableListOf<TileDelta>()
         val iter = pendingPreStrokeRaw.iterator()
         while (iter.hasNext()) {
             val entry = iter.next()
             val (entryLayerId, coord) = entry.key
-            if (entryLayerId == layerId) {
-                val beforeRaw = entry.value
-                val tile = tileMap.getExistingTile(coord.tx, coord.ty)
-                val afterRaw = if (tile != null && tile.isInitialized && tile.hasContent) {
-                    tile.readPixels()
-                } else {
-                    null
-                }
+            val tileMap = layerMap[entryLayerId] ?: continue
 
-                if (beforeRaw != null && afterRaw != null) {
-                    val dirtyRect = if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
-                        app.goodboy13.milton.core.native.MiltonNative.computeDirtyRect(beforeRaw, afterRaw)
-                    } else null
+            val beforeRaw = entry.value
+            val tile = tileMap.getExistingTile(coord.tx, coord.ty)
+            val afterRaw = if (tile != null && tile.isInitialized && tile.hasContent) {
+                tile.readPixels()
+            } else {
+                null
+            }
 
-                    if (dirtyRect != null && dirtyRect.size == 4) {
-                        val minX = dirtyRect[0]
-                        val minY = dirtyRect[1]
-                        val width = dirtyRect[2]
-                        val height = dirtyRect[3]
+            if (beforeRaw != null && afterRaw != null) {
+                val dirtyRect = if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
+                    app.goodboy13.milton.core.native.MiltonNative.computeDirtyRect(beforeRaw, afterRaw)
+                } else null
 
-                        if (width > 0 && height > 0) {
-                            val beforePatch = app.goodboy13.milton.core.native.MiltonNative.createSubTilePatch(
-                                beforeRaw, minX, minY, width, height
-                            )
-                            val afterPatch = app.goodboy13.milton.core.native.MiltonNative.createSubTilePatch(
-                                afterRaw, minX, minY, width, height
-                            )
-                            val fullAfter = compress(afterRaw)
-                            deltas.add(
-                                TileDelta(
-                                    layerId = layerId,
-                                    coord = coord,
-                                    beforeCompressed = beforePatch,
-                                    afterCompressed = afterPatch,
-                                    minX = minX,
-                                    minY = minY,
-                                    patchWidth = width,
-                                    patchHeight = height,
-                                    fullAfterForAutosave = fullAfter
-                                )
-                            )
-                        }
-                    } else {
-                        val beforeFull = compress(beforeRaw)
-                        val afterFull = compress(afterRaw)
+                if (dirtyRect != null && dirtyRect.size == 4) {
+                    val minX = dirtyRect[0]
+                    val minY = dirtyRect[1]
+                    val width = dirtyRect[2]
+                    val height = dirtyRect[3]
+
+                    if (width > 0 && height > 0) {
+                        val beforePatch = app.goodboy13.milton.core.native.MiltonNative.createSubTilePatch(
+                            beforeRaw, minX, minY, width, height
+                        )
+                        val afterPatch = app.goodboy13.milton.core.native.MiltonNative.createSubTilePatch(
+                            afterRaw, minX, minY, width, height
+                        )
+                        val fullAfter = compress(afterRaw)
                         deltas.add(
                             TileDelta(
-                                layerId = layerId,
+                                layerId = entryLayerId,
                                 coord = coord,
-                                beforeCompressed = beforeFull,
-                                afterCompressed = afterFull,
-                                fullAfterForAutosave = afterFull
+                                beforeCompressed = beforePatch,
+                                afterCompressed = afterPatch,
+                                minX = minX,
+                                minY = minY,
+                                patchWidth = width,
+                                patchHeight = height,
+                                fullAfterForAutosave = fullAfter
                             )
                         )
                     }
-                } else if (beforeRaw == null && afterRaw != null) {
-                    val fullAfter = compress(afterRaw)
+                } else {
+                    val beforeFull = compress(beforeRaw)
+                    val afterFull = compress(afterRaw)
                     deltas.add(
                         TileDelta(
-                            layerId = layerId,
+                            layerId = entryLayerId,
                             coord = coord,
-                            beforeCompressed = null,
-                            afterCompressed = fullAfter,
-                            fullAfterForAutosave = fullAfter
-                        )
-                    )
-                } else if (beforeRaw != null && afterRaw == null) {
-                    val fullBefore = compress(beforeRaw)
-                    deltas.add(
-                        TileDelta(
-                            layerId = layerId,
-                            coord = coord,
-                            beforeCompressed = fullBefore,
-                            afterCompressed = null,
-                            fullAfterForAutosave = null
+                            beforeCompressed = beforeFull,
+                            afterCompressed = afterFull,
+                            fullAfterForAutosave = afterFull
                         )
                     )
                 }
-                iter.remove()
+            } else if (beforeRaw == null && afterRaw != null) {
+                val fullAfter = compress(afterRaw)
+                deltas.add(
+                    TileDelta(
+                        layerId = entryLayerId,
+                        coord = coord,
+                        beforeCompressed = null,
+                        afterCompressed = fullAfter,
+                        fullAfterForAutosave = fullAfter
+                    )
+                )
+            } else if (beforeRaw != null && afterRaw == null) {
+                val fullBefore = compress(beforeRaw)
+                deltas.add(
+                    TileDelta(
+                        layerId = entryLayerId,
+                        coord = coord,
+                        beforeCompressed = fullBefore,
+                        afterCompressed = null,
+                        fullAfterForAutosave = null
+                    )
+                )
             }
+            iter.remove()
         }
 
         if (deltas.isEmpty()) return
@@ -228,6 +229,13 @@ class UndoManager(val maxHistorySize: Int = 30) {
         for (delta in deltas) {
             delta.fullAfterForAutosave = null
         }
+    }
+
+    /**
+     * Call after stamping stroke dabs to finalize the stroke command into the undo stack.
+     */
+    fun commitStroke(layerId: Long, tileMap: TileMap) {
+        commitMultiLayerStroke(listOf(layerId to tileMap))
     }
 
     fun commitStroke(tileMap: TileMap) {
