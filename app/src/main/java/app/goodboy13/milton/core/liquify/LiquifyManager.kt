@@ -28,6 +28,12 @@ class LiquifyManager {
     // Key: (layerId to TileCoord) -> Original tile raw bytes before this continuous stroke started
     private val strokeOriginalTiles = mutableMapOf<Pair<Long, TileCoord>, ByteArray>()
 
+    // Key: (layerId to TileCoord) -> Working CPU tile raw bytes during this continuous stroke
+    private val strokeWorkingTiles = mutableMapOf<Pair<Long, TileCoord>, ByteArray>()
+
+    val isStrokeInProgress: Boolean
+        get() = isStrokeActive
+
     fun startStroke(
         worldX: Float,
         worldY: Float,
@@ -38,6 +44,7 @@ class LiquifyManager {
         lastWorldY = worldY
         targetLayerIds = targets
         strokeOriginalTiles.clear()
+        strokeWorkingTiles.clear()
     }
 
     fun applyDab(
@@ -96,24 +103,27 @@ class LiquifyManager {
                 for (layerId in targets) {
                     val layer = canvasView.layerManager.layers.find { it.id == layerId } ?: continue
 
-                    // 1. Ensure tiles exist and record pre-stroke snapshot for UndoManager and Reconstruct mode
+                    // 1. Ensure tiles exist and cache CPU buffer ONCE per tile on first touch in this stroke
                     for (ty in minTy..maxTy) {
                         for (tx in minTx..maxTx) {
-                            val tile = layer.tileMap.getOrCreateTile(tx, ty)
-                            val key = layerId to tile.coord
-                            if (!strokeOriginalTiles.containsKey(key)) {
+                            val coord = TileCoord(tx, ty)
+                            val key = layerId to coord
+                            if (!strokeWorkingTiles.containsKey(key)) {
+                                val tile = layer.tileMap.getOrCreateTile(tx, ty)
+                                tile.ensureResident(layer.tileMap.cacheDir)
                                 val originalBytes = tile.readPixels()
                                 strokeOriginalTiles[key] = originalBytes.clone()
+                                strokeWorkingTiles[key] = originalBytes.clone()
                                 canvasView.renderer.undoManager.registerPreModifiedTile(
                                     layerId,
-                                    tile.coord,
+                                    coord,
                                     originalBytes.clone()
                                 )
                             }
                         }
                     }
 
-                    // 2. Extract dab region into contiguous RGBA buffer
+                    // 2. Extract dab region into contiguous RGBA buffer directly from CPU working buffers (ZERO glReadPixels!)
                     val patchRgba = ByteArray(pW * pH * 4)
                     val origRgba = if (mode == MiltonNative.LiquifyMode.RECONSTRUCT) {
                         ByteArray(pW * pH * 4)
@@ -121,8 +131,9 @@ class LiquifyManager {
 
                     for (ty in minTy..maxTy) {
                         for (tx in minTx..maxTx) {
-                            val tile = layer.tileMap.getExistingTile(tx, ty) ?: continue
-                            val tileBytes = tile.readPixels()
+                            val coord = TileCoord(tx, ty)
+                            val key = layerId to coord
+                            val tileBytes = strokeWorkingTiles[key] ?: continue
                             MiltonNative.extractTileRegion(
                                 tileBytes,
                                 tx * TileCoord.TILE_SIZE,
@@ -132,7 +143,7 @@ class LiquifyManager {
                                 pLeft, pTop
                             )
                             if (origRgba != null) {
-                                val origTileBytes = strokeOriginalTiles[layerId to tile.coord] ?: tileBytes
+                                val origTileBytes = strokeOriginalTiles[key] ?: tileBytes
                                 MiltonNative.extractTileRegion(
                                     origTileBytes,
                                     tx * TileCoord.TILE_SIZE,
@@ -159,11 +170,12 @@ class LiquifyManager {
                         effDirX, effDirY
                     )
 
-                    // 4. Blit warped region back into intersecting tiles
+                    // 4. Blit warped region back into intersecting tiles in CPU buffer and upload to GL texture
                     for (ty in minTy..maxTy) {
                         for (tx in minTx..maxTx) {
-                            val tile = layer.tileMap.getExistingTile(tx, ty) ?: continue
-                            val tileBytes = tile.readPixels()
+                            val coord = TileCoord(tx, ty)
+                            val key = layerId to coord
+                            val tileBytes = strokeWorkingTiles[key] ?: continue
                             MiltonNative.blitPatchToTileOverwrite(
                                 tileBytes,
                                 tx * TileCoord.TILE_SIZE,
@@ -172,6 +184,7 @@ class LiquifyManager {
                                 pW, pH,
                                 pLeft, pTop
                             )
+                            val tile = layer.tileMap.getExistingTile(tx, ty) ?: continue
                             tile.writePixels(tileBytes)
                         }
                     }
@@ -182,6 +195,8 @@ class LiquifyManager {
                 canvasView.post { canvasView.requestRedraw() }
             }
         }
+        // Immediately request redraw on the front-buffered renderer so the GL frame scheduler triggers!
+        canvasView.requestRedraw()
     }
 
     fun finishStroke(canvasView: MiltonCanvasView) {
@@ -208,12 +223,14 @@ class LiquifyManager {
                 Log.e(TAG, "Error finalizing liquify stroke", e)
             } finally {
                 strokeOriginalTiles.clear()
+                strokeWorkingTiles.clear()
                 canvasView.post {
                     canvasView.requestRedraw()
                     canvasView.onStrokeCompleted?.invoke(0)
                 }
             }
         }
+        canvasView.requestRedraw()
     }
 
     fun cancelStroke(canvasView: MiltonCanvasView) {
@@ -233,8 +250,10 @@ class LiquifyManager {
                 Log.e(TAG, "Error canceling liquify stroke", e)
             } finally {
                 strokeOriginalTiles.clear()
+                strokeWorkingTiles.clear()
                 canvasView.post { canvasView.requestRedraw() }
             }
         }
+        canvasView.requestRedraw()
     }
 }

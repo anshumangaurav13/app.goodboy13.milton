@@ -25,6 +25,13 @@ data class EyedropperReticleState(
     val isVisible: Boolean = false
 )
 
+data class LiquifyReticleState(
+    val screenX: Float = 0f,
+    val screenY: Float = 0f,
+    val radiusScreen: Float = 0f,
+    val isVisible: Boolean = false
+)
+
 /**
  * Pure Infinite Canvas View:
  * - Stylus-only drawing (rejects fingers/palm for drawing).
@@ -237,6 +244,7 @@ class MiltonCanvasView @JvmOverloads constructor(
 
     var onColorPicked: ((Int) -> Unit)? = null
     var onEyedropperReticleChanged: ((EyedropperReticleState) -> Unit)? = null
+    var onLiquifyReticleChanged: ((LiquifyReticleState) -> Unit)? = null
     var onStrokeCompleted: ((Int) -> Unit)? = null
 
     private var lastSampledColor: Int = 0xFF000000.toInt()
@@ -244,6 +252,7 @@ class MiltonCanvasView @JvmOverloads constructor(
     private var lastEyedropperScreenY: Float = 0f
     private var isEyedropperTouching: Boolean = false
     private var isEyedropperHovering: Boolean = false
+    private var isLiquifyHovering: Boolean = false
 
     fun undo() {
         renderer.requestUndo()
@@ -302,6 +311,32 @@ class MiltonCanvasView @JvmOverloads constructor(
         isAltHeld = alt
         isRHeld = r
         isShiftHeld = shift
+
+        // If any modifier is pressed, cancel any in-progress lasso or liquify stroke immediately
+        if (space || ctrl || alt || r) {
+            if (selectionManager.state.value is SelectionState.DrawingLasso) {
+                selectionManager.cancelLasso()
+            }
+            if (liquifyManager.isStrokeInProgress) {
+                liquifyManager.cancelStroke(this)
+            }
+        }
+
+        // If all modifiers are released, finalize any active spring-loaded interaction
+        if (!space && !ctrl && !alt && !r && activeSpringMode != SpringLoadedMode.NONE) {
+            if (activeSpringMode == SpringLoadedMode.PAN || activeSpringMode == SpringLoadedMode.SCRUBBY_ZOOM || activeSpringMode == SpringLoadedMode.ROTATE) {
+                renderer.requestTrimBudget()
+                frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+                post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
+            } else if (activeSpringMode == SpringLoadedMode.EYEDROPPER) {
+                isEyedropperTouching = false
+                isEyedropperHovering = false
+                onEyedropperReticleChanged?.invoke(EyedropperReticleState(isVisible = false))
+                onColorPicked?.invoke(lastSampledColor)
+            }
+            activeSpringMode = SpringLoadedMode.NONE
+        }
+
         if (!alt && altWasHeld) {
             isEyedropperHovering = false
             if (activeSpringMode == SpringLoadedMode.EYEDROPPER) {
@@ -416,9 +451,8 @@ class MiltonCanvasView @JvmOverloads constructor(
     }
 
     override fun onHoverEvent(event: MotionEvent): Boolean {
-        if (handleEyedropperHover(event)) {
-            return true
-        }
+        if (handleEyedropperHover(event)) return true
+        if (handleLiquifyHover(event)) return true
         return super.onHoverEvent(event)
     }
 
@@ -426,9 +460,8 @@ class MiltonCanvasView @JvmOverloads constructor(
         if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE ||
             event.actionMasked == MotionEvent.ACTION_HOVER_ENTER ||
             event.actionMasked == MotionEvent.ACTION_HOVER_EXIT) {
-            if (handleEyedropperHover(event)) {
-                return true
-            }
+            if (handleEyedropperHover(event)) return true
+            if (handleLiquifyHover(event)) return true
         }
         return super.onGenericMotionEvent(event)
     }
@@ -470,6 +503,39 @@ class MiltonCanvasView @JvmOverloads constructor(
                         EyedropperReticleState(isVisible = false)
                     )
                 }
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun handleLiquifyHover(event: MotionEvent): Boolean {
+        if (brushType != app.goodboy13.milton.core.brush.BrushType.LIQUIFY) {
+            if (isLiquifyHovering) {
+                isLiquifyHovering = false
+                onLiquifyReticleChanged?.invoke(LiquifyReticleState(isVisible = false))
+            }
+            return false
+        }
+
+        val radius = (brushSize * 0.5f).coerceAtLeast(4f)
+        val radiusScreen = radius * renderer.viewport.zoom
+        when (event.actionMasked) {
+            MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
+                isLiquifyHovering = true
+                onLiquifyReticleChanged?.invoke(
+                    LiquifyReticleState(
+                        screenX = event.x,
+                        screenY = event.y,
+                        radiusScreen = radiusScreen,
+                        isVisible = true
+                    )
+                )
+                return true
+            }
+            MotionEvent.ACTION_HOVER_EXIT -> {
+                isLiquifyHovering = false
+                onLiquifyReticleChanged?.invoke(LiquifyReticleState(isVisible = false))
                 return true
             }
         }
@@ -555,30 +621,58 @@ class MiltonCanvasView @JvmOverloads constructor(
         }
 
         // 2. Spring-loaded viewport modifiers (Held Key + Drag)
-        if (action == MotionEvent.ACTION_DOWN) {
-            activeSpringMode = when {
-                isCtrlHeld && isAltHeld -> SpringLoadedMode.BRUSH_RESIZE
-                isCtrlHeld && isSpaceHeld -> SpringLoadedMode.SCRUBBY_ZOOM
-                isSpaceHeld -> SpringLoadedMode.PAN
-                isRHeld -> SpringLoadedMode.ROTATE
-                isAltHeld -> SpringLoadedMode.EYEDROPPER
-                else -> SpringLoadedMode.NONE
-            }
+        val desiredSpringMode = when {
+            isCtrlHeld && isAltHeld -> SpringLoadedMode.BRUSH_RESIZE
+            isCtrlHeld && isSpaceHeld -> SpringLoadedMode.SCRUBBY_ZOOM
+            isSpaceHeld -> SpringLoadedMode.PAN
+            isRHeld -> SpringLoadedMode.ROTATE
+            isAltHeld -> SpringLoadedMode.EYEDROPPER
+            else -> SpringLoadedMode.NONE
         }
 
-        if (activeSpringMode != SpringLoadedMode.NONE) {
-            parent?.requestDisallowInterceptTouchEvent(true)
-            val px = if (stylusIndex != -1) event.getX(stylusIndex) else event.x
-            val py = if (stylusIndex != -1) event.getY(stylusIndex) else event.y
+        val px = if (stylusIndex != -1) event.getX(stylusIndex) else event.x
+        val py = if (stylusIndex != -1) event.getY(stylusIndex) else event.y
 
-            when (activeSpringMode) {
+        // Dynamically activate spring mode if modifier is held (works on ACTION_DOWN, ACTION_POINTER_DOWN, or drag)
+        if (desiredSpringMode != SpringLoadedMode.NONE && activeSpringMode == SpringLoadedMode.NONE) {
+            activeSpringMode = desiredSpringMode
+            springStartScreenX = px
+            springStartScreenY = py
+            springLastScreenX = px
+            springLastScreenY = py
+            springStartBrushSize = brushSize
+            val cx = renderer.viewport.screenWidth * 0.5f
+            val cy = renderer.viewport.screenHeight * 0.5f
+            springLastAngle = Math.toDegrees(kotlin.math.atan2((py - cy).toDouble(), (px - cx).toDouble())).toFloat()
+        } else if (desiredSpringMode == SpringLoadedMode.NONE && activeSpringMode != SpringLoadedMode.NONE) {
+            // Modifier was released mid-stroke
+            if (activeSpringMode == SpringLoadedMode.PAN || activeSpringMode == SpringLoadedMode.SCRUBBY_ZOOM || activeSpringMode == SpringLoadedMode.ROTATE) {
+                renderer.requestTrimBudget()
+                frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+                post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
+            } else if (activeSpringMode == SpringLoadedMode.EYEDROPPER) {
+                isEyedropperTouching = false
+                onEyedropperReticleChanged?.invoke(EyedropperReticleState(isVisible = false))
+                onColorPicked?.invoke(lastSampledColor)
+            }
+            activeSpringMode = SpringLoadedMode.NONE
+        }
+
+        if (activeSpringMode != SpringLoadedMode.NONE || desiredSpringMode != SpringLoadedMode.NONE) {
+            parent?.requestDisallowInterceptTouchEvent(true)
+            val currentMode = if (activeSpringMode != SpringLoadedMode.NONE) activeSpringMode else desiredSpringMode
+
+            val isGestureEnding = (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) ||
+                    (action == MotionEvent.ACTION_POINTER_UP && (stylusIndex != -1 && event.actionIndex == stylusIndex))
+
+            when (currentMode) {
                 SpringLoadedMode.PAN -> {
-                    when (action) {
-                        MotionEvent.ACTION_DOWN -> {
+                    when {
+                        action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN -> {
                             springLastScreenX = px
                             springLastScreenY = py
                         }
-                        MotionEvent.ACTION_MOVE -> {
+                        action == MotionEvent.ACTION_MOVE -> {
                             renderer.viewport.applyGesture(springLastScreenX, springLastScreenY, px, py, 1.0f, 0f)
                             frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
                             val now = android.os.SystemClock.uptimeMillis()
@@ -589,7 +683,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                             springLastScreenX = px
                             springLastScreenY = py
                         }
-                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        isGestureEnding -> {
                             renderer.requestTrimBudget()
                             frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
                             post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
@@ -598,14 +692,14 @@ class MiltonCanvasView @JvmOverloads constructor(
                     }
                 }
                 SpringLoadedMode.SCRUBBY_ZOOM -> {
-                    when (action) {
-                        MotionEvent.ACTION_DOWN -> {
+                    when {
+                        action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN -> {
                             springStartScreenX = px
                             springStartScreenY = py
                             springLastScreenX = px
                             springLastScreenY = py
                         }
-                        MotionEvent.ACTION_MOVE -> {
+                        action == MotionEvent.ACTION_MOVE -> {
                             val dx = px - springLastScreenX
                             val dy = py - springLastScreenY
                             val delta = (dx - dy) * 0.008f
@@ -620,7 +714,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                             springLastScreenX = px
                             springLastScreenY = py
                         }
-                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        isGestureEnding -> {
                             renderer.requestTrimBudget()
                             frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
                             post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
@@ -631,11 +725,11 @@ class MiltonCanvasView @JvmOverloads constructor(
                 SpringLoadedMode.ROTATE -> {
                     val cx = renderer.viewport.screenWidth * 0.5f
                     val cy = renderer.viewport.screenHeight * 0.5f
-                    when (action) {
-                        MotionEvent.ACTION_DOWN -> {
+                    when {
+                        action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN -> {
                             springLastAngle = Math.toDegrees(kotlin.math.atan2((py - cy).toDouble(), (px - cx).toDouble())).toFloat()
                         }
-                        MotionEvent.ACTION_MOVE -> {
+                        action == MotionEvent.ACTION_MOVE -> {
                             val curAngle = Math.toDegrees(kotlin.math.atan2((py - cy).toDouble(), (px - cx).toDouble())).toFloat()
                             var deltaAngle = curAngle - springLastAngle
                             while (deltaAngle > 180f) deltaAngle -= 360f
@@ -649,7 +743,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                             }
                             springLastAngle = curAngle
                         }
-                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        isGestureEnding -> {
                             renderer.requestTrimBudget()
                             frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
                             post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
@@ -658,18 +752,18 @@ class MiltonCanvasView @JvmOverloads constructor(
                     }
                 }
                 SpringLoadedMode.BRUSH_RESIZE -> {
-                    when (action) {
-                        MotionEvent.ACTION_DOWN -> {
+                    when {
+                        action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN -> {
                             springStartScreenX = px
                             springStartBrushSize = brushSize
                         }
-                        MotionEvent.ACTION_MOVE -> {
+                        action == MotionEvent.ACTION_MOVE -> {
                             val dx = px - springStartScreenX
                             val newSize = (springStartBrushSize + dx * 0.6f).coerceIn(1.0f, 1000f)
                             brushSize = newSize
                             onBrushSizeChangedInteractively?.invoke(newSize)
                         }
-                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        isGestureEnding -> {
                             onBrushSizeChangedInteractively?.invoke(brushSize)
                             activeSpringMode = SpringLoadedMode.NONE
                         }
@@ -679,8 +773,8 @@ class MiltonCanvasView @JvmOverloads constructor(
                     val worldPos = renderer.viewport.screenToWorld(px, py)
                     lastEyedropperScreenX = px
                     lastEyedropperScreenY = py
-                    when (action) {
-                        MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                    when {
+                        action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN || action == MotionEvent.ACTION_MOVE -> {
                             isEyedropperTouching = true
                             renderer.requestColorPick(worldPos.x, worldPos.y)
                             requestRedraw()
@@ -693,19 +787,12 @@ class MiltonCanvasView @JvmOverloads constructor(
                                 )
                             )
                         }
-                        MotionEvent.ACTION_UP -> {
+                        isGestureEnding -> {
                             isEyedropperTouching = false
                             onEyedropperReticleChanged?.invoke(
                                 EyedropperReticleState(isVisible = false)
                             )
                             onColorPicked?.invoke(lastSampledColor)
-                            activeSpringMode = SpringLoadedMode.NONE
-                        }
-                        MotionEvent.ACTION_CANCEL -> {
-                            isEyedropperTouching = false
-                            onEyedropperReticleChanged?.invoke(
-                                EyedropperReticleState(isVisible = false)
-                            )
                             activeSpringMode = SpringLoadedMode.NONE
                         }
                     }
@@ -760,6 +847,8 @@ class MiltonCanvasView @JvmOverloads constructor(
 
         // 4b. Liquify Mode (Stylus only!)
         if (brushType == app.goodboy13.milton.core.brush.BrushType.LIQUIFY) {
+            val radius = (brushSize * 0.5f).coerceAtLeast(4f)
+            val radiusScreen = radius * renderer.viewport.zoom
             when (action) {
                 MotionEvent.ACTION_DOWN -> {
                     val targets = if (selectedTransformLayerIds.isNotEmpty()) {
@@ -773,27 +862,35 @@ class MiltonCanvasView @JvmOverloads constructor(
                             this,
                             worldPos.x,
                             worldPos.y,
-                            brushSize,
+                            radius,
                             brushOpacity,
                             pressure
                         )
                     }
+                    onLiquifyReticleChanged?.invoke(
+                        LiquifyReticleState(sx, sy, radiusScreen, isVisible = true)
+                    )
                 }
                 MotionEvent.ACTION_MOVE -> {
                     liquifyManager.applyDab(
                         this,
                         worldPos.x,
                         worldPos.y,
-                        brushSize,
+                        radius,
                         brushOpacity,
                         pressure
+                    )
+                    onLiquifyReticleChanged?.invoke(
+                        LiquifyReticleState(sx, sy, radiusScreen, isVisible = true)
                     )
                 }
                 MotionEvent.ACTION_UP -> {
                     liquifyManager.finishStroke(this)
+                    onLiquifyReticleChanged?.invoke(LiquifyReticleState(isVisible = false))
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     liquifyManager.cancelStroke(this)
+                    onLiquifyReticleChanged?.invoke(LiquifyReticleState(isVisible = false))
                 }
             }
             return true

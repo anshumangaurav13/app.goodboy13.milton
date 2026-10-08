@@ -78,6 +78,7 @@ fun TransformGizmoOverlay(
     onReset: () -> Unit,
     isCanvasFlipped: Boolean = false,
     onToggleFlipCanvas: () -> Unit = {},
+    isModifierHeld: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     when (selectionState) {
@@ -99,6 +100,7 @@ fun TransformGizmoOverlay(
                 onReset = onReset,
                 isCanvasFlipped = isCanvasFlipped,
                 onToggleFlipCanvas = onToggleFlipCanvas,
+                isModifierHeld = isModifierHeld,
                 modifier = modifier
             )
         }
@@ -171,6 +173,7 @@ private fun TransformSessionOverlay(
     onReset: () -> Unit,
     isCanvasFlipped: Boolean = false,
     onToggleFlipCanvas: () -> Unit = {},
+    isModifierHeld: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val currentSession by rememberUpdatedState(session)
@@ -227,16 +230,16 @@ private fun TransformSessionOverlay(
     val outLen = hypot(outX, outY).coerceAtLeast(0.001f)
     val rotHandleScreen = Vec2(topCenter.x + (outX / outLen) * 36f, topCenter.y + (outY / outLen) * 36f)
 
-    Box(modifier = modifier.fillMaxSize()) {
-        // 1. Gesture detector & Gizmo Rendering Canvas
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(isCanvasFlipped) {
-                    detectDragGestures(
-                        onDragStart = { offset ->
-                            val touch = Vec2(offset.x, offset.y)
-                            val sess = currentSession
+    val gestureModifier = if (isModifierHeld) {
+        Modifier.fillMaxSize()
+    } else {
+        Modifier
+            .fillMaxSize()
+            .pointerInput(isCanvasFlipped) {
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        val touch = Vec2(offset.x, offset.y)
+                        val sess = currentSession
                             val vp = currentViewport
 
                             val curCorners = computeCorners(sess).map { vp.worldToScreen(it.x, it.y) }
@@ -334,7 +337,11 @@ private fun TransformSessionOverlay(
                         onDragCancel = { dragMode = DragMode.NONE }
                     )
                 }
-        ) {
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        // 1. Gesture detector & Gizmo Rendering Canvas
+        Box(modifier = gestureModifier) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val nativeCanvas = drawContext.canvas.nativeCanvas
                 val paint = Paint().apply { isFilterBitmap = true }

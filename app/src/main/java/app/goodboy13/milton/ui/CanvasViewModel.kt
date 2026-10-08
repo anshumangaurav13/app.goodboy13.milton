@@ -171,6 +171,12 @@ class CanvasViewModel : ViewModel() {
             }
         }
 
+        canvasView.onLiquifyReticleChanged = { state ->
+            viewModelScope.launch(Dispatchers.Main) {
+                updateLiquifyReticle(state)
+            }
+        }
+
         canvasView.onStrokeCompleted = { strokeColor ->
             viewModelScope.launch(Dispatchers.Main) {
                 markUnsavedChanges()
@@ -311,6 +317,20 @@ class CanvasViewModel : ViewModel() {
         canvasView.liquifyMode = mode
         _uiState.update { state ->
             state.copy(tool = state.tool.copy(liquifyMode = mode))
+        }
+    }
+
+    fun updateLiquifyReticle(reticle: app.goodboy13.milton.ui.LiquifyReticleState) {
+        _uiState.update { state ->
+            state.copy(tool = state.tool.copy(liquifyReticleState = reticle))
+        }
+    }
+
+    fun setModifierHeld(isHeld: Boolean) {
+        if (_uiState.value.viewport.isModifierHeld != isHeld) {
+            _uiState.update { state ->
+                state.copy(viewport = state.viewport.copy(isModifierHeld = isHeld))
+            }
         }
     }
 

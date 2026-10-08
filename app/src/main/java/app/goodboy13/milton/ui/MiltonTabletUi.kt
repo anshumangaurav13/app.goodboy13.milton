@@ -188,7 +188,8 @@ fun MiltonTabletUi(
                 onCancel = actions.transform.onCancelTransform,
                 onReset = actions.transform.onResetTransform,
                 isCanvasFlipped = state.viewport.isCanvasFlipped,
-                onToggleFlipCanvas = actions.viewport.onToggleFlipCanvas
+                onToggleFlipCanvas = actions.viewport.onToggleFlipCanvas,
+                isModifierHeld = state.viewport.isModifierHeld
             )
         }
 
@@ -359,6 +360,13 @@ fun MiltonTabletUi(
         if (state.tool.eyedropperReticleState.isVisible) {
             EyedropperReticleOverlay(
                 state = state.tool.eyedropperReticleState
+            )
+        }
+
+        // 6b. Live Liquify Reticle Overlay
+        if (state.tool.liquifyReticleState.isVisible) {
+            app.goodboy13.milton.ui.reticle.LiquifyReticleOverlay(
+                state = state.tool.liquifyReticleState
             )
         }
 

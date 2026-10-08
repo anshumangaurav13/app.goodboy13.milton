@@ -23,6 +23,7 @@ data class ToolUiState(
     val isEyedropperActive: Boolean = false,
     val recentColors: List<Int> = QUICK_PALETTE_COLORS,
     val eyedropperReticleState: EyedropperReticleState = EyedropperReticleState(),
+    val liquifyReticleState: app.goodboy13.milton.ui.LiquifyReticleState = app.goodboy13.milton.ui.LiquifyReticleState(),
     val liquifyMode: app.goodboy13.milton.core.native.MiltonNative.LiquifyMode = app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH
 )
 
@@ -37,7 +38,8 @@ data class ViewportUiState(
     val isRotationLocked: Boolean = false,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
-    val isZenMode: Boolean = false
+    val isZenMode: Boolean = false,
+    val isModifierHeld: Boolean = false
 )
 
 /**

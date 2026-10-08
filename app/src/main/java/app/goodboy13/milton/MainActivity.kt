@@ -91,6 +91,7 @@ class MainActivity : ComponentActivity() {
                 isShiftHeld: Boolean
             ) {
                 canvasView.setModifierState(isSpaceHeld, isCtrlHeld, isAltHeld, isRHeld, isShiftHeld)
+                viewModel.setModifierHeld(isSpaceHeld || isCtrlHeld || isAltHeld || isRHeld)
             }
 
             override fun onToggleCanvasFlip() {
