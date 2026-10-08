@@ -36,6 +36,8 @@ class AutosaveCoordinator(
 
     var activeProjectId: String? = null
     var hasUnsavedChanges: Boolean = false
+    @Volatile
+    var isRestoringSession: Boolean = false
 
     val autosaveDir: File get() = File(context.filesDir, AUTOSAVE_DIR_NAME).apply { mkdirs() }
     val autosaveTilesDir: File get() = File(autosaveDir, TILES_DIR_NAME).apply { mkdirs() }
@@ -79,10 +81,12 @@ class AutosaveCoordinator(
             val bytes = pendingCompressedTiles[key]
             return if (bytes != null && bytes.isNotEmpty()) UndoManager.decompress(bytes) else null
         }
+        val expectedSize = 512 * 512 * 4
         val autoFile = File(autosaveTilesDir, "tile_${layerId}_${tx}_${ty}.bin")
         if (autoFile.exists()) {
             return try {
-                UndoManager.decompress(autoFile.readBytes())
+                val bytes = autoFile.readBytes()
+                if (bytes.size == expectedSize) bytes else UndoManager.decompress(bytes)
             } catch (e: Exception) {
                 null
             }
@@ -91,7 +95,8 @@ class AutosaveCoordinator(
             val swapFile = File(fallbackCacheDir, "tile_${tx}_${ty}.bin")
             if (swapFile.exists()) {
                 return try {
-                    UndoManager.decompress(swapFile.readBytes())
+                    val bytes = swapFile.readBytes()
+                    if (bytes.size == expectedSize) bytes else UndoManager.decompress(bytes)
                 } catch (e: Exception) {
                     null
                 }
@@ -109,6 +114,7 @@ class AutosaveCoordinator(
         documentTitle: String,
         canvasView: MiltonCanvasView
     ) {
+        if (isRestoringSession) return
         hasUnsavedChanges = true
         autosaveJob?.cancel()
         autosaveJob = scope.launch {
@@ -256,58 +262,43 @@ class AutosaveCoordinator(
         sourceTilesDir: File,
         canvasView: MiltonCanvasView
     ) {
-        val renderer = canvasView.renderer
-        val layerManager = renderer.layerManager
-        val viewport = renderer.viewport
+        isRestoringSession = true
+        try {
+            val renderer = canvasView.renderer
+            val layerManager = renderer.layerManager
+            val viewport = renderer.viewport
 
-        // 0. Drain any uncommitted dabs
-        renderer.clearPendingDabs()
+            // 0. Drain any uncommitted dabs
+            renderer.clearPendingDabs()
 
-        // 1. Restore background color
-        canvasView.backgroundColorRgb = metadata.backgroundColorRgb
-        renderer.backgroundColorRgb = metadata.backgroundColorRgb
+            // 1. Restore background color
+            canvasView.backgroundColorRgb = metadata.backgroundColorRgb
+            renderer.backgroundColorRgb = metadata.backgroundColorRgb
 
-        // 2. Restore viewport
-        viewport.panX = metadata.viewportPanX
-        viewport.panY = metadata.viewportPanY
-        viewport.zoom = metadata.viewportZoom
-        viewport.rotationDegrees = metadata.viewportRotation
-        viewport.isFlippedHorizontally = metadata.isFlippedHorizontally
+            // 2. Restore viewport
+            viewport.panX = metadata.viewportPanX
+            viewport.panY = metadata.viewportPanY
+            viewport.zoom = metadata.viewportZoom
+            viewport.rotationDegrees = metadata.viewportRotation
+            viewport.isFlippedHorizontally = metadata.isFlippedHorizontally
 
-        // 3. Clear all old layers and tiles completely
-        layerManager.resetToSingleLayer(renderer)
-        val baseLayer = layerManager.layers.first()
-
-        // 4. Reconstruct layer stack if metadata has layers
-        if (metadata.layers.isNotEmpty()) {
-            val firstDesc = metadata.layers[0]
-            baseLayer.name = firstDesc.name
-            baseLayer.opacity = firstDesc.opacity
-            baseLayer.isVisible = firstDesc.isVisible
-            restoreLayerTiles(baseLayer, firstDesc, sourceTilesDir)
-
-            for (i in 1 until metadata.layers.size) {
-                val desc = metadata.layers[i]
-                val newLayer = layerManager.addLayer(name = desc.name, insertAboveActive = false)
-                if (newLayer != null) {
-                    newLayer.opacity = desc.opacity
-                    newLayer.isVisible = desc.isVisible
-                    restoreLayerTiles(newLayer, desc, sourceTilesDir)
-                }
+            // 3. Clear all old layers and restore layers from metadata preserving their exact IDs
+            layerManager.restoreLayersFromMetadata(
+                layersMetadata = metadata.layers,
+                targetActiveId = metadata.activeLayerId,
+                renderer = renderer
+            ) { layer, desc ->
+                restoreLayerTiles(layer, desc, sourceTilesDir)
             }
-        }
 
-        // 5. Select active layer and clear undo history
-        val targetActiveId = if (layerManager.layers.any { it.id == metadata.activeLayerId }) {
-            metadata.activeLayerId
-        } else {
-            baseLayer.id
-        }
-        layerManager.selectLayer(targetActiveId)
-        renderer.undoManager.clear()
-        canvasView.requestRedraw()
-        canvasView.post {
-            canvasView.onViewportChanged?.invoke(viewport.zoom, viewport.rotationDegrees)
+            // 4. Clear undo history
+            renderer.undoManager.clear()
+            canvasView.requestRedraw()
+            canvasView.post {
+                canvasView.onViewportChanged?.invoke(viewport.zoom, viewport.rotationDegrees)
+            }
+        } finally {
+            isRestoringSession = false
         }
     }
 

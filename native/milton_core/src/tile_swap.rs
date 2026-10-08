@@ -67,12 +67,14 @@ pub fn swap_read(
             .map_err(|e| format!("Failed to read compressed swap file: {e}"))?;
 
         let decompressed = compression::decompress_tile(&compressed)?;
-        if decompressed.is_empty() {
-            return Ok(false);
+        if decompressed.len() != TILE_BYTE_SIZE || out_buf.len() < TILE_BYTE_SIZE {
+            return Err(format!(
+                "Invalid tile size in swap file: expected {TILE_BYTE_SIZE} bytes, got {}",
+                decompressed.len()
+            ));
         }
 
-        let copy_len = decompressed.len().min(out_buf.len());
-        out_buf[0..copy_len].copy_from_slice(&decompressed[0..copy_len]);
+        out_buf[0..TILE_BYTE_SIZE].copy_from_slice(&decompressed[0..TILE_BYTE_SIZE]);
         Ok(true)
     }
 }
@@ -101,4 +103,66 @@ pub fn swap_clear_all(swap_dir: &str) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_swap_write_and_read_raw() {
+        let temp_dir = std::env::temp_dir().join("milton_test_swap_raw");
+        let dir_str = temp_dir.to_str().unwrap();
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        let dummy = vec![170u8; TILE_BYTE_SIZE];
+        swap_write(dir_str, 0, 1, 2, &dummy).expect("swap_write should succeed");
+
+        let mut out = vec![0u8; TILE_BYTE_SIZE];
+        let ok = swap_read(dir_str, 0, 1, 2, &mut out).expect("swap_read should succeed");
+        assert!(ok);
+        assert_eq!(out, dummy);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_swap_read_compressed() {
+        let temp_dir = std::env::temp_dir().join("milton_test_swap_comp");
+        let dir_str = temp_dir.to_str().unwrap();
+        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let dummy = vec![42u8; TILE_BYTE_SIZE];
+        let comp = compression::compress_tile(&dummy).expect("compression should succeed");
+        let path = get_swap_path(dir_str, 0, 3, 4);
+        fs::write(&path, &comp).expect("write should succeed");
+
+        let mut out = vec![0u8; TILE_BYTE_SIZE];
+        let ok = swap_read(dir_str, 0, 3, 4, &mut out).expect("swap_read should succeed");
+        assert!(ok);
+        assert_eq!(out, dummy);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_swap_rejects_truncated_sub_tile_patch() {
+        let temp_dir = std::env::temp_dir().join("milton_test_swap_reject");
+        let dir_str = temp_dir.to_str().unwrap();
+        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = fs::create_dir_all(&temp_dir);
+
+        // A sub-tile patch of size 100x100
+        let patch = vec![123u8; 100 * 100 * 4];
+        let comp = compression::compress_tile(&patch).expect("compression should succeed");
+        let path = get_swap_path(dir_str, 0, 0, 0);
+        fs::write(&path, &comp).expect("write should succeed");
+
+        let mut out = vec![0u8; TILE_BYTE_SIZE];
+        let result = swap_read(dir_str, 0, 0, 0, &mut out);
+        assert!(result.is_err(), "Must reject compressed tile smaller than 512x512");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
 }

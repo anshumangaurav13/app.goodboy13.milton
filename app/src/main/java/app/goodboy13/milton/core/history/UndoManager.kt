@@ -26,7 +26,7 @@ class TileDelta(
     var fullAfterForAutosave: ByteArray? = null
 ) {
     val isSubTile: Boolean get() = patchWidth < TileCoord.TILE_SIZE || patchHeight < TileCoord.TILE_SIZE
-    val forAutosaveCompressed: ByteArray? get() = fullAfterForAutosave ?: afterCompressed
+    val forAutosaveCompressed: ByteArray? get() = fullAfterForAutosave ?: (if (!isSubTile) afterCompressed else null)
 }
 
 /**
@@ -255,6 +255,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
         }
         when (command) {
             is StrokeCommand -> {
+                val deltasForAutosave = mutableListOf<TileDelta>()
                 for (delta in command.deltas) {
                     val layer = layerManager.getLayer(delta.layerId) ?: continue
                     val tile = layer.tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
@@ -270,36 +271,68 @@ class UndoManager(val maxHistorySize: Int = 30) {
                             if (ok) {
                                 tile.writePixels(currentPixels)
                                 tile.hasContent = true
+                                val fullTile = compress(currentPixels)
+                                deltasForAutosave.add(
+                                    TileDelta(
+                                        layerId = delta.layerId,
+                                        coord = delta.coord,
+                                        beforeCompressed = delta.afterCompressed,
+                                        afterCompressed = delta.beforeCompressed,
+                                        minX = delta.minX,
+                                        minY = delta.minY,
+                                        patchWidth = delta.patchWidth,
+                                        patchHeight = delta.patchHeight,
+                                        fullAfterForAutosave = fullTile
+                                    )
+                                )
                             } else {
                                 val decompressed = decompress(before)
                                 tile.writePixels(decompressed)
                                 tile.hasContent = true
+                                deltasForAutosave.add(
+                                    TileDelta(
+                                        layerId = delta.layerId,
+                                        coord = delta.coord,
+                                        beforeCompressed = delta.afterCompressed,
+                                        afterCompressed = before,
+                                        fullAfterForAutosave = before
+                                    )
+                                )
                             }
                         } else {
                             val decompressed = decompress(before)
                             tile.writePixels(decompressed)
                             tile.hasContent = true
+                            deltasForAutosave.add(
+                                TileDelta(
+                                    layerId = delta.layerId,
+                                    coord = delta.coord,
+                                    beforeCompressed = delta.afterCompressed,
+                                    afterCompressed = before,
+                                    fullAfterForAutosave = before
+                                )
+                            )
                         }
                     } else {
                         tile.clear()
                         tile.deleteDiskSwap(layer.tileMap.cacheDir)
+                        deltasForAutosave.add(
+                            TileDelta(
+                                layerId = delta.layerId,
+                                coord = delta.coord,
+                                beforeCompressed = delta.afterCompressed,
+                                afterCompressed = null,
+                                fullAfterForAutosave = null
+                            )
+                        )
                     }
                 }
                 synchronized(lock) { redoStack.push(command) }
                 onStateChangedListener?.invoke()
-                val revertedDeltas = command.deltas.map {
-                    TileDelta(
-                        layerId = it.layerId,
-                        coord = it.coord,
-                        beforeCompressed = it.afterCompressed,
-                        afterCompressed = it.beforeCompressed,
-                        minX = it.minX,
-                        minY = it.minY,
-                        patchWidth = it.patchWidth,
-                        patchHeight = it.patchHeight
-                    )
+                onTilesCommittedListener?.invoke(deltasForAutosave)
+                for (d in deltasForAutosave) {
+                    d.fullAfterForAutosave = null
                 }
-                onTilesCommittedListener?.invoke(revertedDeltas)
             }
             is AddLayerCommand -> {
                 val layer = layerManager.getLayer(command.layerId)
@@ -346,6 +379,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
             if (undoStack.isEmpty()) return false
             undoStack.pop() as? StrokeCommand ?: return false
         }
+        val deltasForAutosave = mutableListOf<TileDelta>()
         for (delta in command.deltas) {
             val tile = tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
             tile.ensureResident(tileMap.cacheDir)
@@ -360,37 +394,69 @@ class UndoManager(val maxHistorySize: Int = 30) {
                     if (ok) {
                         tile.writePixels(currentPixels)
                         tile.hasContent = true
+                        val fullTile = compress(currentPixels)
+                        deltasForAutosave.add(
+                            TileDelta(
+                                layerId = delta.layerId,
+                                coord = delta.coord,
+                                beforeCompressed = delta.afterCompressed,
+                                afterCompressed = delta.beforeCompressed,
+                                minX = delta.minX,
+                                minY = delta.minY,
+                                patchWidth = delta.patchWidth,
+                                patchHeight = delta.patchHeight,
+                                fullAfterForAutosave = fullTile
+                            )
+                        )
                     } else {
                         val decompressed = decompress(before)
                         tile.writePixels(decompressed)
                         tile.hasContent = true
+                        deltasForAutosave.add(
+                            TileDelta(
+                                layerId = delta.layerId,
+                                coord = delta.coord,
+                                beforeCompressed = delta.afterCompressed,
+                                afterCompressed = before,
+                                fullAfterForAutosave = before
+                            )
+                        )
                     }
                 } else {
                     val decompressed = decompress(before)
                     tile.writePixels(decompressed)
                     tile.hasContent = true
+                    deltasForAutosave.add(
+                        TileDelta(
+                            layerId = delta.layerId,
+                            coord = delta.coord,
+                            beforeCompressed = delta.afterCompressed,
+                            afterCompressed = before,
+                            fullAfterForAutosave = before
+                        )
+                    )
                 }
             } else {
                 tile.clear()
                 tile.deleteDiskSwap(tileMap.cacheDir)
+                deltasForAutosave.add(
+                    TileDelta(
+                        layerId = delta.layerId,
+                        coord = delta.coord,
+                        beforeCompressed = delta.afterCompressed,
+                        afterCompressed = null,
+                        fullAfterForAutosave = null
+                    )
+                )
             }
         }
 
         synchronized(lock) { redoStack.push(command) }
         onStateChangedListener?.invoke()
-        val revertedDeltas = command.deltas.map {
-            TileDelta(
-                layerId = it.layerId,
-                coord = it.coord,
-                beforeCompressed = it.afterCompressed,
-                afterCompressed = it.beforeCompressed,
-                minX = it.minX,
-                minY = it.minY,
-                patchWidth = it.patchWidth,
-                patchHeight = it.patchHeight
-            )
+        onTilesCommittedListener?.invoke(deltasForAutosave)
+        for (d in deltasForAutosave) {
+            d.fullAfterForAutosave = null
         }
-        onTilesCommittedListener?.invoke(revertedDeltas)
         return true
     }
 
@@ -404,6 +470,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
         }
         when (command) {
             is StrokeCommand -> {
+                val deltasForAutosave = mutableListOf<TileDelta>()
                 for (delta in command.deltas) {
                     val layer = layerManager.getLayer(delta.layerId) ?: continue
                     val tile = layer.tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
@@ -419,24 +486,68 @@ class UndoManager(val maxHistorySize: Int = 30) {
                             if (ok) {
                                 tile.writePixels(currentPixels)
                                 tile.hasContent = true
+                                val fullTile = compress(currentPixels)
+                                deltasForAutosave.add(
+                                    TileDelta(
+                                        layerId = delta.layerId,
+                                        coord = delta.coord,
+                                        beforeCompressed = delta.beforeCompressed,
+                                        afterCompressed = delta.afterCompressed,
+                                        minX = delta.minX,
+                                        minY = delta.minY,
+                                        patchWidth = delta.patchWidth,
+                                        patchHeight = delta.patchHeight,
+                                        fullAfterForAutosave = fullTile
+                                    )
+                                )
                             } else {
                                 val decompressed = decompress(after)
                                 tile.writePixels(decompressed)
                                 tile.hasContent = true
+                                deltasForAutosave.add(
+                                    TileDelta(
+                                        layerId = delta.layerId,
+                                        coord = delta.coord,
+                                        beforeCompressed = delta.beforeCompressed,
+                                        afterCompressed = after,
+                                        fullAfterForAutosave = after
+                                    )
+                                )
                             }
                         } else {
                             val decompressed = decompress(after)
                             tile.writePixels(decompressed)
                             tile.hasContent = true
+                            deltasForAutosave.add(
+                                TileDelta(
+                                    layerId = delta.layerId,
+                                    coord = delta.coord,
+                                    beforeCompressed = delta.beforeCompressed,
+                                    afterCompressed = after,
+                                    fullAfterForAutosave = after
+                                )
+                            )
                         }
                     } else {
                         tile.clear()
                         tile.deleteDiskSwap(layer.tileMap.cacheDir)
+                        deltasForAutosave.add(
+                            TileDelta(
+                                layerId = delta.layerId,
+                                coord = delta.coord,
+                                beforeCompressed = delta.beforeCompressed,
+                                afterCompressed = null,
+                                fullAfterForAutosave = null
+                            )
+                        )
                     }
                 }
                 synchronized(lock) { undoStack.push(command) }
                 onStateChangedListener?.invoke()
-                onTilesCommittedListener?.invoke(command.deltas)
+                onTilesCommittedListener?.invoke(deltasForAutosave)
+                for (d in deltasForAutosave) {
+                    d.fullAfterForAutosave = null
+                }
             }
             is AddLayerCommand -> {
                 layerManager.restoreLayer(
@@ -476,6 +587,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
             if (redoStack.isEmpty()) return false
             redoStack.pop() as? StrokeCommand ?: return false
         }
+        val deltasForAutosave = mutableListOf<TileDelta>()
         for (delta in command.deltas) {
             val tile = tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
             tile.ensureResident(tileMap.cacheDir)
@@ -490,25 +602,69 @@ class UndoManager(val maxHistorySize: Int = 30) {
                     if (ok) {
                         tile.writePixels(currentPixels)
                         tile.hasContent = true
+                        val fullTile = compress(currentPixels)
+                        deltasForAutosave.add(
+                            TileDelta(
+                                layerId = delta.layerId,
+                                coord = delta.coord,
+                                beforeCompressed = delta.beforeCompressed,
+                                afterCompressed = delta.afterCompressed,
+                                minX = delta.minX,
+                                minY = delta.minY,
+                                patchWidth = delta.patchWidth,
+                                patchHeight = delta.patchHeight,
+                                fullAfterForAutosave = fullTile
+                            )
+                        )
                     } else {
                         val decompressed = decompress(after)
                         tile.writePixels(decompressed)
                         tile.hasContent = true
+                        deltasForAutosave.add(
+                            TileDelta(
+                                layerId = delta.layerId,
+                                coord = delta.coord,
+                                beforeCompressed = delta.beforeCompressed,
+                                afterCompressed = after,
+                                fullAfterForAutosave = after
+                            )
+                        )
                     }
                 } else {
                     val decompressed = decompress(after)
                     tile.writePixels(decompressed)
                     tile.hasContent = true
+                    deltasForAutosave.add(
+                        TileDelta(
+                            layerId = delta.layerId,
+                            coord = delta.coord,
+                            beforeCompressed = delta.beforeCompressed,
+                            afterCompressed = after,
+                            fullAfterForAutosave = after
+                        )
+                    )
                 }
             } else {
                 tile.clear()
                 tile.deleteDiskSwap(tileMap.cacheDir)
+                deltasForAutosave.add(
+                    TileDelta(
+                        layerId = delta.layerId,
+                        coord = delta.coord,
+                        beforeCompressed = delta.beforeCompressed,
+                        afterCompressed = null,
+                        fullAfterForAutosave = null
+                    )
+                )
             }
         }
 
         synchronized(lock) { undoStack.push(command) }
         onStateChangedListener?.invoke()
-        onTilesCommittedListener?.invoke(command.deltas)
+        onTilesCommittedListener?.invoke(deltasForAutosave)
+        for (d in deltasForAutosave) {
+            d.fullAfterForAutosave = null
+        }
         return true
     }
 

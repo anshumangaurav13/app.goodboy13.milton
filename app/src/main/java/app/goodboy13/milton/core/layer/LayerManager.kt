@@ -258,6 +258,46 @@ class LayerManager(
         notifyChanged()
     }
 
+    fun restoreLayersFromMetadata(
+        layersMetadata: List<app.goodboy13.milton.core.storage.LayerDescriptor>,
+        targetActiveId: Long,
+        renderer: app.goodboy13.milton.core.gl.MiltonCanvasRenderer? = null,
+        onLayerRestored: (Layer, app.goodboy13.milton.core.storage.LayerDescriptor) -> Unit
+    ) {
+        for (layer in _layers) {
+            layer.tileMap.clearTiles(renderer)
+        }
+        _layers.clear()
+
+        var maxId = 0L
+        for (desc in layersMetadata) {
+            val layerCacheDir = cacheBaseDir?.resolve("layer_${desc.id}")
+            val tileMap = TileMap(cacheDir = layerCacheDir, maxResidentTiles = maxResidentTilesPerLayer)
+            val layer = Layer(
+                id = desc.id,
+                initialName = desc.name,
+                initialOpacity = desc.opacity,
+                initialIsVisible = desc.isVisible,
+                tileMap = tileMap
+            )
+            _layers.add(layer)
+            onLayerRestored(layer, desc)
+            if (desc.id > maxId) maxId = desc.id
+        }
+
+        if (_layers.isEmpty()) {
+            layerNameCounter = 1
+            val firstLayer = createLayerInstance("Layer 1")
+            _layers.add(firstLayer)
+            activeLayerId = firstLayer.id
+        } else {
+            nextLayerId = maxOf(nextLayerId, maxId + 1)
+            activeLayerId = if (_layers.any { it.id == targetActiveId }) targetActiveId else _layers.first().id
+        }
+        structuralRevision++
+        notifyChanged()
+    }
+
     fun releaseAll() {
         for (layer in _layers) {
             layer.tileMap.releaseAll()

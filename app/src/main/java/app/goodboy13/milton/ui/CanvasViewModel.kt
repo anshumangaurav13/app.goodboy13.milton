@@ -229,7 +229,7 @@ class CanvasViewModel : ViewModel() {
                 if (restored != null) {
                     _hasUnsavedChanges.value = restored.hasUnsavedChanges
                     withContext(Dispatchers.Main) {
-                        applyDocumentMetadata(restored)
+                        applyDocumentMetadata(restored, canvasView)
                     }
                 }
             } else {
@@ -239,8 +239,16 @@ class CanvasViewModel : ViewModel() {
         }
     }
 
-    private fun applyDocumentMetadata(metadata: DocumentMetadata) {
+    private fun applyDocumentMetadata(metadata: DocumentMetadata, canvasView: MiltonCanvasView? = null) {
         _uiState.update { state ->
+            val layersState = if (canvasView != null) {
+                LayersUiState(
+                    layers = canvasView.layerManager.layers.toList(),
+                    activeLayerId = canvasView.layerManager.activeLayerId
+                )
+            } else {
+                state.layers
+            }
             state.copy(
                 document = state.document.copy(
                     documentTitle = metadata.title,
@@ -252,7 +260,8 @@ class CanvasViewModel : ViewModel() {
                     isCanvasFlipped = metadata.isFlippedHorizontally,
                     canUndo = false,
                     canRedo = false
-                )
+                ),
+                layers = layersState
             )
         }
     }
@@ -590,7 +599,7 @@ class CanvasViewModel : ViewModel() {
             _hasUnsavedChanges.value = false
             refreshMetricsInternal(storageManager)
             withContext(Dispatchers.Main) {
-                applyDocumentMetadata(newMeta)
+                applyDocumentMetadata(newMeta, canvasView)
                 onCreated()
             }
         }
@@ -624,7 +633,7 @@ class CanvasViewModel : ViewModel() {
             refreshMetricsInternal(storageManager)
             withContext(Dispatchers.Main) {
                 if (loaded != null) {
-                    applyDocumentMetadata(loaded)
+                    applyDocumentMetadata(loaded, canvasView)
                     onLoaded(loaded.title)
                 }
             }
@@ -660,7 +669,7 @@ class CanvasViewModel : ViewModel() {
                     withContext(Dispatchers.Main) {
                         if (imported != null) {
                             _hasUnsavedChanges.value = false
-                            applyDocumentMetadata(imported)
+                            applyDocumentMetadata(imported, canvasView)
                             onSuccess(imported.title)
                         } else {
                             onError("Failed to import .milton project")

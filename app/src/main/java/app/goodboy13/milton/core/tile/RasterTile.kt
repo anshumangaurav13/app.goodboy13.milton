@@ -89,10 +89,15 @@ class RasterTile(val coord: TileCoord) {
      * Writes an RGBA pixel buffer back into this tile's texture.
      */
     fun writePixels(rawBytes: ByteArray) {
+        val expectedSize = TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4
+        if (rawBytes.size < expectedSize) {
+            Log.e("RasterTile", "Refusing to write truncated pixel buffer: ${rawBytes.size} < $expectedSize")
+            return
+        }
         if (!isInitialized) initGl()
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
         DirectBufferPool.useBuffer { byteBuf ->
-            byteBuf.put(rawBytes)
+            byteBuf.put(rawBytes, 0, expectedSize)
             byteBuf.position(0)
             GLES30.glTexSubImage2D(
                 GLES30.GL_TEXTURE_2D, 0,
@@ -208,11 +213,17 @@ class RasterTile(val coord: TileCoord) {
         fun readSwapBytes(swapFile: File): ByteArray? {
             if (!swapFile.exists()) return null
             val data = swapFile.readBytes()
-            return if (data.size == TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4) {
+            val expectedSize = TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4
+            val raw = if (data.size == expectedSize) {
                 data
             } else {
-                UndoManager.decompress(data)
+                try {
+                    UndoManager.decompress(data)
+                } catch (e: Exception) {
+                    null
+                }
             }
+            return if (raw != null && raw.size == expectedSize) raw else null
         }
     }
 
