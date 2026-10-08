@@ -13,4 +13,6 @@ data class WorldRect(
 ) {
     val width: Float get() = right - left
     val height: Float get() = bottom - top
+    val centerX: Float get() = (left + right) * 0.5f
+    val centerY: Float get() = (top + bottom) * 0.5f
 }

@@ -238,6 +238,71 @@ fun EraserIcon(tint: Color, modifier: Modifier = Modifier) {
 }
 
 /**
+ * Custom vector icon for Lasso Selection Tool:
+ * Features a dynamic looped rope selection contour with hanging knot/tail.
+ */
+@Composable
+fun LassoIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(24.dp)) {
+        val w = size.width
+        val scale = w / 24f
+        val strokeW = 1.75f * scale
+
+        // Main lasso loop
+        val loopPath = Path().apply {
+            moveTo(12f * scale, 15f * scale)
+            cubicTo(
+                6f * scale, 15f * scale,
+                3.5f * scale, 9f * scale,
+                8.5f * scale, 5.5f * scale
+            )
+            cubicTo(
+                13.5f * scale, 2f * scale,
+                20.5f * scale, 6f * scale,
+                18.5f * scale, 12f * scale
+            )
+            cubicTo(
+                17f * scale, 16.5f * scale,
+                13f * scale, 17f * scale,
+                11f * scale, 17.5f * scale
+            )
+        }
+        drawPath(
+            path = loopPath,
+            color = tint,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = strokeW,
+                cap = StrokeCap.Round
+            )
+        )
+
+        // Hanging tail / knot
+        val tailPath = Path().apply {
+            moveTo(11f * scale, 17.5f * scale)
+            quadraticTo(
+                8f * scale, 19f * scale,
+                7f * scale, 21.5f * scale
+            )
+        }
+        drawPath(
+            path = tailPath,
+            color = tint.copy(alpha = 0.75f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = strokeW * 0.9f,
+                cap = StrokeCap.Round
+            )
+        )
+
+        // Small knot dot
+        drawCircle(
+            color = tint,
+            radius = 1.4f * scale,
+            center = Offset(11.5f * scale, 17f * scale)
+        )
+    }
+}
+
+/**
  * Custom vector icon for Flip Canvas Horizontally:
  * Shows mirrored geometric triangles reflected across a central vertical symmetry axis.
  */

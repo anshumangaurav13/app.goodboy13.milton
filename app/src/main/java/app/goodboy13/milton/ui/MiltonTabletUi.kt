@@ -76,6 +76,7 @@ val QUICK_PALETTE_COLORS = listOf(
 fun MiltonTabletUi(
     state: CanvasUiState,
     actions: CanvasUiActions,
+    viewport: app.goodboy13.milton.core.viewport.Viewport? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -316,6 +317,9 @@ fun MiltonTabletUi(
             LayersFloatingWindow(
                 layers = state.layers.layers,
                 activeLayerId = state.layers.activeLayerId,
+                isTransformMode = (state.tool.brushType == BrushType.LASSO),
+                selectedTransformLayerIds = state.selectedTransformLayerIds,
+                onToggleTransformLayer = actions.layers.onToggleTransformLayer,
                 onSelectLayer = actions.layers.onSelectLayer,
                 onAddLayer = actions.layers.onAddLayer,
                 onDeleteLayer = actions.layers.onDeleteLayer,
@@ -339,6 +343,18 @@ fun MiltonTabletUi(
         if (state.tool.eyedropperReticleState.isVisible) {
             EyedropperReticleOverlay(
                 state = state.tool.eyedropperReticleState
+            )
+        }
+
+        // 6b. Selection & Free Transform Gizmo Overlay
+        if (viewport != null && state.selectionState !is app.goodboy13.milton.core.selection.SelectionState.Idle) {
+            app.goodboy13.milton.ui.components.TransformGizmoOverlay(
+                selectionState = state.selectionState,
+                viewport = viewport,
+                onUpdateTransform = actions.transform.onUpdateTransform,
+                onCommit = actions.transform.onCommitTransform,
+                onCancel = actions.transform.onCancelTransform,
+                onReset = actions.transform.onResetTransform
             )
         }
 

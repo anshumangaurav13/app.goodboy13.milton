@@ -14,6 +14,8 @@ import app.goodboy13.milton.core.gl.DabPacket
 import app.goodboy13.milton.core.gl.MiltonCanvasRenderer
 import app.goodboy13.milton.core.history.AddLayerCommand
 import app.goodboy13.milton.core.layer.Layer
+import app.goodboy13.milton.core.selection.SelectionState
+import app.goodboy13.milton.core.selection.SelectionTransformManager
 import app.goodboy13.milton.input.CanvasGestureDetector
 
 data class EyedropperReticleState(
@@ -47,6 +49,8 @@ class MiltonCanvasView @JvmOverloads constructor(
     )
     val layerManager: app.goodboy13.milton.core.layer.LayerManager get() = renderer.layerManager
     val brushEngine = BrushEngine()
+    val selectionManager = SelectionTransformManager()
+    var selectedTransformLayerIds: Set<Long> = emptySet()
 
     private var frontBufferedRenderer: GLFrontBufferedRenderer<DabPacket>? = null
     private var lastViewportPostTime: Long = 0L
@@ -525,6 +529,44 @@ class MiltonCanvasView @JvmOverloads constructor(
                     onEyedropperReticleChanged?.invoke(
                         EyedropperReticleState(isVisible = false)
                     )
+                }
+            }
+            return true
+        }
+
+        // 0b. Lasso Selection Mode
+        if (brushType == app.goodboy13.milton.core.brush.BrushType.LASSO) {
+            if (selectionManager.state.value is SelectionState.ActiveTransform) {
+                if (event.pointerCount >= 2) {
+                    return gestureDetector.onTouchEvent(event)
+                }
+                return false
+            }
+
+            if (event.pointerCount >= 2) {
+                return gestureDetector.onTouchEvent(event)
+            }
+
+            parent?.requestDisallowInterceptTouchEvent(true)
+            val worldPos = renderer.viewport.screenToWorld(event.x, event.y)
+
+            when (action) {
+                MotionEvent.ACTION_DOWN -> {
+                    selectionManager.startLasso(worldPos)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    selectionManager.addLassoPoint(worldPos)
+                }
+                MotionEvent.ACTION_UP -> {
+                    val targets = if (selectedTransformLayerIds.isNotEmpty()) {
+                        selectedTransformLayerIds
+                    } else {
+                        setOf(layerManager.activeLayerId)
+                    }
+                    selectionManager.finishLasso(this, targets)
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    selectionManager.cancelLasso()
                 }
             }
             return true

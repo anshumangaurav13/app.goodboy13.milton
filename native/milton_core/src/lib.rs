@@ -3,10 +3,11 @@ pub mod archive;
 pub mod tile_swap;
 pub mod export;
 pub mod sub_tile;
+pub mod selection;
 
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JClass, JIntArray, JString};
-use jni::sys::{jboolean, jint, jlong, JNI_FALSE, JNI_TRUE};
+use jni::objects::{JByteArray, JClass, JFloatArray, JIntArray, JString};
+use jni::sys::{jboolean, jfloat, jint, jlong, JNI_FALSE, JNI_TRUE};
 
 // ============================================================================
 // #1 COMPRESSION & ARCHIVE CODEC JNI BINDINGS
@@ -356,5 +357,204 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_applyS
         }
         Err(_) => JNI_FALSE,
     }
+}
+
+// ============================================================================
+// #4 LASSO SELECTION & FREE TRANSFORM JNI BINDINGS
+// ============================================================================
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_rasterizePolygonMask<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    points_x: JFloatArray<'local>,
+    points_y: JFloatArray<'local>,
+    tile_left: jfloat,
+    tile_top: jfloat,
+) -> JByteArray<'local> {
+    let len_x = match env.get_array_length(&points_x) {
+        Ok(l) => l as usize,
+        Err(_) => return JByteArray::default(),
+    };
+    let len_y = match env.get_array_length(&points_y) {
+        Ok(l) => l as usize,
+        Err(_) => return JByteArray::default(),
+    };
+
+    if len_x != len_y || len_x < 3 {
+        return JByteArray::default();
+    }
+
+    let mut xs = vec![0.0f32; len_x];
+    let mut ys = vec![0.0f32; len_y];
+    if env.get_float_array_region(&points_x, 0, &mut xs).is_err()
+        || env.get_float_array_region(&points_y, 0, &mut ys).is_err()
+    {
+        return JByteArray::default();
+    }
+
+    let points: Vec<selection::Point2D> = xs
+        .into_iter()
+        .zip(ys.into_iter())
+        .map(|(x, y)| selection::Point2D { x, y })
+        .collect();
+
+    let poly = selection::Polygon::new(points);
+    match poly.rasterize_tile_mask(tile_left as f32, tile_top as f32) {
+        Some(mask) => env.byte_array_from_slice(&mask).unwrap_or_default(),
+        None => JByteArray::default(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_transformPatchPixels<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    src_rgba: JByteArray<'local>,
+    src_w: jint,
+    src_h: jint,
+    scale_x: jfloat,
+    scale_y: jfloat,
+    rotation_rad: jfloat,
+    pivot_x: jfloat,
+    pivot_y: jfloat,
+    flip_h: jboolean,
+    flip_v: jboolean,
+) -> JByteArray<'local> {
+    let src = match env.convert_byte_array(&src_rgba) {
+        Ok(b) => b,
+        Err(_) => return JByteArray::default(),
+    };
+
+    match selection::transform_patch(
+        &src,
+        src_w as usize,
+        src_h as usize,
+        scale_x as f32,
+        scale_y as f32,
+        rotation_rad as f32,
+        pivot_x as f32,
+        pivot_y as f32,
+        flip_h == JNI_TRUE,
+        flip_v == JNI_TRUE,
+    ) {
+        Ok((dst_rgba, dst_w, dst_h, min_x, min_y)) => {
+            let mut packed = Vec::with_capacity(16 + dst_rgba.len());
+            packed.extend_from_slice(&(dst_w as u32).to_be_bytes());
+            packed.extend_from_slice(&(dst_h as u32).to_be_bytes());
+            packed.extend_from_slice(&min_x.to_bits().to_be_bytes());
+            packed.extend_from_slice(&min_y.to_bits().to_be_bytes());
+            packed.extend_from_slice(&dst_rgba);
+            env.byte_array_from_slice(&packed).unwrap_or_default()
+        }
+        Err(_) => JByteArray::default(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_extractAndClearTileSelection<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    tile_rgba: JByteArray<'local>,
+    tile_origin_x: jint,
+    tile_origin_y: jint,
+    tile_mask: JByteArray<'local>,
+    patch_rgba: JByteArray<'local>,
+    patch_w: jint,
+    patch_h: jint,
+    patch_origin_x: jint,
+    patch_origin_y: jint,
+) -> jboolean {
+    let mut tile = match env.convert_byte_array(&tile_rgba) {
+        Ok(b) => b,
+        Err(_) => return JNI_FALSE,
+    };
+    let mask = match env.convert_byte_array(&tile_mask) {
+        Ok(b) => b,
+        Err(_) => return JNI_FALSE,
+    };
+    let mut patch = match env.convert_byte_array(&patch_rgba) {
+        Ok(b) => b,
+        Err(_) => return JNI_FALSE,
+    };
+
+    if tile.len() < 512 * 512 * 4
+        || mask.len() < 512 * 512
+        || patch.len() < (patch_w as usize) * (patch_h as usize) * 4
+    {
+        return JNI_FALSE;
+    }
+
+    selection::extract_and_clear_tile_selection(
+        &mut tile,
+        tile_origin_x,
+        tile_origin_y,
+        &mask,
+        &mut patch,
+        patch_w as usize,
+        patch_h as usize,
+        patch_origin_x,
+        patch_origin_y,
+    );
+
+    let tile_slice: &[i8] =
+        unsafe { std::slice::from_raw_parts(tile.as_ptr() as *const i8, tile.len()) };
+    let patch_slice: &[i8] =
+        unsafe { std::slice::from_raw_parts(patch.as_ptr() as *const i8, patch.len()) };
+
+    if env.set_byte_array_region(&tile_rgba, 0, tile_slice).is_err()
+        || env.set_byte_array_region(&patch_rgba, 0, patch_slice).is_err()
+    {
+        return JNI_FALSE;
+    }
+
+    JNI_TRUE
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_blitPatchToTile<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    tile_rgba: JByteArray<'local>,
+    tile_origin_x: jint,
+    tile_origin_y: jint,
+    patch_rgba: JByteArray<'local>,
+    patch_w: jint,
+    patch_h: jint,
+    patch_origin_x: jint,
+    patch_origin_y: jint,
+) -> jboolean {
+    let mut tile = match env.convert_byte_array(&tile_rgba) {
+        Ok(b) => b,
+        Err(_) => return JNI_FALSE,
+    };
+    let patch = match env.convert_byte_array(&patch_rgba) {
+        Ok(b) => b,
+        Err(_) => return JNI_FALSE,
+    };
+
+    if tile.len() < 512 * 512 * 4 || patch.len() < (patch_w as usize) * (patch_h as usize) * 4 {
+        return JNI_FALSE;
+    }
+
+    selection::blit_patch_to_tile(
+        &mut tile,
+        tile_origin_x,
+        tile_origin_y,
+        &patch,
+        patch_w as usize,
+        patch_h as usize,
+        patch_origin_x,
+        patch_origin_y,
+    );
+
+    let tile_slice: &[i8] =
+        unsafe { std::slice::from_raw_parts(tile.as_ptr() as *const i8, tile.len()) };
+
+    if env.set_byte_array_region(&tile_rgba, 0, tile_slice).is_err() {
+        return JNI_FALSE;
+    }
+
+    JNI_TRUE
 }
 

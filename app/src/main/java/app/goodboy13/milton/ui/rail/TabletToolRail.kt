@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.goodboy13.milton.core.brush.BrushType
 import app.goodboy13.milton.ui.components.EraserIcon
+import app.goodboy13.milton.ui.components.LassoIcon
 import app.goodboy13.milton.ui.components.PaintbrushIcon
 import app.goodboy13.milton.ui.components.PenIcon
 import app.goodboy13.milton.ui.components.PencilIcon
@@ -141,6 +142,12 @@ fun TabletToolRail(
                 onSelect = { onSelectBrush(BrushType.ERASER) },
                 onOpenMenu = onOpenToolParameters
             )
+            ToolButton(
+                brushType = BrushType.LASSO,
+                isSelected = activeBrush == BrushType.LASSO,
+                onSelect = { onSelectBrush(BrushType.LASSO) },
+                onOpenMenu = onOpenToolParameters
+            )
 
             HorizontalDivider(
                 color = Color(0x28FFFFFF),
@@ -218,6 +225,7 @@ private fun ToolButton(
                 BrushType.PENCIL -> PencilIcon(tint = tint, modifier = Modifier.size(22.dp))
                 BrushType.PAINTBRUSH -> PaintbrushIcon(tint = tint, modifier = Modifier.size(22.dp))
                 BrushType.ERASER -> EraserIcon(tint = tint, modifier = Modifier.size(22.dp))
+                BrushType.LASSO -> LassoIcon(tint = tint, modifier = Modifier.size(22.dp))
             }
         }
     }

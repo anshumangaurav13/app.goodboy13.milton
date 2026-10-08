@@ -67,5 +67,7 @@ data class CanvasUiState(
     val tool: ToolUiState = ToolUiState(),
     val viewport: ViewportUiState = ViewportUiState(),
     val document: DocumentUiState = DocumentUiState(),
-    val layers: LayersUiState = LayersUiState()
+    val layers: LayersUiState = LayersUiState(),
+    val selectionState: app.goodboy13.milton.core.selection.SelectionState = app.goodboy13.milton.core.selection.SelectionState.Idle,
+    val selectedTransformLayerIds: Set<Long> = emptySet()
 )

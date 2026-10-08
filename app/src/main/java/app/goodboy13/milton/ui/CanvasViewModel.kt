@@ -126,6 +126,12 @@ class CanvasViewModel : ViewModel() {
             }
         }
 
+        viewModelScope.launch {
+            canvasView.selectionManager.state.collect { selState ->
+                _uiState.update { it.copy(selectionState = selState) }
+            }
+        }
+
         canvasView.renderer.undoManager.onTilesCommittedListener = { deltas ->
             markUnsavedChanges()
             storageManager.onTilesCommitted(deltas, _uiState.value.document.documentTitle, canvasView)
@@ -256,7 +262,15 @@ class CanvasViewModel : ViewModel() {
     // -------------------------------------------------------------
 
     fun setBrushType(type: BrushType, canvasView: MiltonCanvasView) {
+        if (canvasView.brushType == BrushType.LASSO && type != BrushType.LASSO) {
+            canvasView.selectionManager.cancelTransform(canvasView)
+        }
         canvasView.brushType = type
+        if (type == BrushType.LASSO) {
+            val defaultTargets = setOf(_uiState.value.layers.activeLayerId)
+            _uiState.update { it.copy(selectedTransformLayerIds = defaultTargets) }
+            canvasView.selectedTransformLayerIds = defaultTargets
+        }
         appContext?.let { ctx ->
             app.goodboy13.milton.core.preferences.ToolPreferences.saveActiveBrushType(ctx, type)
         }
@@ -272,6 +286,42 @@ class CanvasViewModel : ViewModel() {
                 )
             )
         }
+    }
+
+    fun selectLasso(canvasView: MiltonCanvasView) {
+        setBrushType(BrushType.LASSO, canvasView)
+    }
+
+    fun toggleTransformLayer(layerId: Long, canvasView: MiltonCanvasView) {
+        val currentSet = _uiState.value.selectedTransformLayerIds.toMutableSet()
+        if (currentSet.contains(layerId)) {
+            if (currentSet.size > 1) {
+                currentSet.remove(layerId)
+            }
+        } else {
+            currentSet.add(layerId)
+        }
+        _uiState.update { it.copy(selectedTransformLayerIds = currentSet) }
+        canvasView.selectedTransformLayerIds = currentSet
+    }
+
+    fun updateTransform(
+        dx: Float?, dy: Float?, sx: Float?, sy: Float?, rot: Float?, flipH: Boolean?, flipV: Boolean?,
+        canvasView: MiltonCanvasView
+    ) {
+        canvasView.selectionManager.updateTransform(dx, dy, sx, sy, rot, flipH, flipV)
+    }
+
+    fun commitTransform(canvasView: MiltonCanvasView) {
+        canvasView.selectionManager.commitTransform(canvasView)
+    }
+
+    fun cancelTransform(canvasView: MiltonCanvasView) {
+        canvasView.selectionManager.cancelTransform(canvasView)
+    }
+
+    fun resetTransform(canvasView: MiltonCanvasView) {
+        canvasView.selectionManager.resetSessionTransform()
     }
 
     fun setBrushSize(size: Float, canvasView: MiltonCanvasView) {

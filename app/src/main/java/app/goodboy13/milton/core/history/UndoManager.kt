@@ -109,6 +109,16 @@ class UndoManager(val maxHistorySize: Int = 30) {
     }
 
     /**
+     * Explicitly registers a tile's pre-modification raw bytes for undo tracking (e.g. before cut/transform).
+     */
+    fun registerPreModifiedTile(layerId: Long, coord: TileCoord, rawBytes: ByteArray?) {
+        val key = layerId to coord
+        if (!pendingPreStrokeRaw.containsKey(key)) {
+            pendingPreStrokeRaw[key] = rawBytes
+        }
+    }
+
+    /**
      * Call after stamping stroke dabs to finalize the stroke command into the undo stack.
      */
     fun commitStroke(layerId: Long, tileMap: TileMap) {

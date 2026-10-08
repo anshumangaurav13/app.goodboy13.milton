@@ -82,4 +82,86 @@ object MiltonNative {
 
     @JvmStatic
     external fun applySubTilePatch(tileBuf: ByteArray, patchCompressed: ByteArray, minX: Int, minY: Int, width: Int, height: Int): Boolean
+
+    // ========================================================================
+    // #4 LASSO SELECTION & FREE TRANSFORM
+    // ========================================================================
+
+    data class TransformedPatch(
+        val width: Int,
+        val height: Int,
+        val offsetX: Float,
+        val offsetY: Float,
+        val rgbaBytes: ByteArray
+    )
+
+    @JvmStatic
+    external fun rasterizePolygonMask(pointsX: FloatArray, pointsY: FloatArray, tileLeft: Float, tileTop: Float): ByteArray?
+
+    @JvmStatic
+    external fun transformPatchPixels(
+        srcRgba: ByteArray,
+        srcW: Int,
+        srcH: Int,
+        scaleX: Float,
+        scaleY: Float,
+        rotationRad: Float,
+        pivotX: Float,
+        pivotY: Float,
+        flipH: Boolean,
+        flipV: Boolean
+    ): ByteArray?
+
+    fun transformPatch(
+        srcRgba: ByteArray,
+        srcW: Int,
+        srcH: Int,
+        scaleX: Float,
+        scaleY: Float,
+        rotationRad: Float,
+        pivotX: Float,
+        pivotY: Float,
+        flipH: Boolean,
+        flipV: Boolean
+    ): TransformedPatch? {
+        if (!isLoaded) return null
+        val packed = transformPatchPixels(
+            srcRgba, srcW, srcH, scaleX, scaleY, rotationRad, pivotX, pivotY, flipH, flipV
+        ) ?: return null
+        if (packed.size < 16) return null
+        val buf = java.nio.ByteBuffer.wrap(packed).order(java.nio.ByteOrder.BIG_ENDIAN)
+        val dstW = buf.int
+        val dstH = buf.int
+        val offX = buf.float
+        val offY = buf.float
+        val expectedLen = dstW * dstH * 4
+        if (packed.size < 16 + expectedLen) return null
+        val dstRgba = packed.copyOfRange(16, 16 + expectedLen)
+        return TransformedPatch(dstW, dstH, offX, offY, dstRgba)
+    }
+
+    @JvmStatic
+    external fun extractAndClearTileSelection(
+        tileRgba: ByteArray,
+        tileOriginX: Int,
+        tileOriginY: Int,
+        tileMask: ByteArray,
+        patchRgba: ByteArray,
+        patchW: Int,
+        patchH: Int,
+        patchOriginX: Int,
+        patchOriginY: Int
+    ): Boolean
+
+    @JvmStatic
+    external fun blitPatchToTile(
+        tileRgba: ByteArray,
+        tileOriginX: Int,
+        tileOriginY: Int,
+        patchRgba: ByteArray,
+        patchW: Int,
+        patchH: Int,
+        patchOriginX: Int,
+        patchOriginY: Int
+    ): Boolean
 }

@@ -61,7 +61,26 @@ data class LayerActions(
     val onMoveLayerUp: (Long) -> Unit = {},
     val onMoveLayerDown: (Long) -> Unit = {},
     val onReorderLayer: (Int, Int) -> Unit = { _, _ -> },
-    val onReorderLayers: (List<Long>) -> Unit = {}
+    val onReorderLayers: (List<Long>) -> Unit = {},
+    val onToggleTransformLayer: (Long) -> Unit = {}
+)
+
+/**
+ * Callbacks for Lasso selection and free transform manipulation.
+ */
+data class TransformActions(
+    val onUpdateTransform: (
+        dx: Float?,
+        dy: Float?,
+        sx: Float?,
+        sy: Float?,
+        rot: Float?,
+        flipH: Boolean?,
+        flipV: Boolean?
+    ) -> Unit = { _, _, _, _, _, _, _ -> },
+    val onCommitTransform: () -> Unit = {},
+    val onCancelTransform: () -> Unit = {},
+    val onResetTransform: () -> Unit = {}
 )
 
 /**
@@ -71,5 +90,6 @@ data class CanvasUiActions(
     val tool: ToolActions = ToolActions(),
     val viewport: ViewportActions = ViewportActions(),
     val document: DocumentActions = DocumentActions(),
-    val layers: LayerActions = LayerActions()
+    val layers: LayerActions = LayerActions(),
+    val transform: TransformActions = TransformActions()
 )

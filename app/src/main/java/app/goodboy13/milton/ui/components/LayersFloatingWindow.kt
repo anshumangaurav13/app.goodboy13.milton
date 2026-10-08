@@ -33,6 +33,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -89,6 +90,9 @@ import kotlin.math.roundToInt
 fun LayersFloatingWindow(
     layers: List<Layer>,
     activeLayerId: Long,
+    isTransformMode: Boolean = false,
+    selectedTransformLayerIds: Set<Long> = emptySet(),
+    onToggleTransformLayer: (Long) -> Unit = {},
     onSelectLayer: (Long) -> Unit,
     onAddLayer: () -> Unit,
     onDeleteLayer: (Long) -> Unit,
@@ -204,6 +208,9 @@ fun LayersFloatingWindow(
                             layer = layer,
                             isActive = isActive,
                             isDimmed = isBeingDragged,
+                            isTransformMode = isTransformMode,
+                            isTransformChecked = selectedTransformLayerIds.contains(layer.id),
+                            onToggleTransformCheck = { onToggleTransformLayer(layer.id) },
                             canDelete = canDelete,
                             canMoveUp = !isTopmost,
                             canMoveDown = !isBottommost,
@@ -556,6 +563,9 @@ private fun LayerCard(
     layer: Layer,
     isActive: Boolean,
     isDimmed: Boolean = false,
+    isTransformMode: Boolean = false,
+    isTransformChecked: Boolean = false,
+    onToggleTransformCheck: () -> Unit = {},
     canDelete: Boolean,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
@@ -595,12 +605,34 @@ private fun LayerCard(
                 .fillMaxWidth()
                 .padding(horizontal = 6.dp, vertical = 5.dp)
         ) {
-            // Main Row: Visibility, Thumbnail, Name, Drag Handle, Reorder Arrows, Delete
+            // Main Row: Checkbox (if transform), Visibility, Thumbnail, Name, Drag Handle, Reorder Arrows, Delete
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                // Multi-Layer Transform Checkbox
+                if (isTransformMode) {
+                    Box(
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (isTransformChecked) Color(0xFF1976D2) else Color(0x33FFFFFF))
+                            .border(1.dp, if (isTransformChecked) Color(0xFF64B5F6) else Color(0x55FFFFFF), RoundedCornerShape(4.dp))
+                            .clickable { onToggleTransformCheck() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isTransformChecked) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Layer Selected for Transform",
+                                tint = Color.White,
+                                modifier = Modifier.size(13.dp)
+                            )
+                        }
+                    }
+                }
+
                 // Visibility Eye Toggle
                 IconButton(
                     onClick = onToggleVisibility,

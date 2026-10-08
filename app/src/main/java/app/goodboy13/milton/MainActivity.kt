@@ -125,6 +125,10 @@ class MainActivity : ComponentActivity() {
                 viewModel.toggleEyedropper(canvasView)
             }
 
+            override fun onSelectLasso() {
+                viewModel.selectLasso(canvasView)
+            }
+
             override fun onStepBrushSize(increase: Boolean) {
                 canvasView.stepBrushSize(increase)
             }
@@ -330,7 +334,18 @@ class MainActivity : ComponentActivity() {
                         onReorderLayers = { newOrderIds ->
                             layerManager.reorderLayersById(newOrderIds)
                             viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId)
+                        },
+                        onToggleTransformLayer = { id ->
+                            viewModel.toggleTransformLayer(id, canvasView)
                         }
+                    ),
+                    transform = app.goodboy13.milton.ui.state.TransformActions(
+                        onUpdateTransform = { dx, dy, sx, sy, rot, flipH, flipV ->
+                            viewModel.updateTransform(dx, dy, sx, sy, rot, flipH, flipV, canvasView)
+                        },
+                        onCommitTransform = { viewModel.commitTransform(canvasView) },
+                        onCancelTransform = { viewModel.cancelTransform(canvasView) },
+                        onResetTransform = { viewModel.resetTransform(canvasView) }
                     )
                 )
 
@@ -342,7 +357,8 @@ class MainActivity : ComponentActivity() {
 
                     MiltonTabletUi(
                         state = uiState,
-                        actions = actions
+                        actions = actions,
+                        viewport = canvasView.renderer.viewport
                     )
 
                     if (showNewProjectDialog) {
