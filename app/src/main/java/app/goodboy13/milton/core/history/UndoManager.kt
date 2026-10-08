@@ -356,6 +356,14 @@ class UndoManager(val maxHistorySize: Int = 30) {
 
     companion object {
         fun compress(input: ByteArray): ByteArray {
+            if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
+                try {
+                    val result = app.goodboy13.milton.core.native.MiltonNative.compressTile(input)
+                    if (result.isNotEmpty()) return result
+                } catch (e: Throwable) {
+                    // Fall back to Java Deflater
+                }
+            }
             val deflater = Deflater(Deflater.BEST_SPEED)
             deflater.setInput(input)
             deflater.finish()
@@ -371,6 +379,14 @@ class UndoManager(val maxHistorySize: Int = 30) {
         }
 
         fun decompress(input: ByteArray): ByteArray {
+            if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
+                try {
+                    val result = app.goodboy13.milton.core.native.MiltonNative.decompressTile(input)
+                    if (result.isNotEmpty()) return result
+                } catch (e: Throwable) {
+                    // Fall back to Java Inflater
+                }
+            }
             val inflater = Inflater()
             inflater.setInput(input)
 

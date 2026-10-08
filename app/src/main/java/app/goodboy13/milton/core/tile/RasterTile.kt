@@ -125,6 +125,15 @@ class RasterTile(val coord: TileCoord) {
 
         try {
             val raw = readPixels()
+            if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
+                val ok = app.goodboy13.milton.core.native.MiltonNative.swapWriteTile(
+                    cacheDir.absolutePath, 0L, coord.tx, coord.ty, raw
+                )
+                if (ok) {
+                    isOnDisk = true
+                    return
+                }
+            }
             val swapFile = getSwapFile(cacheDir)
             swapFile.parentFile?.mkdirs()
             swapFile.writeBytes(raw)
@@ -143,6 +152,18 @@ class RasterTile(val coord: TileCoord) {
         }
 
         try {
+            if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
+                val raw = ByteArray(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4)
+                val ok = app.goodboy13.milton.core.native.MiltonNative.swapReadTile(
+                    cacheDir.absolutePath, 0L, coord.tx, coord.ty, raw
+                )
+                if (ok) {
+                    initGl()
+                    writePixels(raw)
+                    hasContent = true
+                    return
+                }
+            }
             val swapFile = getSwapFile(cacheDir)
             val raw = readSwapBytes(swapFile)
             if (raw != null) {
@@ -162,6 +183,11 @@ class RasterTile(val coord: TileCoord) {
 
     fun deleteDiskSwap(cacheDir: File?) {
         if (cacheDir != null) {
+            if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
+                app.goodboy13.milton.core.native.MiltonNative.swapDeleteTile(
+                    cacheDir.absolutePath, 0L, coord.tx, coord.ty
+                )
+            }
             val swapFile = getSwapFile(cacheDir)
             if (swapFile.exists()) {
                 swapFile.delete()

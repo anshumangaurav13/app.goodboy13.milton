@@ -147,8 +147,13 @@ object CanvasExportEngine {
     }
 
     private fun flipPixelsVertically(src: ByteArray, width: Int, height: Int): ByteArray {
-        val stride = width * 4
         val dst = ByteArray(src.size)
+        if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
+            if (app.goodboy13.milton.core.native.MiltonNative.flipPixelsVertically(src, width, height, dst)) {
+                return dst
+            }
+        }
+        val stride = width * 4
         for (row in 0 until height) {
             val srcOffset = (height - 1 - row) * stride
             val dstOffset = row * stride
@@ -170,6 +175,16 @@ object CanvasExportEngine {
         val exportDir = File(context.cacheDir, "exports")
         exportDir.mkdirs()
         val file = File(exportDir, filename)
+
+        if (format == Bitmap.CompressFormat.PNG && app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
+            val byteBuf = java.nio.ByteBuffer.allocate(bitmap.width * bitmap.height * 4)
+            bitmap.copyPixelsToBuffer(byteBuf)
+            val raw = byteBuf.array()
+            if (app.goodboy13.milton.core.native.MiltonNative.exportCanvasPng(bitmap.width, bitmap.height, raw, file.absolutePath)) {
+                return file
+            }
+        }
+
         FileOutputStream(file).use { out ->
             bitmap.compress(format, quality, out)
         }

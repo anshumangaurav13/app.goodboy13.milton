@@ -18,3 +18,7 @@ app/build/
 *.keystore
 *.jks
 keystore.properties
+
+# Rust build artifacts
+target/
+**/target/

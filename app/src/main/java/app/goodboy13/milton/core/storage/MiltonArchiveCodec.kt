@@ -33,6 +33,19 @@ class MiltonArchiveCodec(private val context: Context) {
         // Ensure latest state is flushed to disk
         autosaveCoordinator.performAutosave(documentTitle, canvasView)
 
+        if (app.goodboy13.milton.core.native.MiltonNative.isLoaded && autosaveCoordinator.autosaveManifestFile.exists()) {
+            val manifestJson = autosaveCoordinator.autosaveManifestFile.readText()
+            val ok = app.goodboy13.milton.core.native.MiltonNative.exportArchive(
+                manifestJson = manifestJson,
+                tilesDir = autosaveCoordinator.autosaveTilesDir.absolutePath,
+                destinationZip = destinationFile.absolutePath
+            )
+            if (ok) {
+                Log.i(TAG, "Native exported .milton archive to ${destinationFile.absolutePath}")
+                return@withContext
+            }
+        }
+
         ZipOutputStream(FileOutputStream(destinationFile)).use { zos ->
             // 1. Write manifest
             if (autosaveCoordinator.autosaveManifestFile.exists()) {

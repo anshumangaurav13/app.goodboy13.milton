@@ -81,9 +81,30 @@ android {
         compose = true
     }
 
+    sourceSets {
+        getByName("main") {
+            jniLibs.srcDirs("src/main/jniLibs")
+        }
+    }
+
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
+}
+
+tasks.register<Exec>("buildRustNative") {
+    workingDir = file("${rootDir}/native/milton_core")
+    commandLine(
+        "cargo", "ndk",
+        "-t", "arm64-v8a",
+        "--platform", "26",
+        "-o", "${projectDir}/src/main/jniLibs",
+        "build", "--release"
+    )
+}
+
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("NativeLibs") }.configureEach {
+    dependsOn("buildRustNative")
 }
 
 dependencies {

@@ -1,0 +1,22 @@
+[package]
+name = "milton_core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+jni = { version = "0.21", default-features = false }
+zstd = { version = "0.13" }
+flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
+zip = { version = "2.2", default-features = false, features = ["deflate", "zstd"] }
+rayon = "1.10"
+png = "0.17"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
