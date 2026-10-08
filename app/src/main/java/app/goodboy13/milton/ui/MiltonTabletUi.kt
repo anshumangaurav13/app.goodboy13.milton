@@ -178,6 +178,20 @@ fun MiltonTabletUi(
             )
         }
 
+        // 0c. Selection & Free Transform Gizmo Overlay (rendered directly above canvas, beneath tool rails and floating dialogs)
+        if (viewport != null && state.selectionState !is app.goodboy13.milton.core.selection.SelectionState.Idle) {
+            app.goodboy13.milton.ui.components.TransformGizmoOverlay(
+                selectionState = state.selectionState,
+                viewport = viewport,
+                onUpdateTransform = actions.transform.onUpdateTransform,
+                onCommit = actions.transform.onCommitTransform,
+                onCancel = actions.transform.onCancelTransform,
+                onReset = actions.transform.onResetTransform,
+                isCanvasFlipped = state.viewport.isCanvasFlipped,
+                onToggleFlipCanvas = actions.viewport.onToggleFlipCanvas
+            )
+        }
+
         // 1. Left Vertical Tool Rail (docked to left screen edge)
         AnimatedVisibility(
             visible = !state.viewport.isZenMode,
@@ -343,18 +357,6 @@ fun MiltonTabletUi(
         if (state.tool.eyedropperReticleState.isVisible) {
             EyedropperReticleOverlay(
                 state = state.tool.eyedropperReticleState
-            )
-        }
-
-        // 6b. Selection & Free Transform Gizmo Overlay
-        if (viewport != null && state.selectionState !is app.goodboy13.milton.core.selection.SelectionState.Idle) {
-            app.goodboy13.milton.ui.components.TransformGizmoOverlay(
-                selectionState = state.selectionState,
-                viewport = viewport,
-                onUpdateTransform = actions.transform.onUpdateTransform,
-                onCommit = actions.transform.onCommitTransform,
-                onCancel = actions.transform.onCancelTransform,
-                onReset = actions.transform.onResetTransform
             )
         }
 

@@ -76,6 +76,8 @@ fun TransformGizmoOverlay(
     onCommit: () -> Unit,
     onCancel: () -> Unit,
     onReset: () -> Unit,
+    isCanvasFlipped: Boolean = false,
+    onToggleFlipCanvas: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     when (selectionState) {
@@ -83,6 +85,7 @@ fun TransformGizmoOverlay(
             LassoDrawingCanvas(
                 points = selectionState.points,
                 viewport = viewport,
+                isCanvasFlipped = isCanvasFlipped,
                 modifier = modifier
             )
         }
@@ -94,6 +97,8 @@ fun TransformGizmoOverlay(
                 onCommit = onCommit,
                 onCancel = onCancel,
                 onReset = onReset,
+                isCanvasFlipped = isCanvasFlipped,
+                onToggleFlipCanvas = onToggleFlipCanvas,
                 modifier = modifier
             )
         }
@@ -105,6 +110,7 @@ fun TransformGizmoOverlay(
 private fun LassoDrawingCanvas(
     points: List<Vec2>,
     viewport: Viewport,
+    isCanvasFlipped: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     if (points.isEmpty()) return
@@ -163,11 +169,15 @@ private fun TransformSessionOverlay(
     onCommit: () -> Unit,
     onCancel: () -> Unit,
     onReset: () -> Unit,
+    isCanvasFlipped: Boolean = false,
+    onToggleFlipCanvas: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val currentSession by rememberUpdatedState(session)
     val currentViewport by rememberUpdatedState(viewport)
     val currentOnUpdateTransform by rememberUpdatedState(onUpdateTransform)
+    val currentIsCanvasFlipped by rememberUpdatedState(isCanvasFlipped)
+    val currentOnToggleFlipCanvas by rememberUpdatedState(onToggleFlipCanvas)
 
     var dragMode by remember { mutableStateOf(DragMode.NONE) }
     var initialTouchScreen by remember { mutableStateOf(Vec2(0f, 0f)) }
@@ -209,21 +219,20 @@ private fun TransformSessionOverlay(
     val pivotWorld = Vec2(session.pivotX + session.translationX, session.pivotY + session.translationY)
     val pivotScreen = viewport.worldToScreen(pivotWorld.x, pivotWorld.y)
 
-    // Top center for rotation stem
+    // Top center for rotation stem (points radially outwards from box center)
     val topCenter = Vec2((p0.x + p1.x) * 0.5f, (p0.y + p1.y) * 0.5f)
-    val stemDx = p1.x - p0.x
-    val stemDy = p1.y - p0.y
-    val stemLen = hypot(stemDx, stemDy).coerceAtLeast(0.001f)
-    val nx = -stemDy / stemLen
-    val ny = stemDx / stemLen
-    val rotHandleScreen = Vec2(topCenter.x + nx * 36f, topCenter.y + ny * 36f)
+    val boxCenter = Vec2((p0.x + p1.x + p2.x + p3.x) * 0.25f, (p0.y + p1.y + p2.y + p3.y) * 0.25f)
+    val outX = topCenter.x - boxCenter.x
+    val outY = topCenter.y - boxCenter.y
+    val outLen = hypot(outX, outY).coerceAtLeast(0.001f)
+    val rotHandleScreen = Vec2(topCenter.x + (outX / outLen) * 36f, topCenter.y + (outY / outLen) * 36f)
 
     Box(modifier = modifier.fillMaxSize()) {
         // 1. Gesture detector & Gizmo Rendering Canvas
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) {
+                .pointerInput(isCanvasFlipped) {
                     detectDragGestures(
                         onDragStart = { offset ->
                             val touch = Vec2(offset.x, offset.y)
@@ -240,10 +249,11 @@ private fun TransformSessionOverlay(
                             val curPivotScreen = vp.worldToScreen(curPivotWorld.x, curPivotWorld.y)
 
                             val curTopCenter = Vec2((cp0.x + cp1.x) * 0.5f, (cp0.y + cp1.y) * 0.5f)
-                            val sDx = cp1.x - cp0.x
-                            val sDy = cp1.y - cp0.y
-                            val sLen = hypot(sDx, sDy).coerceAtLeast(0.001f)
-                            val curRotHandle = Vec2(curTopCenter.x + (-sDy / sLen) * 36f, curTopCenter.y + (sDx / sLen) * 36f)
+                            val curBoxCenter = Vec2((cp0.x + cp1.x + cp2.x + cp3.x) * 0.25f, (cp0.y + cp1.y + cp2.y + cp3.y) * 0.25f)
+                            val cOutX = curTopCenter.x - curBoxCenter.x
+                            val cOutY = curTopCenter.y - curBoxCenter.y
+                            val cOutLen = hypot(cOutX, cOutY).coerceAtLeast(0.001f)
+                            val curRotHandle = Vec2(curTopCenter.x + (cOutX / cOutLen) * 36f, curTopCenter.y + (cOutY / cOutLen) * 36f)
 
                             val handleHitRadius = 36f
                             if (hypot(touch.x - curRotHandle.x, touch.y - curRotHandle.y) <= handleHitRadius) {
@@ -296,9 +306,10 @@ private fun TransformSessionOverlay(
                                         val pScreen = vp.worldToScreen(pWorld.x, pWorld.y)
                                         val currentAngle = atan2(currentTouch.y - pScreen.y, currentTouch.x - pScreen.x)
                                         val deltaAngle = currentAngle - initialAngleToPivot
+                                        val effDelta = if (vp.isFlippedHorizontally) -deltaAngle else deltaAngle
                                         currentOnUpdateTransform(
                                             null, null, null, null,
-                                            initialRotation + deltaAngle,
+                                            initialRotation + effDelta,
                                             null, null
                                         )
                                     }
@@ -442,6 +453,17 @@ private fun TransformSessionOverlay(
                         modifier = Modifier
                             .size(18.dp)
                             .rotate(90f)
+                    )
+                }
+
+                // Flip Canvas Horizontally
+                IconButton(
+                    onClick = currentOnToggleFlipCanvas,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    FlipCanvasIcon(
+                        tint = if (currentIsCanvasFlipped) Color(0xFF64B5F6) else Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 
