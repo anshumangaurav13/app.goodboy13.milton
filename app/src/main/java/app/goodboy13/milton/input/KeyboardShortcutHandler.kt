@@ -122,14 +122,19 @@ class KeyboardShortcutHandler(
             }
         }
 
-        // Ignore auto-repeat for one-shot action triggers (except bracket size stepping)
-        if (event.repeatCount > 0 && keyCode != KeyEvent.KEYCODE_LEFT_BRACKET && keyCode != KeyEvent.KEYCODE_RIGHT_BRACKET) {
-            return false
-        }
-
         val ctrl = event.isCtrlPressed || isCtrlHeld
         val shift = event.isShiftPressed || isShiftHeld
         val alt = event.isAltPressed || isAltHeld
+
+        // Allow auto-repeat for continuous actions: brush size stepping and undo/redo
+        val isRepeatable = (keyCode == KeyEvent.KEYCODE_LEFT_BRACKET && !ctrl) ||
+                (keyCode == KeyEvent.KEYCODE_RIGHT_BRACKET && !ctrl) ||
+                (ctrl && keyCode == KeyEvent.KEYCODE_Z) ||
+                (ctrl && keyCode == KeyEvent.KEYCODE_Y)
+
+        if (event.repeatCount > 0 && !isRepeatable) {
+            return false
+        }
 
         // 2. Document & History
         if (ctrl && !shift && !alt && keyCode == KeyEvent.KEYCODE_Z) {
