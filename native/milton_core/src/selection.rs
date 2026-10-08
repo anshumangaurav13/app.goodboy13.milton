@@ -278,7 +278,9 @@ pub fn extract_and_clear_tile_selection(
     for y in oy_min..oy_max {
         let ty = (y - tile_origin_y) as usize;
         let py = (y - patch_origin_y) as usize;
-        let tile_row_start = ty * (tile_size as usize) * 4;
+        // Invert Y for OpenGL framebuffer: row 0 in tile_rgba is bottom (ty = 511), row 511 is top (ty = 0)
+        let gl_ty = (TILE_SIZE - 1) - ty;
+        let tile_row_start = gl_ty * (tile_size as usize) * 4;
         let mask_row_start = ty * (tile_size as usize);
         let patch_row_start = py * patch_w * 4;
 
@@ -324,7 +326,9 @@ pub fn blit_patch_to_tile(
     for y in oy_min..oy_max {
         let ty = (y - tile_origin_y) as usize;
         let py = (y - patch_origin_y) as usize;
-        let tile_row_start = ty * (tile_size as usize) * 4;
+        // Invert Y for OpenGL framebuffer: row 0 in tile_rgba is bottom (ty = 511), row 511 is top (ty = 0)
+        let gl_ty = (TILE_SIZE - 1) - ty;
+        let tile_row_start = gl_ty * (tile_size as usize) * 4;
         let patch_row_start = py * patch_w * 4;
 
         for x in ox_min..ox_max {
@@ -343,12 +347,13 @@ pub fn blit_patch_to_tile(
             } else {
                 let da = tile_rgba[t_idx + 3] as u32;
                 let inv_sa = 255 - sa;
-                let out_a = sa + (da * inv_sa) / 255;
+                let out_a = sa + (da * inv_sa + 127) / 255;
                 if out_a > 0 {
                     for c in 0..3 {
                         let sc = patch_rgba[p_idx + c] as u32;
                         let dc = tile_rgba[t_idx + c] as u32;
-                        let out_c = (sc * sa + dc * da * inv_sa / 255) / out_a;
+                        // Premultiplied alpha Porter-Duff Source-Over
+                        let out_c = sc + (dc * inv_sa + 127) / 255;
                         tile_rgba[t_idx + c] = out_c.min(255) as u8;
                     }
                     tile_rgba[t_idx + 3] = out_a.min(255) as u8;
@@ -419,8 +424,9 @@ mod tests {
     #[test]
     fn test_extract_and_blit_roundtrip() {
         let mut tile = vec![0u8; 512 * 512 * 4];
-        // Put a blue pixel at (10, 10) in tile
-        let t_idx = (10 * 512 + 10) * 4;
+        // Put a blue pixel at world (10, 10). In OpenGL buffer, gl_ty = 511 - 10 = 501
+        let gl_ty = 511 - 10;
+        let t_idx = (gl_ty * 512 + 10) * 4;
         tile[t_idx + 2] = 255;
         tile[t_idx + 3] = 255;
 
@@ -447,7 +453,7 @@ mod tests {
             &mut tile, 0, 0, &patch, 20, 20, 5, 5,
         );
 
-        // Tile pixel at (10, 10) should be restored!
+        // Tile pixel at world (10, 10) should be restored!
         assert_eq!(tile[t_idx + 2], 255);
         assert_eq!(tile[t_idx + 3], 255);
     }

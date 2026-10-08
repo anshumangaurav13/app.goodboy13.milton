@@ -26,10 +26,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -128,6 +130,23 @@ private fun LassoDrawingCanvas(
     }
 }
 
+private fun isPointInPolygon(p: Vec2, poly: List<Vec2>): Boolean {
+    if (poly.size < 3) return false
+    var inside = false
+    var j = poly.size - 1
+    for (i in poly.indices) {
+        val pi = poly[i]
+        val pj = poly[j]
+        if (((pi.y > p.y) != (pj.y > p.y)) &&
+            (p.x < (pj.x - pi.x) * (p.y - pi.y) / (pj.y - pi.y) + pi.x)
+        ) {
+            inside = !inside
+        }
+        j = i
+    }
+    return inside
+}
+
 @Composable
 private fun TransformSessionOverlay(
     session: TransformSession,
@@ -146,6 +165,10 @@ private fun TransformSessionOverlay(
     onReset: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val currentSession by rememberUpdatedState(session)
+    val currentViewport by rememberUpdatedState(viewport)
+    val currentOnUpdateTransform by rememberUpdatedState(onUpdateTransform)
+
     var dragMode by remember { mutableStateOf(DragMode.NONE) }
     var initialTouchScreen by remember { mutableStateOf(Vec2(0f, 0f)) }
     var initialSessionTrans by remember { mutableStateOf(Vec2(0f, 0f)) }
@@ -154,12 +177,12 @@ private fun TransformSessionOverlay(
     var initialDistToPivot by remember { mutableStateOf(1f) }
     var initialAngleToPivot by remember { mutableStateOf(0f) }
 
-    fun computeTransformedWorldCorners(): List<Vec2> {
-        val src = session.srcBounds
-        val effSx = if (session.flipH) -session.scaleX else session.scaleX
-        val effSy = if (session.flipV) -session.scaleY else session.scaleY
-        val cosT = cos(session.rotationRad)
-        val sinT = sin(session.rotationRad)
+    fun computeCorners(sess: TransformSession): List<Vec2> {
+        val src = sess.srcBounds
+        val effSx = if (sess.flipH) -sess.scaleX else sess.scaleX
+        val effSy = if (sess.flipV) -sess.scaleY else sess.scaleY
+        val cosT = cos(sess.rotationRad)
+        val sinT = sin(sess.rotationRad)
         val corners = listOf(
             Vec2(src.left, src.top),
             Vec2(src.right, src.top),
@@ -167,15 +190,15 @@ private fun TransformSessionOverlay(
             Vec2(src.left, src.bottom)
         )
         return corners.map { c ->
-            val cx = (c.x - session.pivotX) * effSx
-            val cy = (c.y - session.pivotY) * effSy
-            val rx = cx * cosT - cy * sinT + session.pivotX + session.translationX
-            val ry = cx * sinT + cy * cosT + session.pivotY + session.translationY
+            val cx = (c.x - sess.pivotX) * effSx
+            val cy = (c.y - sess.pivotY) * effSy
+            val rx = cx * cosT - cy * sinT + sess.pivotX + sess.translationX
+            val ry = cx * sinT + cy * cosT + sess.pivotY + sess.translationY
             Vec2(rx, ry)
         }
     }
 
-    val worldCorners = computeTransformedWorldCorners()
+    val worldCorners = computeCorners(session)
     val screenCorners = worldCorners.map { viewport.worldToScreen(it.x, it.y) }
     val p0 = screenCorners[0]
     val p1 = screenCorners[1]
@@ -191,168 +214,198 @@ private fun TransformSessionOverlay(
     val stemDx = p1.x - p0.x
     val stemDy = p1.y - p0.y
     val stemLen = hypot(stemDx, stemDy).coerceAtLeast(0.001f)
-    // Perpendicular normal pointing out
     val nx = -stemDy / stemLen
     val ny = stemDx / stemLen
-    val rotHandleScreen = Vec2(topCenter.x + nx * 32f, topCenter.y + ny * 32f)
+    val rotHandleScreen = Vec2(topCenter.x + nx * 36f, topCenter.y + ny * 36f)
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .pointerInput(session) {
-                detectDragGestures(
-                    onDragStart = { offset ->
-                        val touch = Vec2(offset.x, offset.y)
-                        initialTouchScreen = touch
-                        initialSessionTrans = Vec2(session.translationX, session.translationY)
-                        initialScale = Vec2(session.scaleX, session.scaleY)
-                        initialRotation = session.rotationRad
+    Box(modifier = modifier.fillMaxSize()) {
+        // 1. Gesture detector & Gizmo Rendering Canvas
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            val touch = Vec2(offset.x, offset.y)
+                            val sess = currentSession
+                            val vp = currentViewport
 
-                        val handleHitRadius = 28f
-                        if (hypot(touch.x - rotHandleScreen.x, touch.y - rotHandleScreen.y) <= handleHitRadius) {
-                            dragMode = DragMode.ROTATE
-                            initialAngleToPivot = atan2(touch.y - pivotScreen.y, touch.x - pivotScreen.x)
-                        } else if (hypot(touch.x - p0.x, touch.y - p0.y) <= handleHitRadius) {
-                            dragMode = DragMode.SCALE_TL
-                            initialDistToPivot = hypot(touch.x - pivotScreen.x, touch.y - pivotScreen.y).coerceAtLeast(1f)
-                        } else if (hypot(touch.x - p1.x, touch.y - p1.y) <= handleHitRadius) {
-                            dragMode = DragMode.SCALE_TR
-                            initialDistToPivot = hypot(touch.x - pivotScreen.x, touch.y - pivotScreen.y).coerceAtLeast(1f)
-                        } else if (hypot(touch.x - p2.x, touch.y - p2.y) <= handleHitRadius) {
-                            dragMode = DragMode.SCALE_BR
-                            initialDistToPivot = hypot(touch.x - pivotScreen.x, touch.y - pivotScreen.y).coerceAtLeast(1f)
-                        } else if (hypot(touch.x - p3.x, touch.y - p3.y) <= handleHitRadius) {
-                            dragMode = DragMode.SCALE_BL
-                            initialDistToPivot = hypot(touch.x - pivotScreen.x, touch.y - pivotScreen.y).coerceAtLeast(1f)
-                        } else {
-                            dragMode = DragMode.TRANSLATE
-                        }
-                    },
-                    onDrag = { change, _ ->
-                        change.consume()
-                        val currentTouch = Vec2(change.position.x, change.position.y)
+                            val curCorners = computeCorners(sess).map { vp.worldToScreen(it.x, it.y) }
+                            val cp0 = curCorners[0]
+                            val cp1 = curCorners[1]
+                            val cp2 = curCorners[2]
+                            val cp3 = curCorners[3]
 
-                        when (dragMode) {
-                            DragMode.TRANSLATE -> {
-                                val startWorld = viewport.screenToWorld(initialTouchScreen.x, initialTouchScreen.y)
-                                val curWorld = viewport.screenToWorld(currentTouch.x, currentTouch.y)
-                                val dwx = curWorld.x - startWorld.x
-                                val dwy = curWorld.y - startWorld.y
-                                onUpdateTransform(
-                                    initialSessionTrans.x + dwx,
-                                    initialSessionTrans.y + dwy,
-                                    null, null, null, null, null
-                                )
+                            val curPivotWorld = Vec2(sess.pivotX + sess.translationX, sess.pivotY + sess.translationY)
+                            val curPivotScreen = vp.worldToScreen(curPivotWorld.x, curPivotWorld.y)
+
+                            val curTopCenter = Vec2((cp0.x + cp1.x) * 0.5f, (cp0.y + cp1.y) * 0.5f)
+                            val sDx = cp1.x - cp0.x
+                            val sDy = cp1.y - cp0.y
+                            val sLen = hypot(sDx, sDy).coerceAtLeast(0.001f)
+                            val curRotHandle = Vec2(curTopCenter.x + (-sDy / sLen) * 36f, curTopCenter.y + (sDx / sLen) * 36f)
+
+                            val handleHitRadius = 36f
+                            if (hypot(touch.x - curRotHandle.x, touch.y - curRotHandle.y) <= handleHitRadius) {
+                                dragMode = DragMode.ROTATE
+                                initialAngleToPivot = atan2(touch.y - curPivotScreen.y, touch.x - curPivotScreen.x)
+                            } else if (hypot(touch.x - cp0.x, touch.y - cp0.y) <= handleHitRadius) {
+                                dragMode = DragMode.SCALE_TL
+                                initialDistToPivot = hypot(touch.x - curPivotScreen.x, touch.y - curPivotScreen.y).coerceAtLeast(10f)
+                            } else if (hypot(touch.x - cp1.x, touch.y - cp1.y) <= handleHitRadius) {
+                                dragMode = DragMode.SCALE_TR
+                                initialDistToPivot = hypot(touch.x - curPivotScreen.x, touch.y - curPivotScreen.y).coerceAtLeast(10f)
+                            } else if (hypot(touch.x - cp2.x, touch.y - cp2.y) <= handleHitRadius) {
+                                dragMode = DragMode.SCALE_BR
+                                initialDistToPivot = hypot(touch.x - curPivotScreen.x, touch.y - curPivotScreen.y).coerceAtLeast(10f)
+                            } else if (hypot(touch.x - cp3.x, touch.y - cp3.y) <= handleHitRadius) {
+                                dragMode = DragMode.SCALE_BL
+                                initialDistToPivot = hypot(touch.x - curPivotScreen.x, touch.y - curPivotScreen.y).coerceAtLeast(10f)
+                            } else if (isPointInPolygon(touch, curCorners)) {
+                                dragMode = DragMode.TRANSLATE
+                            } else {
+                                dragMode = DragMode.NONE
                             }
-                            DragMode.ROTATE -> {
-                                val currentAngle = atan2(currentTouch.y - pivotScreen.y, currentTouch.x - pivotScreen.x)
-                                val deltaAngle = currentAngle - initialAngleToPivot
-                                onUpdateTransform(
-                                    null, null, null, null,
-                                    initialRotation + deltaAngle,
-                                    null, null
-                                )
+
+                            initialTouchScreen = touch
+                            initialSessionTrans = Vec2(sess.translationX, sess.translationY)
+                            initialScale = Vec2(sess.scaleX, sess.scaleY)
+                            initialRotation = sess.rotationRad
+                        },
+                        onDrag = { change, _ ->
+                            if (dragMode != DragMode.NONE) {
+                                change.consume()
+                                val currentTouch = Vec2(change.position.x, change.position.y)
+                                val vp = currentViewport
+
+                                when (dragMode) {
+                                    DragMode.TRANSLATE -> {
+                                        val startWorld = vp.screenToWorld(initialTouchScreen.x, initialTouchScreen.y)
+                                        val curWorld = vp.screenToWorld(currentTouch.x, currentTouch.y)
+                                        val dwx = curWorld.x - startWorld.x
+                                        val dwy = curWorld.y - startWorld.y
+                                        currentOnUpdateTransform(
+                                            initialSessionTrans.x + dwx,
+                                            initialSessionTrans.y + dwy,
+                                            null, null, null, null, null
+                                        )
+                                    }
+                                    DragMode.ROTATE -> {
+                                        val sess = currentSession
+                                        val pWorld = Vec2(sess.pivotX + sess.translationX, sess.pivotY + sess.translationY)
+                                        val pScreen = vp.worldToScreen(pWorld.x, pWorld.y)
+                                        val currentAngle = atan2(currentTouch.y - pScreen.y, currentTouch.x - pScreen.x)
+                                        val deltaAngle = currentAngle - initialAngleToPivot
+                                        currentOnUpdateTransform(
+                                            null, null, null, null,
+                                            initialRotation + deltaAngle,
+                                            null, null
+                                        )
+                                    }
+                                    DragMode.SCALE_TL, DragMode.SCALE_TR, DragMode.SCALE_BR, DragMode.SCALE_BL -> {
+                                        val sess = currentSession
+                                        val pWorld = Vec2(sess.pivotX + sess.translationX, sess.pivotY + sess.translationY)
+                                        val pScreen = vp.worldToScreen(pWorld.x, pWorld.y)
+                                        val currentDist = hypot(currentTouch.x - pScreen.x, currentTouch.y - pScreen.y)
+                                        val ratio = (currentDist / initialDistToPivot).coerceIn(0.05f, 20f)
+                                        currentOnUpdateTransform(
+                                            null, null,
+                                            (initialScale.x * ratio).coerceIn(0.05f, 20f),
+                                            (initialScale.y * ratio).coerceIn(0.05f, 20f),
+                                            null, null, null
+                                        )
+                                    }
+                                    DragMode.NONE -> {}
+                                }
                             }
-                            DragMode.SCALE_TL, DragMode.SCALE_TR, DragMode.SCALE_BR, DragMode.SCALE_BL -> {
-                                val currentDist = hypot(currentTouch.x - pivotScreen.x, currentTouch.y - pivotScreen.y)
-                                val ratio = (currentDist / initialDistToPivot).coerceIn(0.05f, 20f)
-                                onUpdateTransform(
-                                    null, null,
-                                    (initialScale.x * ratio).coerceIn(0.05f, 20f),
-                                    (initialScale.y * ratio).coerceIn(0.05f, 20f),
-                                    null, null, null
-                                )
-                            }
-                            DragMode.NONE -> {}
-                        }
-                    },
-                    onDragEnd = { dragMode = DragMode.NONE },
-                    onDragCancel = { dragMode = DragMode.NONE }
-                )
-            }
-    ) {
-        // 1. Preview Bitmaps
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val nativeCanvas = drawContext.canvas.nativeCanvas
-            val paint = Paint().apply { isFilterBitmap = true }
-
-            val srcPoly = floatArrayOf(
-                0f, 0f,
-                session.srcBounds.width, 0f,
-                session.srcBounds.width, session.srcBounds.height,
-                0f, session.srcBounds.height
-            )
-
-            val dstPoly = floatArrayOf(
-                p0.x, p0.y,
-                p1.x, p1.y,
-                p2.x, p2.y,
-                p3.x, p3.y
-            )
-
-            val matrix = Matrix()
-            val mapped = matrix.setPolyToPoly(srcPoly, 0, dstPoly, 0, 4)
-
-            if (mapped) {
-                for ((_, patch) in session.layerPatches) {
-                    nativeCanvas.drawBitmap(patch.previewBitmap, matrix, paint)
+                        },
+                        onDragEnd = { dragMode = DragMode.NONE },
+                        onDragCancel = { dragMode = DragMode.NONE }
+                    )
                 }
-            }
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val nativeCanvas = drawContext.canvas.nativeCanvas
+                val paint = Paint().apply { isFilterBitmap = true }
 
-            // 2. Gizmo Bounding Box Outline
-            val boxPath = Path().apply {
-                moveTo(p0.x, p0.y)
-                lineTo(p1.x, p1.y)
-                lineTo(p2.x, p2.y)
-                lineTo(p3.x, p3.y)
-                close()
-            }
+                val srcPoly = floatArrayOf(
+                    0f, 0f,
+                    session.srcBounds.width, 0f,
+                    session.srcBounds.width, session.srcBounds.height,
+                    0f, session.srcBounds.height
+                )
 
-            drawPath(
-                path = boxPath,
-                color = Color(0xFF64B5F6),
-                style = Stroke(width = 1.5.dp.toPx())
-            )
+                val dstPoly = floatArrayOf(
+                    p0.x, p0.y,
+                    p1.x, p1.y,
+                    p2.x, p2.y,
+                    p3.x, p3.y
+                )
 
-            // Rotation Stem
-            drawLine(
-                color = Color(0xFF81D4FA),
-                start = Offset(topCenter.x, topCenter.y),
-                end = Offset(rotHandleScreen.x, rotHandleScreen.y),
-                strokeWidth = 1.5.dp.toPx()
-            )
+                val matrix = Matrix()
+                val mapped = matrix.setPolyToPoly(srcPoly, 0, dstPoly, 0, 4)
 
-            // Rotation Handle
-            drawCircle(
-                color = Color(0xFF81D4FA),
-                radius = 8.dp.toPx(),
-                center = Offset(rotHandleScreen.x, rotHandleScreen.y)
-            )
-            drawCircle(
-                color = Color.White,
-                radius = 3.dp.toPx(),
-                center = Offset(rotHandleScreen.x, rotHandleScreen.y)
-            )
+                if (mapped) {
+                    for ((_, patch) in session.layerPatches) {
+                        nativeCanvas.drawBitmap(patch.previewBitmap, matrix, paint)
+                    }
+                }
 
-            // 4 Corner Scale Handles
-            val handleRadius = 6.dp.toPx()
-            val handleBorderWidth = 1.5.dp.toPx()
-            for (corner in listOf(p0, p1, p2, p3)) {
+                // 2. Gizmo Bounding Box Outline
+                val boxPath = Path().apply {
+                    moveTo(p0.x, p0.y)
+                    lineTo(p1.x, p1.y)
+                    lineTo(p2.x, p2.y)
+                    lineTo(p3.x, p3.y)
+                    close()
+                }
+
+                drawPath(
+                    path = boxPath,
+                    color = Color(0xFF64B5F6),
+                    style = Stroke(width = 1.5.dp.toPx())
+                )
+
+                // Rotation Stem
+                drawLine(
+                    color = Color(0xFF81D4FA),
+                    start = Offset(topCenter.x, topCenter.y),
+                    end = Offset(rotHandleScreen.x, rotHandleScreen.y),
+                    strokeWidth = 1.5.dp.toPx()
+                )
+
+                // Rotation Handle
+                drawCircle(
+                    color = Color(0xFF81D4FA),
+                    radius = 8.dp.toPx(),
+                    center = Offset(rotHandleScreen.x, rotHandleScreen.y)
+                )
                 drawCircle(
                     color = Color.White,
-                    radius = handleRadius,
-                    center = Offset(corner.x, corner.y)
+                    radius = 3.dp.toPx(),
+                    center = Offset(rotHandleScreen.x, rotHandleScreen.y)
                 )
-                drawCircle(
-                    color = Color(0xFF1976D2),
-                    radius = handleRadius,
-                    center = Offset(corner.x, corner.y),
-                    style = Stroke(width = handleBorderWidth)
-                )
+
+                // 4 Corner Scale Handles
+                val handleRadius = 6.dp.toPx()
+                val handleBorderWidth = 1.5.dp.toPx()
+                for (corner in listOf(p0, p1, p2, p3)) {
+                    drawCircle(
+                        color = Color.White,
+                        radius = handleRadius,
+                        center = Offset(corner.x, corner.y)
+                    )
+                    drawCircle(
+                        color = Color(0xFF1976D2),
+                        radius = handleRadius,
+                        center = Offset(corner.x, corner.y),
+                        style = Stroke(width = handleBorderWidth)
+                    )
+                }
             }
         }
 
-        // 3. Transform Action Toolbar Pill (Floating dock)
+        // 3. Transform Action Toolbar Pill (Floating dock sitting cleanly on top)
         Surface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -373,7 +426,10 @@ private fun TransformSessionOverlay(
                     onClick = { onUpdateTransform(null, null, null, null, null, !session.flipH, null) },
                     modifier = Modifier.size(36.dp)
                 ) {
-                    FlipCanvasIcon(tint = if (session.flipH) Color(0xFF64B5F6) else Color.White, modifier = Modifier.size(18.dp))
+                    FlipCanvasIcon(
+                        tint = if (session.flipH) Color(0xFF64B5F6) else Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
 
                 // Flip Vertical
@@ -381,11 +437,11 @@ private fun TransformSessionOverlay(
                     onClick = { onUpdateTransform(null, null, null, null, null, null, !session.flipV) },
                     modifier = Modifier.size(36.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Flip Vertical",
+                    FlipCanvasIcon(
                         tint = if (session.flipV) Color(0xFF64B5F6) else Color.White,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier
+                            .size(18.dp)
+                            .rotate(90f)
                     )
                 }
 

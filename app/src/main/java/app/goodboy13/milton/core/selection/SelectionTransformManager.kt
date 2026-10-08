@@ -34,15 +34,15 @@ data class TransformSession(
     val targetLayerIds: Set<Long>,
     val originalTiles: Map<Long, List<TileSnapshot>>,
     val layerPatches: Map<Long, LayerPatch>,
-    var translationX: Float = 0f,
-    var translationY: Float = 0f,
-    var scaleX: Float = 1.0f,
-    var scaleY: Float = 1.0f,
-    var rotationRad: Float = 0f,
+    val translationX: Float = 0f,
+    val translationY: Float = 0f,
+    val scaleX: Float = 1.0f,
+    val scaleY: Float = 1.0f,
+    val rotationRad: Float = 0f,
     val pivotX: Float = srcBounds.centerX,
     val pivotY: Float = srcBounds.centerY,
-    var flipH: Boolean = false,
-    var flipV: Boolean = false
+    val flipH: Boolean = false,
+    val flipV: Boolean = false
 ) {
     fun calculateDestBounds(): WorldRect {
         val effSx = if (flipH) -scaleX else scaleX
@@ -79,7 +79,7 @@ data class TransformSession(
 sealed interface SelectionState {
     object Idle : SelectionState
     data class DrawingLasso(val points: List<Vec2>) : SelectionState
-    data class ActiveTransform(val session: TransformSession) : SelectionState
+    data class ActiveTransform(val session: TransformSession, val revision: Long = 0L) : SelectionState
 }
 
 class SelectionTransformManager {
@@ -132,7 +132,11 @@ class SelectionTransformManager {
         }
 
         val polygon = lassoPoints.toList()
-        val srcBounds = WorldRect(minX, minY, maxX, maxY)
+        val bLeft = kotlin.math.floor(minX)
+        val bTop = kotlin.math.floor(minY)
+        val bRight = kotlin.math.ceil(maxX)
+        val bBottom = kotlin.math.ceil(maxY)
+        val srcBounds = WorldRect(bLeft, bTop, bRight, bBottom)
 
         // Capture patches and clear cutouts on GL thread
         canvasView.renderer.runOnGlThread {
@@ -348,26 +352,31 @@ class SelectionTransformManager {
         flipV: Boolean? = null
     ) {
         val current = _state.value as? SelectionState.ActiveTransform ?: return
-        val session = current.session
-        translationX?.let { session.translationX = it }
-        translationY?.let { session.translationY = it }
-        scaleX?.let { session.scaleX = it }
-        scaleY?.let { session.scaleY = it }
-        rotationRad?.let { session.rotationRad = it }
-        flipH?.let { session.flipH = it }
-        flipV?.let { session.flipV = it }
-        _state.value = SelectionState.ActiveTransform(session)
+        val s = current.session
+        val newSession = s.copy(
+            translationX = translationX ?: s.translationX,
+            translationY = translationY ?: s.translationY,
+            scaleX = scaleX ?: s.scaleX,
+            scaleY = scaleY ?: s.scaleY,
+            rotationRad = rotationRad ?: s.rotationRad,
+            flipH = flipH ?: s.flipH,
+            flipV = flipV ?: s.flipV
+        )
+        _state.value = SelectionState.ActiveTransform(newSession, current.revision + 1)
     }
 
     fun resetSessionTransform() {
         val current = _state.value as? SelectionState.ActiveTransform ?: return
-        current.session.translationX = 0f
-        current.session.translationY = 0f
-        current.session.scaleX = 1f
-        current.session.scaleY = 1f
-        current.session.rotationRad = 0f
-        current.session.flipH = false
-        current.session.flipV = false
-        _state.value = SelectionState.ActiveTransform(current.session)
+        val s = current.session
+        val newSession = s.copy(
+            translationX = 0f,
+            translationY = 0f,
+            scaleX = 1f,
+            scaleY = 1f,
+            rotationRad = 0f,
+            flipH = false,
+            flipV = false
+        )
+        _state.value = SelectionState.ActiveTransform(newSession, current.revision + 1)
     }
 }
