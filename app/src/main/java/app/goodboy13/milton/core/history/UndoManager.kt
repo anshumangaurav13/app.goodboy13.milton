@@ -18,8 +18,16 @@ class TileDelta(
     val layerId: Long = 1L,
     val coord: TileCoord,
     val beforeCompressed: ByteArray?,
-    val afterCompressed: ByteArray? = null
-)
+    val afterCompressed: ByteArray? = null,
+    val minX: Int = 0,
+    val minY: Int = 0,
+    val patchWidth: Int = TileCoord.TILE_SIZE,
+    val patchHeight: Int = TileCoord.TILE_SIZE,
+    var fullAfterForAutosave: ByteArray? = null
+) {
+    val isSubTile: Boolean get() = patchWidth < TileCoord.TILE_SIZE || patchHeight < TileCoord.TILE_SIZE
+    val forAutosaveCompressed: ByteArray? get() = fullAfterForAutosave ?: afterCompressed
+}
 
 /**
  * Base sealed interface for undoable actions on the canvas.
@@ -70,8 +78,8 @@ class UndoManager(val maxHistorySize: Int = 30) {
     private val undoStack = ArrayDeque<UndoCommand>()
     private val redoStack = ArrayDeque<UndoCommand>()
 
-    // Tiles touched in the currently active stroke before stamping: (layerId to coord) -> compressed bytes
-    private val pendingPreStrokeDeltas = mutableMapOf<Pair<Long, TileCoord>, ByteArray?>()
+    // Tiles touched in the currently active stroke before stamping: (layerId to coord) -> raw RGBA bytes
+    private val pendingPreStrokeRaw = mutableMapOf<Pair<Long, TileCoord>, ByteArray?>()
 
     var onStateChangedListener: (() -> Unit)? = null
     var onTilesCommittedListener: ((List<TileDelta>) -> Unit)? = null
@@ -85,13 +93,13 @@ class UndoManager(val maxHistorySize: Int = 30) {
     fun capturePreStrokeTiles(layerId: Long, tiles: Collection<RasterTile>) {
         for (tile in tiles) {
             val key = layerId to tile.coord
-            if (!pendingPreStrokeDeltas.containsKey(key)) {
+            if (!pendingPreStrokeRaw.containsKey(key)) {
                 val data = if (tile.isInitialized && tile.hasContent) {
-                    compress(tile.readPixels())
+                    tile.readPixels()
                 } else {
                     null // Tile was empty before this stroke
                 }
-                pendingPreStrokeDeltas[key] = data
+                pendingPreStrokeRaw[key] = data
             }
         }
     }
@@ -104,23 +112,90 @@ class UndoManager(val maxHistorySize: Int = 30) {
      * Call after stamping stroke dabs to finalize the stroke command into the undo stack.
      */
     fun commitStroke(layerId: Long, tileMap: TileMap) {
-        if (pendingPreStrokeDeltas.isEmpty()) return
+        if (pendingPreStrokeRaw.isEmpty()) return
 
         val deltas = mutableListOf<TileDelta>()
-        val iter = pendingPreStrokeDeltas.iterator()
+        val iter = pendingPreStrokeRaw.iterator()
         while (iter.hasNext()) {
             val entry = iter.next()
             val (entryLayerId, coord) = entry.key
             if (entryLayerId == layerId) {
-                val beforeBytes = entry.value
+                val beforeRaw = entry.value
                 val tile = tileMap.getExistingTile(coord.tx, coord.ty)
-                val afterBytes = if (tile != null && tile.isInitialized && tile.hasContent) {
-                    compress(tile.readPixels())
+                val afterRaw = if (tile != null && tile.isInitialized && tile.hasContent) {
+                    tile.readPixels()
                 } else {
                     null
                 }
-                if (beforeBytes != null || afterBytes != null) {
-                    deltas.add(TileDelta(layerId, coord, beforeBytes, afterBytes))
+
+                if (beforeRaw != null && afterRaw != null) {
+                    val dirtyRect = if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
+                        app.goodboy13.milton.core.native.MiltonNative.computeDirtyRect(beforeRaw, afterRaw)
+                    } else null
+
+                    if (dirtyRect != null && dirtyRect.size == 4) {
+                        val minX = dirtyRect[0]
+                        val minY = dirtyRect[1]
+                        val width = dirtyRect[2]
+                        val height = dirtyRect[3]
+
+                        if (width > 0 && height > 0) {
+                            val beforePatch = app.goodboy13.milton.core.native.MiltonNative.createSubTilePatch(
+                                beforeRaw, minX, minY, width, height
+                            )
+                            val afterPatch = app.goodboy13.milton.core.native.MiltonNative.createSubTilePatch(
+                                afterRaw, minX, minY, width, height
+                            )
+                            val fullAfter = compress(afterRaw)
+                            deltas.add(
+                                TileDelta(
+                                    layerId = layerId,
+                                    coord = coord,
+                                    beforeCompressed = beforePatch,
+                                    afterCompressed = afterPatch,
+                                    minX = minX,
+                                    minY = minY,
+                                    patchWidth = width,
+                                    patchHeight = height,
+                                    fullAfterForAutosave = fullAfter
+                                )
+                            )
+                        }
+                    } else {
+                        val beforeFull = compress(beforeRaw)
+                        val afterFull = compress(afterRaw)
+                        deltas.add(
+                            TileDelta(
+                                layerId = layerId,
+                                coord = coord,
+                                beforeCompressed = beforeFull,
+                                afterCompressed = afterFull,
+                                fullAfterForAutosave = afterFull
+                            )
+                        )
+                    }
+                } else if (beforeRaw == null && afterRaw != null) {
+                    val fullAfter = compress(afterRaw)
+                    deltas.add(
+                        TileDelta(
+                            layerId = layerId,
+                            coord = coord,
+                            beforeCompressed = null,
+                            afterCompressed = fullAfter,
+                            fullAfterForAutosave = fullAfter
+                        )
+                    )
+                } else if (beforeRaw != null && afterRaw == null) {
+                    val fullBefore = compress(beforeRaw)
+                    deltas.add(
+                        TileDelta(
+                            layerId = layerId,
+                            coord = coord,
+                            beforeCompressed = fullBefore,
+                            afterCompressed = null,
+                            fullAfterForAutosave = null
+                        )
+                    )
                 }
                 iter.remove()
             }
@@ -138,6 +213,11 @@ class UndoManager(val maxHistorySize: Int = 30) {
 
         onStateChangedListener?.invoke()
         onTilesCommittedListener?.invoke(deltas)
+
+        // Drop full tile buffers from deltas after autosave staging to minimize undo stack RAM
+        for (delta in deltas) {
+            delta.fullAfterForAutosave = null
+        }
     }
 
     fun commitStroke(tileMap: TileMap) {
@@ -171,9 +251,25 @@ class UndoManager(val maxHistorySize: Int = 30) {
                     tile.ensureResident(layer.tileMap.cacheDir)
                     val before = delta.beforeCompressed
                     if (before != null) {
-                        val decompressed = decompress(before)
-                        tile.writePixels(decompressed)
-                        tile.hasContent = true
+                        if (delta.isSubTile && app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
+                            val currentPixels = tile.readPixels()
+                            val ok = app.goodboy13.milton.core.native.MiltonNative.applySubTilePatch(
+                                currentPixels, before,
+                                delta.minX, delta.minY, delta.patchWidth, delta.patchHeight
+                            )
+                            if (ok) {
+                                tile.writePixels(currentPixels)
+                                tile.hasContent = true
+                            } else {
+                                val decompressed = decompress(before)
+                                tile.writePixels(decompressed)
+                                tile.hasContent = true
+                            }
+                        } else {
+                            val decompressed = decompress(before)
+                            tile.writePixels(decompressed)
+                            tile.hasContent = true
+                        }
                     } else {
                         tile.clear()
                         tile.deleteDiskSwap(layer.tileMap.cacheDir)
@@ -182,12 +278,20 @@ class UndoManager(val maxHistorySize: Int = 30) {
                 synchronized(lock) { redoStack.push(command) }
                 onStateChangedListener?.invoke()
                 val revertedDeltas = command.deltas.map {
-                    TileDelta(it.layerId, it.coord, it.afterCompressed, it.beforeCompressed)
+                    TileDelta(
+                        layerId = it.layerId,
+                        coord = it.coord,
+                        beforeCompressed = it.afterCompressed,
+                        afterCompressed = it.beforeCompressed,
+                        minX = it.minX,
+                        minY = it.minY,
+                        patchWidth = it.patchWidth,
+                        patchHeight = it.patchHeight
+                    )
                 }
                 onTilesCommittedListener?.invoke(revertedDeltas)
             }
             is AddLayerCommand -> {
-                // Undoing layer creation removes the layer
                 val layer = layerManager.getLayer(command.layerId)
                 if (layer != null) {
                     layer.tileMap.releaseAll()
@@ -198,7 +302,6 @@ class UndoManager(val maxHistorySize: Int = 30) {
                 onStateChangedListener?.invoke()
             }
             is DeleteLayerCommand -> {
-                // Restore layer in LayerManager at original storageIndex
                 val restoredLayer = layerManager.restoreLayer(
                     id = command.layerId,
                     name = command.layerName,
@@ -207,7 +310,6 @@ class UndoManager(val maxHistorySize: Int = 30) {
                     storageIndex = command.storageIndex,
                     thumbnail = command.thumbnailBitmap
                 )
-                // Restore its tiles
                 for ((coord, compressed) in command.tilesSnapshot) {
                     val tile = restoredLayer.tileMap.getOrCreateTile(coord.tx, coord.ty)
                     val raw = decompress(compressed)
@@ -239,9 +341,25 @@ class UndoManager(val maxHistorySize: Int = 30) {
             tile.ensureResident(tileMap.cacheDir)
             val before = delta.beforeCompressed
             if (before != null) {
-                val decompressed = decompress(before)
-                tile.writePixels(decompressed)
-                tile.hasContent = true
+                if (delta.isSubTile && app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
+                    val currentPixels = tile.readPixels()
+                    val ok = app.goodboy13.milton.core.native.MiltonNative.applySubTilePatch(
+                        currentPixels, before,
+                        delta.minX, delta.minY, delta.patchWidth, delta.patchHeight
+                    )
+                    if (ok) {
+                        tile.writePixels(currentPixels)
+                        tile.hasContent = true
+                    } else {
+                        val decompressed = decompress(before)
+                        tile.writePixels(decompressed)
+                        tile.hasContent = true
+                    }
+                } else {
+                    val decompressed = decompress(before)
+                    tile.writePixels(decompressed)
+                    tile.hasContent = true
+                }
             } else {
                 tile.clear()
                 tile.deleteDiskSwap(tileMap.cacheDir)
@@ -251,7 +369,16 @@ class UndoManager(val maxHistorySize: Int = 30) {
         synchronized(lock) { redoStack.push(command) }
         onStateChangedListener?.invoke()
         val revertedDeltas = command.deltas.map {
-            TileDelta(it.layerId, it.coord, it.afterCompressed, it.beforeCompressed)
+            TileDelta(
+                layerId = it.layerId,
+                coord = it.coord,
+                beforeCompressed = it.afterCompressed,
+                afterCompressed = it.beforeCompressed,
+                minX = it.minX,
+                minY = it.minY,
+                patchWidth = it.patchWidth,
+                patchHeight = it.patchHeight
+            )
         }
         onTilesCommittedListener?.invoke(revertedDeltas)
         return true
@@ -273,9 +400,25 @@ class UndoManager(val maxHistorySize: Int = 30) {
                     tile.ensureResident(layer.tileMap.cacheDir)
                     val after = delta.afterCompressed
                     if (after != null) {
-                        val decompressed = decompress(after)
-                        tile.writePixels(decompressed)
-                        tile.hasContent = true
+                        if (delta.isSubTile && app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
+                            val currentPixels = tile.readPixels()
+                            val ok = app.goodboy13.milton.core.native.MiltonNative.applySubTilePatch(
+                                currentPixels, after,
+                                delta.minX, delta.minY, delta.patchWidth, delta.patchHeight
+                            )
+                            if (ok) {
+                                tile.writePixels(currentPixels)
+                                tile.hasContent = true
+                            } else {
+                                val decompressed = decompress(after)
+                                tile.writePixels(decompressed)
+                                tile.hasContent = true
+                            }
+                        } else {
+                            val decompressed = decompress(after)
+                            tile.writePixels(decompressed)
+                            tile.hasContent = true
+                        }
                     } else {
                         tile.clear()
                         tile.deleteDiskSwap(layer.tileMap.cacheDir)
@@ -286,7 +429,6 @@ class UndoManager(val maxHistorySize: Int = 30) {
                 onTilesCommittedListener?.invoke(command.deltas)
             }
             is AddLayerCommand -> {
-                // Redoing layer creation restores the layer
                 layerManager.restoreLayer(
                     id = command.layerId,
                     name = command.layerName,
@@ -300,7 +442,6 @@ class UndoManager(val maxHistorySize: Int = 30) {
                 onStateChangedListener?.invoke()
             }
             is DeleteLayerCommand -> {
-                // Delete layer again
                 val layer = layerManager.getLayer(command.layerId)
                 if (layer != null) {
                     layer.tileMap.releaseAll()
@@ -330,9 +471,25 @@ class UndoManager(val maxHistorySize: Int = 30) {
             tile.ensureResident(tileMap.cacheDir)
             val after = delta.afterCompressed
             if (after != null) {
-                val decompressed = decompress(after)
-                tile.writePixels(decompressed)
-                tile.hasContent = true
+                if (delta.isSubTile && app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
+                    val currentPixels = tile.readPixels()
+                    val ok = app.goodboy13.milton.core.native.MiltonNative.applySubTilePatch(
+                        currentPixels, after,
+                        delta.minX, delta.minY, delta.patchWidth, delta.patchHeight
+                    )
+                    if (ok) {
+                        tile.writePixels(currentPixels)
+                        tile.hasContent = true
+                    } else {
+                        val decompressed = decompress(after)
+                        tile.writePixels(decompressed)
+                        tile.hasContent = true
+                    }
+                } else {
+                    val decompressed = decompress(after)
+                    tile.writePixels(decompressed)
+                    tile.hasContent = true
+                }
             } else {
                 tile.clear()
                 tile.deleteDiskSwap(tileMap.cacheDir)
@@ -349,7 +506,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
         synchronized(lock) {
             undoStack.clear()
             redoStack.clear()
-            pendingPreStrokeDeltas.clear()
+            pendingPreStrokeRaw.clear()
         }
         onStateChangedListener?.invoke()
     }

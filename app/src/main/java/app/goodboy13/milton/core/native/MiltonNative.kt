@@ -69,4 +69,17 @@ object MiltonNative {
 
     @JvmStatic
     external fun exportCanvasPng(width: Int, height: Int, rgbaBytes: ByteArray, outputPath: String): Boolean
+
+    // ========================================================================
+    // SUB-TILE DIRTY-RECT UNDO/REDO
+    // ========================================================================
+
+    @JvmStatic
+    external fun computeDirtyRect(oldBytes: ByteArray, newBytes: ByteArray): IntArray?
+
+    @JvmStatic
+    external fun createSubTilePatch(tileBuf: ByteArray, minX: Int, minY: Int, width: Int, height: Int): ByteArray
+
+    @JvmStatic
+    external fun applySubTilePatch(tileBuf: ByteArray, patchCompressed: ByteArray, minX: Int, minY: Int, width: Int, height: Int): Boolean
 }

@@ -2,9 +2,10 @@ pub mod compression;
 pub mod archive;
 pub mod tile_swap;
 pub mod export;
+pub mod sub_tile;
 
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JClass, JString};
+use jni::objects::{JByteArray, JClass, JIntArray, JString};
 use jni::sys::{jboolean, jint, jlong, JNI_FALSE, JNI_TRUE};
 
 // ============================================================================
@@ -248,3 +249,112 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_export
         Err(_) => JNI_FALSE,
     }
 }
+
+// ============================================================================
+// SUB-TILE DIRTY-RECT UNDO/REDO JNI BINDINGS
+// ============================================================================
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_computeDirtyRect<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    old_bytes: JByteArray<'local>,
+    new_bytes: JByteArray<'local>,
+) -> JIntArray<'local> {
+    let old_buf = match env.convert_byte_array(&old_bytes) {
+        Ok(b) => b,
+        Err(_) => return JIntArray::default(),
+    };
+    let new_buf = match env.convert_byte_array(&new_bytes) {
+        Ok(b) => b,
+        Err(_) => return JIntArray::default(),
+    };
+
+    let rect = match sub_tile::compute_dirty_rect(&old_buf, &new_buf) {
+        Some(r) => r,
+        None => return JIntArray::default(),
+    };
+
+    let int_array = match env.new_int_array(4) {
+        Ok(a) => a,
+        Err(_) => return JIntArray::default(),
+    };
+
+    let rect_slice = [
+        rect.min_x as jint,
+        rect.min_y as jint,
+        rect.width as jint,
+        rect.height as jint,
+    ];
+    let _ = env.set_int_array_region(&int_array, 0, &rect_slice);
+    int_array
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_createSubTilePatch<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    tile_buf: JByteArray<'local>,
+    min_x: jint,
+    min_y: jint,
+    width: jint,
+    height: jint,
+) -> JByteArray<'local> {
+    let buf = match env.convert_byte_array(&tile_buf) {
+        Ok(b) => b,
+        Err(_) => return JByteArray::default(),
+    };
+
+    let rect = sub_tile::Rect {
+        min_x: min_x as usize,
+        min_y: min_y as usize,
+        width: width as usize,
+        height: height as usize,
+    };
+
+    match sub_tile::create_sub_tile_patch(&buf, rect) {
+        Ok(compressed) => env.byte_array_from_slice(&compressed).unwrap_or_default(),
+        Err(_) => JByteArray::default(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_applySubTilePatch<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    tile_buf: JByteArray<'local>,
+    patch_compressed: JByteArray<'local>,
+    min_x: jint,
+    min_y: jint,
+    width: jint,
+    height: jint,
+) -> jboolean {
+    let mut buf = match env.convert_byte_array(&tile_buf) {
+        Ok(b) => b,
+        Err(_) => return JNI_FALSE,
+    };
+    let patch = match env.convert_byte_array(&patch_compressed) {
+        Ok(p) => p,
+        Err(_) => return JNI_FALSE,
+    };
+
+    let rect = sub_tile::Rect {
+        min_x: min_x as usize,
+        min_y: min_y as usize,
+        width: width as usize,
+        height: height as usize,
+    };
+
+    match sub_tile::apply_sub_tile_patch(&mut buf, &patch, rect) {
+        Ok(_) => {
+            let slice: &[i8] = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const i8, buf.len()) };
+            if env.set_byte_array_region(&tile_buf, 0, slice).is_ok() {
+                JNI_TRUE
+            } else {
+                JNI_FALSE
+            }
+        }
+        Err(_) => JNI_FALSE,
+    }
+}
+
