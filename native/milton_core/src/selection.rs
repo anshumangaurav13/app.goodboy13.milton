@@ -81,6 +81,7 @@ impl Polygon {
     }
 
     /// Computes a 512x512 8-bit mask (255 for inside, 0 for outside) for a world-space tile.
+    /// Uses high-performance scanline span rasterization (even-odd rule) with fast slice fills.
     pub fn rasterize_tile_mask(
         &self,
         tile_world_x: f32,
@@ -93,24 +94,63 @@ impl Polygon {
             max_y: tile_world_y + TILE_SIZE as f32,
         };
 
-        if !self.bounds.intersects(&tile_bounds) {
+        if !self.bounds.intersects(&tile_bounds) || self.points.len() < 3 {
             return None;
         }
 
         let mut mask = vec![0u8; TILE_SIZE * TILE_SIZE];
         let mut any_inside = false;
+        let n = self.points.len();
 
-        for py in 0..TILE_SIZE {
+        let min_py = ((self.bounds.min_y - tile_world_y).floor() as i32)
+            .clamp(0, (TILE_SIZE - 1) as i32) as usize;
+        let max_py = ((self.bounds.max_y - tile_world_y).ceil() as i32)
+            .clamp(0, (TILE_SIZE - 1) as i32) as usize;
+
+        if min_py > max_py {
+            return None;
+        }
+
+        let mut x_inters: Vec<f32> = Vec::with_capacity(32);
+
+        for py in min_py..=max_py {
             let world_y = tile_world_y + py as f32 + 0.5;
-            if world_y < self.bounds.min_y || world_y > self.bounds.max_y {
+            x_inters.clear();
+
+            let mut j = n - 1;
+            for i in 0..n {
+                let pi = self.points[i];
+                let pj = self.points[j];
+
+                if (pi.y <= world_y && pj.y > world_y) || (pj.y <= world_y && pi.y > world_y) {
+                    let t = (world_y - pi.y) / (pj.y - pi.y);
+                    let x_cross = pi.x + t * (pj.x - pi.x);
+                    x_inters.push(x_cross);
+                }
+                j = i;
+            }
+
+            if x_inters.len() < 2 {
                 continue;
             }
 
+            x_inters.sort_unstable_by(|a, b| a.total_cmp(b));
+
             let row_offset = py * TILE_SIZE;
-            for px in 0..TILE_SIZE {
-                let world_x = tile_world_x + px as f32 + 0.5;
-                if self.contains_point(world_x, world_y) {
-                    mask[row_offset + px] = 255;
+
+            for chunk in x_inters.chunks_exact(2) {
+                let x0 = chunk[0];
+                let x1 = chunk[1];
+
+                let local_x0 = x0 - tile_world_x;
+                let local_x1 = x1 - tile_world_x;
+
+                let start_px = (local_x0 - 0.5).ceil().max(0.0) as usize;
+                let end_px = (local_x1 - 0.5).floor().min((TILE_SIZE - 1) as f32) as usize;
+
+                if start_px <= end_px && start_px < TILE_SIZE {
+                    let end_clamp = end_px.min(TILE_SIZE - 1);
+                    mask[row_offset + start_px..=row_offset + end_clamp].fill(255);
                     any_inside = true;
                 }
             }
@@ -456,5 +496,55 @@ mod tests {
         // Tile pixel at world (10, 10) should be restored!
         assert_eq!(tile[t_idx + 2], 255);
         assert_eq!(tile[t_idx + 3], 255);
+    }
+
+    #[test]
+    fn test_rasterize_tile_mask_scanline() {
+        // Draw a triangle at world (50, 50) to (150, 50) to (100, 150)
+        let poly = Polygon::new(vec![
+            Point2D { x: 50.0, y: 50.0 },
+            Point2D { x: 150.0, y: 50.0 },
+            Point2D { x: 100.0, y: 150.0 },
+        ]);
+
+        let mask = poly.rasterize_tile_mask(0.0, 0.0).expect("Mask should not be None");
+        assert_eq!(mask.len(), 512 * 512);
+
+        // Center of triangle (100, 80) should be inside (255)
+        let center_idx = 80 * 512 + 100;
+        assert_eq!(mask[center_idx], 255);
+
+        // Well outside triangle (200, 200) should be 0
+        let outside_idx = 200 * 512 + 200;
+        assert_eq!(mask[outside_idx], 0);
+
+        // Outside near (40, 50) should be 0
+        let near_outside_idx = 50 * 512 + 40;
+        assert_eq!(mask[near_outside_idx], 0);
+    }
+
+    #[test]
+    fn test_rasterize_tile_mask_smooth_500_points() {
+        // High-density 500-point circle lasso centered at (256, 256) with radius 100
+        let mut pts = Vec::with_capacity(500);
+        for i in 0..500 {
+            let angle = (i as f32 / 500.0) * 2.0 * std::f32::consts::PI;
+            pts.push(Point2D {
+                x: 256.0 + 100.0 * angle.cos(),
+                y: 256.0 + 100.0 * angle.sin(),
+            });
+        }
+        let poly = Polygon::new(pts);
+
+        let mask = poly.rasterize_tile_mask(0.0, 0.0).expect("Mask must be generated");
+
+        // Center must be inside
+        assert_eq!(mask[256 * 512 + 256], 255);
+
+        // Point at radius 50 (256, 306) must be inside
+        assert_eq!(mask[306 * 512 + 256], 255);
+
+        // Point at radius 150 (256, 406) must be outside
+        assert_eq!(mask[406 * 512 + 256], 0);
     }
 }
