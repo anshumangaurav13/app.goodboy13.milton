@@ -885,14 +885,17 @@ class MiltonCanvasView @JvmOverloads constructor(
                     )
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    liquifyManager.applyDab(
-                        this,
-                        worldPos.x,
-                        worldPos.y,
-                        radius,
-                        brushOpacity,
-                        pressure
-                    )
+                    val historySize = event.historySize
+                    for (h in 0 until historySize) {
+                        val hx = event.getHistoricalX(stylusIndex, h)
+                        val hy = event.getHistoricalY(stylusIndex, h)
+                        val hpRaw = event.getHistoricalPressure(stylusIndex, h)
+                        val hp = if (hpRaw <= 0.001f) pressure else hpRaw.coerceIn(0.01f, 1.0f)
+                        val hw = renderer.viewport.screenToWorld(hx, hy)
+                        liquifyManager.addPoint(hw.x, hw.y, radius, brushOpacity, hp)
+                    }
+                    liquifyManager.addPoint(worldPos.x, worldPos.y, radius, brushOpacity, pressure)
+                    liquifyManager.flushDab(this)
                     onLiquifyReticleChanged?.invoke(
                         LiquifyReticleState(sx, sy, radiusScreen, isVisible = true)
                     )

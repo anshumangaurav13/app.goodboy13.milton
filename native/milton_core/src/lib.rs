@@ -1117,6 +1117,100 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquif
 }
 
 #[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifySessionApplyPath<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    target_layers: jni::objects::JLongArray<'local>,
+    points: jni::objects::JFloatArray<'local>,
+    radius: jfloat,
+    strength: jfloat,
+    mode: jint,
+) -> jni::objects::JLongArray<'local> {
+    let targets_len = match env.get_array_length(&target_layers) {
+        Ok(l) => l as usize,
+        Err(_) => return jni::objects::JLongArray::default(),
+    };
+    let mut targets = vec![0i64; targets_len];
+    if env.get_long_array_region(&target_layers, 0, &mut targets).is_err() {
+        return jni::objects::JLongArray::default();
+    }
+
+    let pts_len = match env.get_array_length(&points) {
+        Ok(l) => l as usize,
+        Err(_) => return jni::objects::JLongArray::default(),
+    };
+    if pts_len < 2 || pts_len % 2 != 0 {
+        return jni::objects::JLongArray::default();
+    }
+    let mut pts_flat = vec![0f32; pts_len];
+    if env.get_float_array_region(&points, 0, &mut pts_flat).is_err() {
+        return jni::objects::JLongArray::default();
+    }
+
+    let num_pts = pts_len / 2;
+    let mut pts = Vec::with_capacity(num_pts);
+    for i in 0..num_pts {
+        pts.push([pts_flat[i * 2], pts_flat[i * 2 + 1]]);
+    }
+
+    let dirty = liquify::session_apply_path(
+        &targets,
+        &pts,
+        radius as f32,
+        strength as f32,
+        liquify::LiquifyMode::from_i32(mode),
+    );
+
+    let mut flat = Vec::with_capacity(dirty.len() * 3);
+    for (layer_id, tx, ty) in dirty {
+        flat.push(layer_id);
+        flat.push(tx as i64);
+        flat.push(ty as i64);
+    }
+
+    match env.new_long_array(flat.len() as jint) {
+        Ok(arr) => {
+            let _ = env.set_long_array_region(&arr, 0, &flat);
+            arr
+        }
+        Err(_) => jni::objects::JLongArray::default(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifySessionResampleFinal<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    target_layers: jni::objects::JLongArray<'local>,
+) -> jni::objects::JLongArray<'local> {
+    let targets_len = match env.get_array_length(&target_layers) {
+        Ok(l) => l as usize,
+        Err(_) => return jni::objects::JLongArray::default(),
+    };
+    let mut targets = vec![0i64; targets_len];
+    if env.get_long_array_region(&target_layers, 0, &mut targets).is_err() {
+        return jni::objects::JLongArray::default();
+    }
+
+    let dirty = liquify::session_resample_final(&targets);
+
+    let mut flat = Vec::with_capacity(dirty.len() * 3);
+    for (layer_id, tx, ty) in dirty {
+        flat.push(layer_id);
+        flat.push(tx as i64);
+        flat.push(ty as i64);
+    }
+
+    match env.new_long_array(flat.len() as jint) {
+        Ok(arr) => {
+            let _ = env.set_long_array_region(&arr, 0, &flat);
+            arr
+        }
+        Err(_) => jni::objects::JLongArray::default(),
+    }
+}
+
+#[no_mangle]
 pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifySessionGetTilePixels<'local>(
     env: JNIEnv<'local>,
     _class: JClass<'local>,

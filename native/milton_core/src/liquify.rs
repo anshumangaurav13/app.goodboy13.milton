@@ -637,6 +637,89 @@ fn sample_world_catmull_rom(
 }
 
 #[inline(always)]
+fn sample_world_bilinear(
+    layer_id: i64,
+    u: f32,
+    v: f32,
+    tiles: &HashMap<(i64, i32, i32), LiquifyTile>,
+) -> [u8; 4] {
+    let x_floor = u.floor() as i32;
+    let y_floor = v.floor() as i32;
+    let fx = u - x_floor as f32;
+    let fy = v - y_floor as f32;
+
+    let s_tx = x_floor.div_euclid(512);
+    let s_ty = y_floor.div_euclid(512);
+    let s_ox = s_tx * 512;
+    let s_oy = s_ty * 512;
+
+    // Single-tile fast path
+    if x_floor >= s_ox && x_floor + 1 < s_ox + 512 && y_floor >= s_oy && y_floor + 1 < s_oy + 512 {
+        if let Some(tile) = tiles.get(&(layer_id, s_tx, s_ty)) {
+            if tile.is_blank {
+                return [0, 0, 0, 0];
+            }
+            let lx = (x_floor - s_ox) as usize;
+            let ly = (y_floor - s_oy) as usize;
+            let gl_ly0 = (TILE_SIZE - 1) - ly;
+            let gl_ly1 = gl_ly0 - 1;
+            let row0 = gl_ly0 * TILE_SIZE * 4;
+            let row1 = gl_ly1 * TILE_SIZE * 4;
+
+            let idx00 = row0 + lx * 4;
+            let idx10 = row0 + (lx + 1) * 4;
+            let idx01 = row1 + lx * 4;
+            let idx11 = row1 + (lx + 1) * 4;
+
+            let a00 = tile.orig_rgba[idx00 + 3];
+            let a10 = tile.orig_rgba[idx10 + 3];
+            let a01 = tile.orig_rgba[idx01 + 3];
+            let a11 = tile.orig_rgba[idx11 + 3];
+
+            if (a00 | a10 | a01 | a11) == 0 {
+                return [0, 0, 0, 0];
+            }
+
+            let w00 = (1.0 - fx) * (1.0 - fy);
+            let w10 = fx * (1.0 - fy);
+            let w01 = (1.0 - fx) * fy;
+            let w11 = fx * fy;
+
+            return [
+                (w00 * tile.orig_rgba[idx00] as f32 + w10 * tile.orig_rgba[idx10] as f32 + w01 * tile.orig_rgba[idx01] as f32 + w11 * tile.orig_rgba[idx11] as f32 + 0.5) as u8,
+                (w00 * tile.orig_rgba[idx00 + 1] as f32 + w10 * tile.orig_rgba[idx10 + 1] as f32 + w01 * tile.orig_rgba[idx01 + 1] as f32 + w11 * tile.orig_rgba[idx11 + 1] as f32 + 0.5) as u8,
+                (w00 * tile.orig_rgba[idx00 + 2] as f32 + w10 * tile.orig_rgba[idx10 + 2] as f32 + w01 * tile.orig_rgba[idx01 + 2] as f32 + w11 * tile.orig_rgba[idx11 + 2] as f32 + 0.5) as u8,
+                (w00 * a00 as f32 + w10 * a10 as f32 + w01 * a01 as f32 + w11 * a11 as f32 + 0.5) as u8,
+            ];
+        } else {
+            return [0, 0, 0, 0];
+        }
+    }
+
+    // Boundary fallback (straddles tile boundaries)
+    let p00 = get_orig_pixel(layer_id, x_floor, y_floor, tiles);
+    let p10 = get_orig_pixel(layer_id, x_floor + 1, y_floor, tiles);
+    let p01 = get_orig_pixel(layer_id, x_floor, y_floor + 1, tiles);
+    let p11 = get_orig_pixel(layer_id, x_floor + 1, y_floor + 1, tiles);
+
+    if (p00[3] | p10[3] | p01[3] | p11[3]) == 0 {
+        return [0, 0, 0, 0];
+    }
+
+    let w00 = (1.0 - fx) * (1.0 - fy);
+    let w10 = fx * (1.0 - fy);
+    let w01 = (1.0 - fx) * fy;
+    let w11 = fx * fy;
+
+    [
+        (w00 * p00[0] as f32 + w10 * p10[0] as f32 + w01 * p01[0] as f32 + w11 * p11[0] as f32 + 0.5) as u8,
+        (w00 * p00[1] as f32 + w10 * p10[1] as f32 + w01 * p01[1] as f32 + w11 * p11[1] as f32 + 0.5) as u8,
+        (w00 * p00[2] as f32 + w10 * p10[2] as f32 + w01 * p01[2] as f32 + w11 * p11[2] as f32 + 0.5) as u8,
+        (w00 * p00[3] as f32 + w10 * p10[3] as f32 + w01 * p01[3] as f32 + w11 * p11[3] as f32 + 0.5) as u8,
+    ]
+}
+
+#[inline(always)]
 fn get_disp_point(
     any_layer_id: i64,
     wx: i32,
@@ -720,7 +803,8 @@ fn sample_world_displacement(
     )
 }
 
-pub fn session_apply_dab(
+fn apply_disp_dab(
+    session: &mut LiquifySession,
     target_layer_ids: &[i64],
     center_x: f32,
     center_y: f32,
@@ -729,19 +813,10 @@ pub fn session_apply_dab(
     mode: LiquifyMode,
     dir_x: f32,
     dir_y: f32,
-) -> Vec<(i64, i32, i32)> {
+) {
     if radius <= 0.0 || strength <= 0.0 || target_layer_ids.is_empty() {
-        return Vec::new();
+        return;
     }
-
-    let mut guard = match SESSION.lock() {
-        Ok(g) => g,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    let session = match guard.as_mut() {
-        Some(s) => s,
-        None => return Vec::new(),
-    };
 
     let r_sq = radius * radius;
     let min_tx = ((center_x - radius).floor() as i32).div_euclid(512);
@@ -750,11 +825,6 @@ pub fn session_apply_dab(
     let max_ty = ((center_y + radius).ceil() as i32).div_euclid(512);
 
     let ref_layer_id = target_layer_ids[0];
-    let mut modified_keys = Vec::new();
-
-    // 1. Pass 1: Compute displacement updates across all intersecting tiles
-    // CRITICAL: We do NOT write back to any tile.disp during this pass!
-    // All tiles sample exclusively from Generation N of session.tiles to prevent cross-tile shearing.
     session.flat_disp_updates.clear();
 
     for ty in min_ty..=max_ty {
@@ -796,20 +866,17 @@ pub fn session_apply_dab(
                     }
 
                     let cur_idx = (gl_ly * TILE_SIZE + lx) * 2;
-
                     let dist = dist_sq.sqrt();
                     let u_dist = (dist / radius).clamp(0.0, 1.0);
                     let t = 1.0 - u_dist * u_dist;
                     let falloff = t * t * t;
                     let eff_s = (strength * falloff).clamp(0.0, 1.0);
 
-                    // Inverse warp mapping in world coordinates
                     let (u, v) = match mode {
                         LiquifyMode::Push => {
                             (wx as f32 - eff_s * dir_x, wy as f32 - eff_s * dir_y)
                         }
                         LiquifyMode::Expand => {
-                            // Expand outward smoothly; clamp step to dist so it never shoots past center
                             let push = (radius * 0.05 * eff_s).min(dist);
                             if dist > 0.001 {
                                 let factor = push / dist;
@@ -828,7 +895,6 @@ pub fn session_apply_dab(
                             }
                         }
                         LiquifyMode::TwirlCw => {
-                            // High-strength twirl with motion sensitivity using fast 2D rotation (zero atan2)
                             let move_dist = (dir_x * dir_x + dir_y * dir_y).sqrt();
                             let move_angle = (move_dist / radius).clamp(0.0, 1.0) * eff_s * 0.20;
                             let total_angle = eff_s * 0.25 + move_angle;
@@ -873,14 +939,12 @@ pub fn session_apply_dab(
         }
     }
 
-    // SIMULTANEOUS WRITEBACK: Commit all tile displacement updates at the exact same moment
     for entry in &session.flat_disp_updates {
         let tile = session.tiles.get_mut(&(ref_layer_id, entry.tx, entry.ty)).unwrap();
         tile.disp[entry.idx] = entry.ndx;
         tile.disp[entry.idx + 1] = entry.ndy;
     }
 
-    // Copy displacements to secondary target layers if multiple selected
     for &other_layer in target_layer_ids.iter().skip(1) {
         for entry in &session.flat_disp_updates {
             if let Some(other_tile) = session.tiles.get_mut(&(other_layer, entry.tx, entry.ty)) {
@@ -889,8 +953,24 @@ pub fn session_apply_dab(
             }
         }
     }
+}
 
-    // 2. Pass 2: Resample pristine original pixels with Catmull-Rom across infinite canvas
+fn resample_bbox(
+    session: &mut LiquifySession,
+    target_layer_ids: &[i64],
+    bbox_min_x: f32,
+    bbox_min_y: f32,
+    bbox_max_x: f32,
+    bbox_max_y: f32,
+    high_quality: bool,
+) -> Vec<(i64, i32, i32)> {
+    let min_tx = (bbox_min_x.floor() as i32).div_euclid(512);
+    let max_tx = (bbox_max_x.ceil() as i32).div_euclid(512);
+    let min_ty = (bbox_min_y.floor() as i32).div_euclid(512);
+    let max_ty = (bbox_max_y.ceil() as i32).div_euclid(512);
+
+    let mut modified_keys = Vec::new();
+
     for &layer_id in target_layer_ids {
         for ty in min_ty..=max_ty {
             for tx in min_tx..=max_tx {
@@ -902,10 +982,10 @@ pub fn session_apply_dab(
                 let tile_ox = tx * 512;
                 let tile_oy = ty * 512;
 
-                let box_min_wx = tile_ox.max((center_x - radius).floor() as i32);
-                let box_max_wx = (tile_ox + 511).min((center_x + radius).ceil() as i32);
-                let box_min_wy = tile_oy.max((center_y - radius).floor() as i32);
-                let box_max_wy = (tile_oy + 511).min((center_y + radius).ceil() as i32);
+                let box_min_wx = tile_ox.max(bbox_min_x.floor() as i32);
+                let box_max_wx = (tile_ox + 511).min(bbox_max_x.ceil() as i32);
+                let box_min_wy = tile_oy.max(bbox_min_y.floor() as i32);
+                let box_max_wy = (tile_oy + 511).min(bbox_max_y.ceil() as i32);
 
                 if box_min_wx > box_max_wx || box_min_wy > box_max_wy {
                     continue;
@@ -920,26 +1000,28 @@ pub fn session_apply_dab(
 
                 for ly in min_ly..=max_ly {
                     let wy = tile_oy + ly as i32;
-                    let dy = wy as f32 - center_y;
-                    let dy_sq = dy * dy;
                     let gl_ly = (TILE_SIZE - 1) - ly;
 
                     for lx in min_lx..=max_lx {
                         let wx = tile_ox + lx as i32;
-                        let dx = wx as f32 - center_x;
-                        let dist_sq = dx * dx + dy_sq;
-                        if dist_sq > r_sq {
-                            continue;
-                        }
 
                         let tile = session.tiles.get(&key).unwrap();
                         let idx = (gl_ly * TILE_SIZE + lx) * 2;
                         let t_dx = tile.disp[idx];
                         let t_dy = tile.disp[idx + 1];
 
+                        if tile.is_blank && t_dx == 0.0 && t_dy == 0.0 {
+                            continue;
+                        }
+
                         let sx = wx as f32 + t_dx;
                         let sy = wy as f32 + t_dy;
-                        let pixel = sample_world_catmull_rom(layer_id, sx, sy, &session.tiles);
+
+                        let pixel = if high_quality {
+                            sample_world_catmull_rom(layer_id, sx, sy, &session.tiles)
+                        } else {
+                            sample_world_bilinear(layer_id, sx, sy, &session.tiles)
+                        };
 
                         let p_idx = (gl_ly * TILE_SIZE + lx) * 4;
                         let p_u32 = unsafe { std::ptr::read_unaligned(pixel.as_ptr() as *const u32) };
@@ -965,6 +1047,193 @@ pub fn session_apply_dab(
                     modified_keys.push(key);
                 }
             }
+        }
+    }
+
+    session.dirty = modified_keys.clone();
+    modified_keys
+}
+
+pub fn session_apply_dab(
+    target_layer_ids: &[i64],
+    center_x: f32,
+    center_y: f32,
+    radius: f32,
+    strength: f32,
+    mode: LiquifyMode,
+    dir_x: f32,
+    dir_y: f32,
+) -> Vec<(i64, i32, i32)> {
+    if radius <= 0.0 || strength <= 0.0 || target_layer_ids.is_empty() {
+        return Vec::new();
+    }
+
+    let mut guard = match SESSION.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let session = match guard.as_mut() {
+        Some(s) => s,
+        None => return Vec::new(),
+    };
+
+    apply_disp_dab(session, target_layer_ids, center_x, center_y, radius, strength, mode, dir_x, dir_y);
+
+    let bbox_min_x = center_x - radius - 2.0;
+    let bbox_min_y = center_y - radius - 2.0;
+    let bbox_max_x = center_x + radius + 2.0;
+    let bbox_max_y = center_y + radius + 2.0;
+
+    resample_bbox(session, target_layer_ids, bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y, true)
+}
+
+pub fn session_apply_path(
+    target_layer_ids: &[i64],
+    points: &[[f32; 2]],
+    radius: f32,
+    strength: f32,
+    mode: LiquifyMode,
+) -> Vec<(i64, i32, i32)> {
+    if radius <= 0.0 || strength <= 0.0 || target_layer_ids.is_empty() || points.is_empty() {
+        return Vec::new();
+    }
+
+    let mut guard = match SESSION.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let session = match guard.as_mut() {
+        Some(s) => s,
+        None => return Vec::new(),
+    };
+
+    let mut min_x = f32::MAX;
+    let mut min_y = f32::MAX;
+    let mut max_x = f32::MIN;
+    let mut max_y = f32::MIN;
+
+    for pt in points {
+        min_x = min_x.min(pt[0]);
+        max_x = max_x.max(pt[0]);
+        min_y = min_y.min(pt[1]);
+        max_y = max_y.max(pt[1]);
+    }
+
+    if points.len() == 1 {
+        let p = points[0];
+        apply_disp_dab(session, target_layer_ids, p[0], p[1], radius, strength, mode, 0.0, 0.0);
+    } else {
+        let step_dist = (radius * 0.25).max(4.0);
+
+        for i in 0..(points.len() - 1) {
+            let p0 = points[i];
+            let p1 = points[i + 1];
+            let dx = p1[0] - p0[0];
+            let dy = p1[1] - p0[1];
+            let dist = (dx * dx + dy * dy).sqrt();
+
+            if dist < 0.001 {
+                apply_disp_dab(session, target_layer_ids, p1[0], p1[1], radius, strength, mode, 0.0, 0.0);
+            } else {
+                let num_steps = ((dist / step_dist).ceil() as usize).max(1).min(30);
+                let step_dx = dx / num_steps as f32;
+                let step_dy = dy / num_steps as f32;
+
+                for s in 1..=num_steps {
+                    let t = s as f32 / num_steps as f32;
+                    let cx = p0[0] + dx * t;
+                    let cy = p0[1] + dy * t;
+                    apply_disp_dab(session, target_layer_ids, cx, cy, radius, strength, mode, step_dx, step_dy);
+                }
+            }
+        }
+    }
+
+    let bbox_min_x = min_x - radius - 2.0;
+    let bbox_min_y = min_y - radius - 2.0;
+    let bbox_max_x = max_x + radius + 2.0;
+    let bbox_max_y = max_y + radius + 2.0;
+
+    resample_bbox(session, target_layer_ids, bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y, false)
+}
+
+pub fn session_resample_final(target_layer_ids: &[i64]) -> Vec<(i64, i32, i32)> {
+    let mut guard = match SESSION.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let session = match guard.as_mut() {
+        Some(s) => s,
+        None => return Vec::new(),
+    };
+
+    let candidate_keys: Vec<(i64, i32, i32)> = session
+        .tiles
+        .keys()
+        .filter(|&&(l, _, _)| target_layer_ids.contains(&l))
+        .copied()
+        .collect();
+
+    let mut modified_keys = Vec::new();
+    for key in candidate_keys {
+        let (layer_id, tx, ty) = key;
+        let (is_blank, tile_ox, tile_oy) = {
+            let tile = match session.tiles.get(&key) {
+                Some(t) => t,
+                None => continue,
+            };
+            if tile.is_blank {
+                continue;
+            }
+            (tile.is_blank, tx * 512, ty * 512)
+        };
+
+        if is_blank {
+            continue;
+        }
+
+        session.scratch_pixels.clear();
+        for ly in 0..TILE_SIZE {
+            let wy = tile_oy + ly as i32;
+            let gl_ly = (TILE_SIZE - 1) - ly;
+
+            for lx in 0..TILE_SIZE {
+                let wx = tile_ox + lx as i32;
+                let tile = session.tiles.get(&key).unwrap();
+                let idx = (gl_ly * TILE_SIZE + lx) * 2;
+                let t_dx = tile.disp[idx];
+                let t_dy = tile.disp[idx + 1];
+
+                if t_dx == 0.0 && t_dy == 0.0 {
+                    continue;
+                }
+
+                let sx = wx as f32 + t_dx;
+                let sy = wy as f32 + t_dy;
+                let pixel = sample_world_catmull_rom(layer_id, sx, sy, &session.tiles);
+
+                let p_idx = (gl_ly * TILE_SIZE + lx) * 4;
+                let p_u32 = unsafe { std::ptr::read_unaligned(pixel.as_ptr() as *const u32) };
+                let cur_u32 = unsafe { std::ptr::read_unaligned(tile.working_rgba.as_ptr().add(p_idx) as *const u32) };
+                if p_u32 != cur_u32 {
+                    session.scratch_pixels.push((p_idx, pixel));
+                }
+            }
+        }
+
+        if !session.scratch_pixels.is_empty() {
+            let tile = session.tiles.get_mut(&key).unwrap();
+            let mut has_painted_pixel = false;
+            for &(p_idx, pixel) in &session.scratch_pixels {
+                tile.working_rgba[p_idx..p_idx + 4].copy_from_slice(&pixel);
+                if pixel[3] > 0 {
+                    has_painted_pixel = true;
+                }
+            }
+            if has_painted_pixel {
+                tile.is_blank = false;
+            }
+            modified_keys.push((layer_id, tx, ty));
         }
     }
 
@@ -1361,6 +1630,57 @@ mod tests {
         assert!(session_get_tile_pixels(layer_id, 0, 0, &mut warped));
         // Push moved the pixel away from center
         assert_ne!(warped[idx], 255, "Pixel at center must be deformed immediately on first dab");
+
+        session_end();
+    }
+
+    #[test]
+    fn test_liquify_session_apply_path_continuous() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        session_begin();
+
+        let mut orig_tile = vec![0u8; 512 * 512 * 4];
+        // Draw a vertical line from wy = 50 to 150 at wx = 100
+        for y in 50..150 {
+            let gl_ly = 511 - y;
+            let idx = (gl_ly * 512 + 100) * 4;
+            orig_tile[idx] = 255;
+            orig_tile[idx + 3] = 255;
+        }
+
+        let layer_id = 88i64;
+        session_register_tile(layer_id, 0, 0, &orig_tile);
+
+        // Apply a stroke moving horizontally across the line from (80, 100) to (140, 100)
+        let path = vec![[80.0, 100.0], [110.0, 100.0], [140.0, 100.0]];
+        let dirty = session_apply_path(
+            &[layer_id],
+            &path,
+            30.0,
+            1.0,
+            LiquifyMode::Push,
+        );
+
+        assert!(!dirty.is_empty());
+        let mut warped = vec![0u8; 512 * 512 * 4];
+        assert!(session_get_tile_pixels(layer_id, 0, 0, &mut warped));
+
+        // The line at (100, 100) should be displaced to the right (x > 100)
+        let gl_ly = 511 - 100;
+        let mut non_zero_xs = Vec::new();
+        for x in 80..160 {
+            let idx = (gl_ly * 512 + x) * 4;
+            if warped[idx] > 0 {
+                non_zero_xs.push((x, warped[idx]));
+            }
+        }
+        println!("Non-zero pixels along y=100: {:?}", non_zero_xs);
+        assert!(!non_zero_xs.is_empty(), "Some pixels should be present");
+        assert!(non_zero_xs.iter().any(|&(x, _)| x > 100), "Pixels must have been pushed to x > 100");
+
+        // High quality final resample check
+        let final_dirty = session_resample_final(&[layer_id]);
+        assert!(!final_dirty.is_empty());
 
         session_end();
     }

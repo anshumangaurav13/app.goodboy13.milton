@@ -312,6 +312,20 @@ object MiltonNative {
     ): LongArray?
 
     @JvmStatic
+    external fun liquifySessionApplyPath(
+        targetLayers: LongArray,
+        points: FloatArray,
+        radius: Float,
+        strength: Float,
+        mode: Int
+    ): LongArray?
+
+    @JvmStatic
+    external fun liquifySessionResampleFinal(
+        targetLayers: LongArray
+    ): LongArray?
+
+    @JvmStatic
     external fun liquifySessionGetTilePixels(
         layerId: Long,
         tx: Int,
