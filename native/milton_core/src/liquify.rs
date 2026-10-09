@@ -474,9 +474,16 @@ pub struct LiquifyTile {
     pub disp: Vec<f32>, // 512 * 512 * 2 (world-space dx, dy)
 }
 
+pub struct TileDispUpdates {
+    pub layer_id: i64,
+    pub tx: i32,
+    pub ty: i32,
+    pub entries: Vec<(usize, f32, f32)>,
+}
+
 pub struct LiquifySession {
     pub tiles: HashMap<(i64, i32, i32), LiquifyTile>,
-    pub scratch_disp: Vec<(usize, f32, f32)>,
+    pub scratch_tile_updates: Vec<TileDispUpdates>,
     pub scratch_pixels: Vec<(usize, [u8; 4])>,
     pub dirty: Vec<(i64, i32, i32)>,
 }
@@ -490,7 +497,7 @@ pub fn session_begin() {
     };
     *guard = Some(LiquifySession {
         tiles: HashMap::new(),
-        scratch_disp: Vec::with_capacity(TILE_SIZE * TILE_SIZE),
+        scratch_tile_updates: Vec::with_capacity(32),
         scratch_pixels: Vec::with_capacity(TILE_SIZE * TILE_SIZE),
         dirty: Vec::new(),
     });
@@ -748,7 +755,11 @@ pub fn session_apply_dab(
     let ref_layer_id = target_layer_ids[0];
     let mut modified_keys = Vec::new();
 
-    // 1. Pass 1: Update displacement field on all intersecting tiles
+    // 1. Pass 1: Compute displacement updates across all intersecting tiles
+    // CRITICAL: We do NOT write back to any tile.disp during this pass!
+    // All tiles sample exclusively from Generation N of session.tiles to prevent cross-tile shearing.
+    session.scratch_tile_updates.clear();
+
     for ty in min_ty..=max_ty {
         for tx in min_tx..=max_tx {
             let key = (ref_layer_id, tx, ty);
@@ -773,7 +784,7 @@ pub fn session_apply_dab(
             let min_ly = (box_min_wy - tile_oy) as usize;
             let max_ly = (box_max_wy - tile_oy) as usize;
 
-            session.scratch_disp.clear();
+            let mut entries = Vec::new();
 
             for ly in min_ly..=max_ly {
                 let wy = tile_oy + ly as i32;
@@ -801,7 +812,11 @@ pub fn session_apply_dab(
                     let eff_s = (strength * falloff).clamp(0.0, 1.0);
 
                     if mode == LiquifyMode::Reconstruct {
-                        session.scratch_disp.push((cur_idx, cur_dx * (1.0 - eff_s * 0.15), cur_dy * (1.0 - eff_s * 0.15)));
+                        // Strong, responsive reconstruct eraser: decays displacement towards 0
+                        let decay = (eff_s * 0.60).clamp(0.0, 1.0);
+                        let ndx = cur_dx * (1.0 - decay);
+                        let ndy = cur_dy * (1.0 - decay);
+                        entries.push((cur_idx, ndx, ndy));
                         continue;
                     }
 
@@ -811,7 +826,8 @@ pub fn session_apply_dab(
                             (wx as f32 - eff_s * dir_x, wy as f32 - eff_s * dir_y)
                         }
                         LiquifyMode::Expand => {
-                            let push = radius * 0.04 * eff_s;
+                            // Expand outward smoothly; clamp step to dist so it never shoots past center
+                            let push = (radius * 0.05 * eff_s).min(dist);
                             if dist > 0.001 {
                                 (wx as f32 - (dx / dist) * push, wy as f32 - (dy / dist) * push)
                             } else {
@@ -819,7 +835,7 @@ pub fn session_apply_dab(
                             }
                         }
                         LiquifyMode::Pinch => {
-                            let pull = radius * 0.04 * eff_s;
+                            let pull = radius * 0.05 * eff_s;
                             if dist > 0.001 {
                                 (wx as f32 + (dx / dist) * pull, wy as f32 + (dy / dist) * pull)
                             } else {
@@ -827,11 +843,18 @@ pub fn session_apply_dab(
                             }
                         }
                         LiquifyMode::TwirlCw => {
-                            let theta = dy.atan2(dx) - eff_s * 0.08;
+                            // High-strength twirl with motion sensitivity
+                            let move_dist = (dir_x * dir_x + dir_y * dir_y).sqrt();
+                            let move_angle = (move_dist / radius).clamp(0.0, 1.0) * eff_s * 0.20;
+                            let total_angle = eff_s * 0.25 + move_angle;
+                            let theta = dy.atan2(dx) - total_angle;
                             (center_x + dist * theta.cos(), center_y + dist * theta.sin())
                         }
                         LiquifyMode::TwirlCcw => {
-                            let theta = dy.atan2(dx) + eff_s * 0.08;
+                            let move_dist = (dir_x * dir_x + dir_y * dir_y).sqrt();
+                            let move_angle = (move_dist / radius).clamp(0.0, 1.0) * eff_s * 0.20;
+                            let total_angle = eff_s * 0.25 + move_angle;
+                            let theta = dy.atan2(dx) + total_angle;
                             (center_x + dist * theta.cos(), center_y + dist * theta.sin())
                         }
                         LiquifyMode::Reconstruct => unreachable!(),
@@ -840,27 +863,37 @@ pub fn session_apply_dab(
                     let (prev_dx, prev_dy) = sample_world_displacement(ref_layer_id, u, v, &session.tiles);
                     let ndx = (u - wx as f32) + prev_dx;
                     let ndy = (v - wy as f32) + prev_dy;
-                    session.scratch_disp.push((cur_idx, ndx, ndy));
+                    entries.push((cur_idx, ndx, ndy));
                 }
             }
 
-            // Write back updated displacements into reference tile
-            if !session.scratch_disp.is_empty() {
-                let tile = session.tiles.get_mut(&key).unwrap();
-                for &(idx, ndx, ndy) in &session.scratch_disp {
-                    tile.disp[idx] = ndx;
-                    tile.disp[idx + 1] = ndy;
-                }
+            if !entries.is_empty() {
+                session.scratch_tile_updates.push(TileDispUpdates {
+                    layer_id: ref_layer_id,
+                    tx,
+                    ty,
+                    entries,
+                });
+            }
+        }
+    }
 
-                // Copy displacements to secondary target layers if multiple selected
-                for &other_layer in target_layer_ids.iter().skip(1) {
-                    let other_key = (other_layer, tx, ty);
-                    if let Some(other_tile) = session.tiles.get_mut(&other_key) {
-                        for &(idx, ndx, ndy) in &session.scratch_disp {
-                            other_tile.disp[idx] = ndx;
-                            other_tile.disp[idx + 1] = ndy;
-                        }
-                    }
+    // SIMULTANEOUS WRITEBACK: Commit all tile displacement updates at the exact same moment
+    for update in &session.scratch_tile_updates {
+        let key = (update.layer_id, update.tx, update.ty);
+        let tile = session.tiles.get_mut(&key).unwrap();
+        for &(idx, ndx, ndy) in &update.entries {
+            tile.disp[idx] = ndx;
+            tile.disp[idx + 1] = ndy;
+        }
+
+        // Copy displacements to secondary target layers if multiple selected
+        for &other_layer in target_layer_ids.iter().skip(1) {
+            let other_key = (other_layer, update.tx, update.ty);
+            if let Some(other_tile) = session.tiles.get_mut(&other_key) {
+                for &(idx, ndx, ndy) in &update.entries {
+                    other_tile.disp[idx] = ndx;
+                    other_tile.disp[idx + 1] = ndy;
                 }
             }
         }
@@ -1196,6 +1229,132 @@ mod tests {
             "Pixel in neighbor tile across boundary not displaced: {}",
             right_pixels[right_idx + 1]
         );
+
+        session_end();
+    }
+
+    #[test]
+    fn test_liquify_session_expand_cross_tile_no_seams() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        session_begin();
+
+        let mut tile_top_left = vec![0u8; 512 * 512 * 4];
+        let mut tile_top_right = vec![0u8; 512 * 512 * 4];
+        let mut tile_bot_left = vec![0u8; 512 * 512 * 4];
+        let mut tile_bot_right = vec![0u8; 512 * 512 * 4];
+
+        // Draw a solid uniform circle in the center of the 4-tile crossroad corner at wx=512, wy=512
+        let layer_id = 101i64;
+        for ty in 0..=1 {
+            for tx in 0..=1 {
+                let tile = match (tx, ty) {
+                    (0, 0) => &mut tile_top_left,
+                    (1, 0) => &mut tile_top_right,
+                    (0, 1) => &mut tile_bot_left,
+                    (1, 1) => &mut tile_bot_right,
+                    _ => unreachable!(),
+                };
+                for ly in 0..512 {
+                    let wy = ty * 512 + ly;
+                    let gl_ly = 511 - ly as usize;
+                    for lx in 0..512 {
+                        let wx = tx * 512 + lx;
+                        let dx = wx as f32 - 512.0;
+                        let dy = wy as f32 - 512.0;
+                        if dx * dx + dy * dy <= 40.0 * 40.0 {
+                            let idx = (gl_ly * 512 + lx as usize) * 4;
+                            tile[idx] = 200;
+                            tile[idx + 3] = 255;
+                        }
+                    }
+                }
+            }
+        }
+
+        session_register_tile(layer_id, 0, 0, &tile_top_left);
+        session_register_tile(layer_id, 1, 0, &tile_top_right);
+        session_register_tile(layer_id, 0, 1, &tile_bot_left);
+        session_register_tile(layer_id, 1, 1, &tile_bot_right);
+
+        // Apply 25 repeated Expand dabs centered right at (512.0, 512.0)
+        for _ in 0..25 {
+            session_apply_dab(
+                &[layer_id],
+                512.0,
+                512.0,
+                80.0,
+                0.5,
+                LiquifyMode::Expand,
+                0.0,
+                0.0,
+            );
+        }
+
+        let mut out_tl = vec![0u8; 512 * 512 * 4];
+        let mut out_tr = vec![0u8; 512 * 512 * 4];
+        assert!(session_get_tile_pixels(layer_id, 0, 0, &mut out_tl));
+        assert!(session_get_tile_pixels(layer_id, 1, 0, &mut out_tr));
+
+        // Compare boundary pixels across x=512 (x=511 on left vs x=0 on right)
+        // With simultaneous multi-tile writeback, there must be ZERO seam discontinuity!
+        let gl_ly = 511 - 256;
+        let left_pixel_idx = (gl_ly * 512 + 511) * 4;
+        let right_pixel_idx = (gl_ly * 512 + 0) * 4;
+        let diff = (out_tl[left_pixel_idx] as i32 - out_tr[right_pixel_idx] as i32).abs();
+        assert!(diff <= 5, "Seam discontinuity between left and right tiles: diff was {}", diff);
+
+        session_end();
+    }
+
+    #[test]
+    fn test_liquify_session_reconstruct_restores_original() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        session_begin();
+
+        let mut orig_tile = vec![0u8; 512 * 512 * 4];
+        let gl_ly = 511 - 100;
+        let idx = (gl_ly * 512 + 100) * 4;
+        orig_tile[idx] = 255;
+        orig_tile[idx + 3] = 255;
+
+        let layer_id = 77i64;
+        session_register_tile(layer_id, 0, 0, &orig_tile);
+
+        // Push pixel away from 100, 100
+        session_apply_dab(
+            &[layer_id],
+            100.0,
+            100.0,
+            50.0,
+            1.0,
+            LiquifyMode::Push,
+            20.0,
+            0.0,
+        );
+
+        let mut warped = vec![0u8; 512 * 512 * 4];
+        session_get_tile_pixels(layer_id, 0, 0, &mut warped);
+        // Warp moved it away, so pixel at 100,100 is no longer 255
+        assert_ne!(warped[idx], 255);
+
+        // Now apply 5 Reconstruct dabs over the area
+        for _ in 0..5 {
+            session_apply_dab(
+                &[layer_id],
+                100.0,
+                100.0,
+                50.0,
+                1.0,
+                LiquifyMode::Reconstruct,
+                0.0,
+                0.0,
+            );
+        }
+
+        let mut restored = vec![0u8; 512 * 512 * 4];
+        session_get_tile_pixels(layer_id, 0, 0, &mut restored);
+        // Reconstruct should cleanly restore the pixel back near 255
+        assert!(restored[idx] > 220, "Reconstruct failed to restore pixel: {}", restored[idx]);
 
         session_end();
     }

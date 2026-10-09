@@ -173,9 +173,9 @@ class LiquifyManager {
                     pendingEffDirY = 0f
                 }
 
-                // Generous padding of 1 tile (512px) around the circle ensures Catmull-Rom
+                // Generous padding of at least 2 tiles (1024px) or radius around the circle ensures Catmull-Rom
                 // and displaced source lookups across infinite canvas boundaries never hit missing tiles
-                val pad = TileCoord.TILE_SIZE
+                val pad = (dabRadius.toInt() + TileCoord.TILE_SIZE).coerceAtLeast(TileCoord.TILE_SIZE * 2)
                 val pLeft = floor(dabWorldX - dabRadius - pad).toInt()
                 val pTop = floor(dabWorldY - dabRadius - pad).toInt()
                 val pRight = ceil(dabWorldX + dabRadius + pad).toInt()
