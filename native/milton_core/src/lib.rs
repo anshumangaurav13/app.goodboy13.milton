@@ -1125,17 +1125,17 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquif
     ty: jint,
     out_rgba: JByteArray<'local>,
 ) -> jboolean {
-    let mut buf = vec![0u8; 512 * 512 * 4];
-    if !liquify::session_get_tile_pixels(layer_id as i64, tx, ty, &mut buf) {
-        return JNI_FALSE;
-    }
+    let success = liquify::session_get_tile_pixels_callback(layer_id as i64, tx, ty, |rgba| {
+        let slice: &[i8] =
+            unsafe { std::slice::from_raw_parts(rgba.as_ptr() as *const i8, rgba.len()) };
+        env.set_byte_array_region(&out_rgba, 0, slice).is_ok()
+    });
 
-    let slice: &[i8] =
-        unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const i8, buf.len()) };
-    if env.set_byte_array_region(&out_rgba, 0, slice).is_err() {
-        return JNI_FALSE;
+    if success {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
     }
-    JNI_TRUE
 }
 
 #[no_mangle]

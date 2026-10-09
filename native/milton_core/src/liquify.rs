@@ -451,18 +451,21 @@ pub struct LiquifyTile {
     pub orig_rgba: Vec<u8>,
     pub working_rgba: Vec<u8>,
     pub disp: Vec<f32>, // 512 * 512 * 2 (world-space dx, dy)
+    pub is_blank: bool,
 }
 
-pub struct TileDispUpdates {
-    pub layer_id: i64,
+#[derive(Clone, Copy)]
+pub struct DispUpdateEntry {
     pub tx: i32,
     pub ty: i32,
-    pub entries: Vec<(usize, f32, f32)>,
+    pub idx: usize,
+    pub ndx: f32,
+    pub ndy: f32,
 }
 
 pub struct LiquifySession {
     pub tiles: HashMap<(i64, i32, i32), LiquifyTile>,
-    pub scratch_tile_updates: Vec<TileDispUpdates>,
+    pub flat_disp_updates: Vec<DispUpdateEntry>,
     pub scratch_pixels: Vec<(usize, [u8; 4])>,
     pub dirty: Vec<(i64, i32, i32)>,
 }
@@ -476,7 +479,7 @@ pub fn session_begin() {
     };
     *guard = Some(LiquifySession {
         tiles: HashMap::new(),
-        scratch_tile_updates: Vec::with_capacity(32),
+        flat_disp_updates: Vec::with_capacity(TILE_SIZE * TILE_SIZE),
         scratch_pixels: Vec::with_capacity(TILE_SIZE * TILE_SIZE),
         dirty: Vec::new(),
     });
@@ -496,12 +499,14 @@ pub fn session_register_tile(layer_id: i64, tx: i32, ty: i32, orig_rgba: &[u8]) 
             } else {
                 vec![0u8; expected_len]
             };
+            let is_blank = crate::selection::is_buffer_all_zero(&bytes);
             session.tiles.insert(
                 key,
                 LiquifyTile {
                     orig_rgba: bytes.clone(),
                     working_rgba: bytes,
                     disp: vec![0.0f32; TILE_SIZE * TILE_SIZE * 2],
+                    is_blank,
                 },
             );
         }
@@ -521,6 +526,9 @@ fn get_orig_pixel(
     let ly = wy.rem_euclid(512) as usize;
 
     if let Some(tile) = tiles.get(&(layer_id, tx, ty)) {
+        if tile.is_blank {
+            return [0, 0, 0, 0];
+        }
         let gl_ly = (TILE_SIZE - 1) - ly;
         let idx = (gl_ly * TILE_SIZE + lx) * 4;
         [
@@ -560,6 +568,9 @@ fn sample_world_catmull_rom(
     // lie completely within the single tile (s_tx, s_ty)
     if x_floor - 1 >= s_ox && x_floor + 2 < s_ox + 512 && y_floor - 1 >= s_oy && y_floor + 2 < s_oy + 512 {
         if let Some(tile) = tiles.get(&(layer_id, s_tx, s_ty)) {
+            if tile.is_blank {
+                return [0, 0, 0, 0];
+            }
             let base_lx = (x_floor - 1 - s_ox) as usize;
             let base_ly = (y_floor - 1 - s_oy) as usize;
 
@@ -570,13 +581,17 @@ fn sample_world_catmull_rom(
                 let gl_ly = (TILE_SIZE - 1) - ly;
                 let row_offset = gl_ly * TILE_SIZE * 4;
                 for kx in 0..4 {
-                    let w = w_y * wx[kx];
                     let lx = base_lx + kx;
                     let idx = row_offset + lx * 4;
+                    let a = tile.orig_rgba[idx + 3];
+                    if a == 0 && tile.orig_rgba[idx] == 0 && tile.orig_rgba[idx + 1] == 0 && tile.orig_rgba[idx + 2] == 0 {
+                        continue;
+                    }
+                    let w = w_y * wx[kx];
                     accum[0] += tile.orig_rgba[idx] as f32 * w;
                     accum[1] += tile.orig_rgba[idx + 1] as f32 * w;
                     accum[2] += tile.orig_rgba[idx + 2] as f32 * w;
-                    accum[3] += tile.orig_rgba[idx + 3] as f32 * w;
+                    accum[3] += a as f32 * w;
                 }
             }
 
@@ -601,8 +616,11 @@ fn sample_world_catmull_rom(
         let w_y = wy[ky];
         for kx in 0..4 {
             let cur_x = xs[kx];
-            let w = w_y * wx[kx];
             let p = get_orig_pixel(layer_id, cur_x, cur_y, tiles);
+            if p[3] == 0 && p[0] == 0 && p[1] == 0 && p[2] == 0 {
+                continue;
+            }
+            let w = w_y * wx[kx];
             accum[0] += p[0] as f32 * w;
             accum[1] += p[1] as f32 * w;
             accum[2] += p[2] as f32 * w;
@@ -737,7 +755,7 @@ pub fn session_apply_dab(
     // 1. Pass 1: Compute displacement updates across all intersecting tiles
     // CRITICAL: We do NOT write back to any tile.disp during this pass!
     // All tiles sample exclusively from Generation N of session.tiles to prevent cross-tile shearing.
-    session.scratch_tile_updates.clear();
+    session.flat_disp_updates.clear();
 
     for ty in min_ty..=max_ty {
         for tx in min_tx..=max_tx {
@@ -762,8 +780,6 @@ pub fn session_apply_dab(
             let max_lx = (box_max_wx - tile_ox) as usize;
             let min_ly = (box_min_wy - tile_oy) as usize;
             let max_ly = (box_max_wy - tile_oy) as usize;
-
-            let mut entries = Vec::new();
 
             for ly in min_ly..=max_ly {
                 let wy = tile_oy + ly as i32;
@@ -796,7 +812,8 @@ pub fn session_apply_dab(
                             // Expand outward smoothly; clamp step to dist so it never shoots past center
                             let push = (radius * 0.05 * eff_s).min(dist);
                             if dist > 0.001 {
-                                (wx as f32 - (dx / dist) * push, wy as f32 - (dy / dist) * push)
+                                let factor = push / dist;
+                                (wx as f32 - dx * factor, wy as f32 - dy * factor)
                             } else {
                                 (wx as f32, wy as f32)
                             }
@@ -804,63 +821,71 @@ pub fn session_apply_dab(
                         LiquifyMode::Pinch => {
                             let pull = radius * 0.05 * eff_s;
                             if dist > 0.001 {
-                                (wx as f32 + (dx / dist) * pull, wy as f32 + (dy / dist) * pull)
+                                let factor = pull / dist;
+                                (wx as f32 + dx * factor, wy as f32 + dy * factor)
                             } else {
                                 (wx as f32, wy as f32)
                             }
                         }
                         LiquifyMode::TwirlCw => {
-                            // High-strength twirl with motion sensitivity
+                            // High-strength twirl with motion sensitivity using fast 2D rotation (zero atan2)
                             let move_dist = (dir_x * dir_x + dir_y * dir_y).sqrt();
                             let move_angle = (move_dist / radius).clamp(0.0, 1.0) * eff_s * 0.20;
                             let total_angle = eff_s * 0.25 + move_angle;
-                            let theta = dy.atan2(dx) - total_angle;
-                            (center_x + dist * theta.cos(), center_y + dist * theta.sin())
+                            if dist > 0.001 {
+                                let cos_phi = total_angle.cos();
+                                let sin_phi = total_angle.sin();
+                                let new_dx = dx * cos_phi + dy * sin_phi;
+                                let new_dy = dy * cos_phi - dx * sin_phi;
+                                (center_x + new_dx, center_y + new_dy)
+                            } else {
+                                (wx as f32, wy as f32)
+                            }
                         }
                         LiquifyMode::TwirlCcw => {
                             let move_dist = (dir_x * dir_x + dir_y * dir_y).sqrt();
                             let move_angle = (move_dist / radius).clamp(0.0, 1.0) * eff_s * 0.20;
                             let total_angle = eff_s * 0.25 + move_angle;
-                            let theta = dy.atan2(dx) + total_angle;
-                            (center_x + dist * theta.cos(), center_y + dist * theta.sin())
+                            if dist > 0.001 {
+                                let cos_phi = total_angle.cos();
+                                let sin_phi = total_angle.sin();
+                                let new_dx = dx * cos_phi - dy * sin_phi;
+                                let new_dy = dy * cos_phi + dx * sin_phi;
+                                (center_x + new_dx, center_y + new_dy)
+                            } else {
+                                (wx as f32, wy as f32)
+                            }
                         }
                     };
 
                     let (prev_dx, prev_dy) = sample_world_displacement(ref_layer_id, u, v, &session.tiles);
                     let ndx = (u - wx as f32) + prev_dx;
                     let ndy = (v - wy as f32) + prev_dy;
-                    entries.push((cur_idx, ndx, ndy));
+                    session.flat_disp_updates.push(DispUpdateEntry {
+                        tx,
+                        ty,
+                        idx: cur_idx,
+                        ndx,
+                        ndy,
+                    });
                 }
-            }
-
-            if !entries.is_empty() {
-                session.scratch_tile_updates.push(TileDispUpdates {
-                    layer_id: ref_layer_id,
-                    tx,
-                    ty,
-                    entries,
-                });
             }
         }
     }
 
     // SIMULTANEOUS WRITEBACK: Commit all tile displacement updates at the exact same moment
-    for update in &session.scratch_tile_updates {
-        let key = (update.layer_id, update.tx, update.ty);
-        let tile = session.tiles.get_mut(&key).unwrap();
-        for &(idx, ndx, ndy) in &update.entries {
-            tile.disp[idx] = ndx;
-            tile.disp[idx + 1] = ndy;
-        }
+    for entry in &session.flat_disp_updates {
+        let tile = session.tiles.get_mut(&(ref_layer_id, entry.tx, entry.ty)).unwrap();
+        tile.disp[entry.idx] = entry.ndx;
+        tile.disp[entry.idx + 1] = entry.ndy;
+    }
 
-        // Copy displacements to secondary target layers if multiple selected
-        for &other_layer in target_layer_ids.iter().skip(1) {
-            let other_key = (other_layer, update.tx, update.ty);
-            if let Some(other_tile) = session.tiles.get_mut(&other_key) {
-                for &(idx, ndx, ndy) in &update.entries {
-                    other_tile.disp[idx] = ndx;
-                    other_tile.disp[idx + 1] = ndy;
-                }
+    // Copy displacements to secondary target layers if multiple selected
+    for &other_layer in target_layer_ids.iter().skip(1) {
+        for entry in &session.flat_disp_updates {
+            if let Some(other_tile) = session.tiles.get_mut(&(other_layer, entry.tx, entry.ty)) {
+                other_tile.disp[entry.idx] = entry.ndx;
+                other_tile.disp[entry.idx + 1] = entry.ndy;
             }
         }
     }
@@ -917,14 +942,25 @@ pub fn session_apply_dab(
                         let pixel = sample_world_catmull_rom(layer_id, sx, sy, &session.tiles);
 
                         let p_idx = (gl_ly * TILE_SIZE + lx) * 4;
-                        session.scratch_pixels.push((p_idx, pixel));
+                        let p_u32 = unsafe { std::ptr::read_unaligned(pixel.as_ptr() as *const u32) };
+                        let cur_u32 = unsafe { std::ptr::read_unaligned(tile.working_rgba.as_ptr().add(p_idx) as *const u32) };
+                        if p_u32 != cur_u32 {
+                            session.scratch_pixels.push((p_idx, pixel));
+                        }
                     }
                 }
 
                 if !session.scratch_pixels.is_empty() {
                     let tile = session.tiles.get_mut(&key).unwrap();
+                    let mut has_painted_pixel = false;
                     for &(p_idx, pixel) in &session.scratch_pixels {
                         tile.working_rgba[p_idx..p_idx + 4].copy_from_slice(&pixel);
+                        if pixel[3] > 0 {
+                            has_painted_pixel = true;
+                        }
+                    }
+                    if has_painted_pixel {
+                        tile.is_blank = false;
                     }
                     modified_keys.push(key);
                 }
@@ -950,6 +986,28 @@ pub fn session_get_tile_pixels(layer_id: i64, tx: i32, ty: i32, out_buf: &mut [u
         let len = tile.working_rgba.len().min(out_buf.len());
         out_buf[..len].copy_from_slice(&tile.working_rgba[..len]);
         true
+    } else {
+        false
+    }
+}
+
+pub fn session_get_tile_pixels_callback<F: FnOnce(&[u8]) -> bool>(
+    layer_id: i64,
+    tx: i32,
+    ty: i32,
+    f: F,
+) -> bool {
+    let guard = match SESSION.lock() {
+        Ok(g) => g,
+        Err(_) => return false,
+    };
+    let session = match guard.as_ref() {
+        Some(s) => s,
+        None => return false,
+    };
+
+    if let Some(tile) = session.tiles.get(&(layer_id, tx, ty)) {
+        f(&tile.working_rgba)
     } else {
         false
     }

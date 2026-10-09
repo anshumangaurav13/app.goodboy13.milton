@@ -37,13 +37,15 @@ class LiquifyManager {
     private var targetLayerIds: Set<Long> = emptySet()
 
     // Key: (layerId to TileCoord) -> Original tile raw bytes before this continuous stroke started (for Undo/Cancel)
-    private val strokeOriginalTiles = mutableMapOf<Pair<Long, TileCoord>, ByteArray>()
+    private val strokeOriginalTiles = mutableMapOf<Pair<Long, TileCoord>, ByteArray?>()
 
     // Set of tiles already registered in the native LiquifySession
     private val registeredTiles = mutableSetOf<Pair<Long, TileCoord>>()
 
     // Pre-allocated reusable buffer for reading 512x512 tile pixels from native session (zero GC churn)
     private val reusableTileBuffer = ByteArray(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4)
+    // Pre-allocated blank tile buffer for registering empty canvas tiles without GPU readbacks or allocations
+    private val emptyTileBuffer = ByteArray(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4)
 
     // Coalescing to prevent queuing unbounded heavy tasks during rapid 120Hz/240Hz stylus drag
     private val isGlTaskQueued = AtomicBoolean(false)
@@ -128,9 +130,9 @@ class LiquifyManager {
         val maxY = maxOf(y1, y2) + radius + pad
 
         val minTx = floor(minX / TileCoord.TILE_SIZE).toInt()
-        val maxTx = floor(maxX / TileCoord.TILE_SIZE).toInt()
+        val maxTx = floor((maxX - 1f) / TileCoord.TILE_SIZE).toInt()
         val minTy = floor(minY / TileCoord.TILE_SIZE).toInt()
-        val maxTy = floor(maxY / TileCoord.TILE_SIZE).toInt()
+        val maxTy = floor((maxY - 1f) / TileCoord.TILE_SIZE).toInt()
 
         for (layerId in targets) {
             val layer = canvasView.layerManager.layers.find { it.id == layerId } ?: continue
@@ -140,21 +142,39 @@ class LiquifyManager {
                     val coord = TileCoord(tx, ty)
                     val key = layerId to coord
                     if (registeredTiles.add(key)) {
-                        val tile = layer.tileMap.getOrCreateTile(tx, ty)
-                        tile.ensureResident(layer.tileMap.cacheDir)
-                        val originalBytes = tile.readPixels()
-                        strokeOriginalTiles[key] = originalBytes.clone()
-                        canvasView.renderer.undoManager.registerPreModifiedTile(
-                            layerId,
-                            coord,
-                            originalBytes.clone()
-                        )
-                        MiltonNative.liquifySessionRegisterTile(
-                            layerId,
-                            tx,
-                            ty,
-                            originalBytes
-                        )
+                        val existingTile = layer.tileMap.getExistingTile(tx, ty)
+                        val hasData = existingTile != null && ((existingTile.isInitialized && existingTile.hasContent) || existingTile.isOnDisk)
+
+                        if (hasData) {
+                            val tile = existingTile!!
+                            tile.ensureResident(layer.tileMap.cacheDir)
+                            val originalBytes = tile.readPixels()
+                            strokeOriginalTiles[key] = originalBytes.clone()
+                            canvasView.renderer.undoManager.registerPreModifiedTile(
+                                layerId,
+                                coord,
+                                originalBytes.clone()
+                            )
+                            MiltonNative.liquifySessionRegisterTile(
+                                layerId,
+                                tx,
+                                ty,
+                                originalBytes
+                            )
+                        } else {
+                            strokeOriginalTiles[key] = null
+                            canvasView.renderer.undoManager.registerPreModifiedTile(
+                                layerId,
+                                coord,
+                                null
+                            )
+                            MiltonNative.liquifySessionRegisterTile(
+                                layerId,
+                                tx,
+                                ty,
+                                emptyTileBuffer
+                            )
+                        }
                     }
                 }
             }
@@ -278,8 +298,8 @@ class LiquifyManager {
 
                         val layer = canvasView.layerManager.layers.find { it.id == layerId } ?: continue
                         if (MiltonNative.liquifySessionGetTilePixels(layerId, tx, ty, reusableTileBuffer)) {
-                            val tile = layer.tileMap.getExistingTile(tx, ty)
-                            tile?.writePixels(reusableTileBuffer)
+                            val tile = layer.tileMap.getOrCreateTile(tx, ty)
+                            tile.writePixels(reusableTileBuffer)
                         }
                     }
                 }
@@ -380,7 +400,12 @@ class LiquifyManager {
                     val (layerId, coord) = key
                     val layer = canvasView.layerManager.layers.find { it.id == layerId } ?: continue
                     val tile = layer.tileMap.getExistingTile(coord.tx, coord.ty) ?: continue
-                    tile.writePixels(raw)
+                    if (raw != null) {
+                        tile.writePixels(raw)
+                    } else {
+                        tile.clear()
+                        tile.hasContent = false
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error canceling liquify stroke", e)
