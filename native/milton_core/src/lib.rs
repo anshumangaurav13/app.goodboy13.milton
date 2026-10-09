@@ -852,3 +852,108 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_blitTi
     JNI_TRUE
 }
 
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifySessionBegin<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) {
+    liquify::session_begin();
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifySessionRegisterTile<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    layer_id: jlong,
+    tx: jint,
+    ty: jint,
+    orig_rgba: JByteArray<'local>,
+) -> jboolean {
+    let bytes = match env.convert_byte_array(&orig_rgba) {
+        Ok(b) => b,
+        Err(_) => return JNI_FALSE,
+    };
+    liquify::session_register_tile(layer_id as i64, tx, ty, &bytes);
+    JNI_TRUE
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifySessionApplyDab<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    target_layers: jni::objects::JLongArray<'local>,
+    center_x: jfloat,
+    center_y: jfloat,
+    radius: jfloat,
+    strength: jfloat,
+    mode: jint,
+    dir_x: jfloat,
+    dir_y: jfloat,
+) -> jni::objects::JLongArray<'local> {
+    let len = match env.get_array_length(&target_layers) {
+        Ok(l) => l as usize,
+        Err(_) => return jni::objects::JLongArray::default(),
+    };
+    let mut targets = vec![0i64; len];
+    if env.get_long_array_region(&target_layers, 0, &mut targets).is_err() {
+        return jni::objects::JLongArray::default();
+    }
+
+    let dirty = liquify::session_apply_dab(
+        &targets,
+        center_x as f32,
+        center_y as f32,
+        radius as f32,
+        strength as f32,
+        liquify::LiquifyMode::from_i32(mode),
+        dir_x as f32,
+        dir_y as f32,
+    );
+
+    let mut flat = Vec::with_capacity(dirty.len() * 3);
+    for (layer_id, tx, ty) in dirty {
+        flat.push(layer_id);
+        flat.push(tx as i64);
+        flat.push(ty as i64);
+    }
+
+    match env.new_long_array(flat.len() as jint) {
+        Ok(arr) => {
+            let _ = env.set_long_array_region(&arr, 0, &flat);
+            arr
+        }
+        Err(_) => jni::objects::JLongArray::default(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifySessionGetTilePixels<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    layer_id: jlong,
+    tx: jint,
+    ty: jint,
+    out_rgba: JByteArray<'local>,
+) -> jboolean {
+    let mut buf = vec![0u8; 512 * 512 * 4];
+    if !liquify::session_get_tile_pixels(layer_id as i64, tx, ty, &mut buf) {
+        return JNI_FALSE;
+    }
+
+    let slice: &[i8] =
+        unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const i8, buf.len()) };
+    if env.set_byte_array_region(&out_rgba, 0, slice).is_err() {
+        return JNI_FALSE;
+    }
+    JNI_TRUE
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifySessionEnd<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) {
+    liquify::session_end();
+}
+
+

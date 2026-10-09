@@ -759,7 +759,8 @@ class MiltonCanvasView @JvmOverloads constructor(
                         }
                         action == MotionEvent.ACTION_MOVE -> {
                             val dx = px - springStartScreenX
-                            val newSize = (springStartBrushSize + dx * 0.6f).coerceIn(1.0f, 1000f)
+                            val factor = (0.15f + 0.003f * springStartBrushSize).coerceIn(0.15f, 3.0f)
+                            val newSize = (springStartBrushSize + dx * factor).coerceIn(1.0f, 1000f)
                             brushSize = newSize
                             onBrushSizeChangedInteractively?.invoke(newSize)
                         }

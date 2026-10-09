@@ -16,8 +16,10 @@ import kotlin.math.hypot
  * Coordinates multi-layer continuous raster deformation for the Liquify tool.
  * Warps tile regions seamlessly across 512x512 tile boundaries using libmilton_core.so.
  *
- * Employs a 2D continuous displacement field sampled directly from pristine pre-stroke
- * tiles using Catmull-Rom bicubic interpolation, guaranteeing ZERO iterative blur accumulation.
+ * Utilizes a high-performance native LiquifySession in Rust:
+ * - Direct tile memory management without temporary patch allocations or JNI multi-megabyte churn.
+ * - Unified world-space displacement field sampled from pristine pre-stroke tiles using Catmull-Rom.
+ * - Zero iterative blur accumulation, zero edge clamping/tube artifacts across tile borders.
  */
 class LiquifyManager {
     companion object {
@@ -34,14 +36,14 @@ class LiquifyManager {
     private var lastPressure: Float = 0f
     private var targetLayerIds: Set<Long> = emptySet()
 
-    // Key: (layerId to TileCoord) -> Original tile raw bytes before this continuous stroke started
+    // Key: (layerId to TileCoord) -> Original tile raw bytes before this continuous stroke started (for Undo/Cancel)
     private val strokeOriginalTiles = mutableMapOf<Pair<Long, TileCoord>, ByteArray>()
 
-    // Key: (layerId to TileCoord) -> Working CPU tile raw bytes during this continuous stroke
-    private val strokeWorkingTiles = mutableMapOf<Pair<Long, TileCoord>, ByteArray>()
+    // Set of tiles already registered in the native LiquifySession
+    private val registeredTiles = mutableSetOf<Pair<Long, TileCoord>>()
 
-    // Key: (layerId to TileCoord) -> Cumulative 2D displacement field (dx, dy) floats during this continuous stroke
-    private val strokeDisplacementTiles = mutableMapOf<Pair<Long, TileCoord>, FloatArray>()
+    // Pre-allocated reusable buffer for reading 512x512 tile pixels from native session (zero GC churn)
+    private val reusableTileBuffer = ByteArray(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4)
 
     // Coalescing to prevent queuing unbounded heavy tasks during rapid 120Hz/240Hz stylus drag
     private val isGlTaskQueued = AtomicBoolean(false)
@@ -69,13 +71,24 @@ class LiquifyManager {
         isStrokeActive = true
         lastWorldX = worldX
         lastWorldY = worldY
+        lastRadius = 0f
+        lastStrength = 0f
+        lastPressure = 0f
         targetLayerIds = targets
         strokeOriginalTiles.clear()
-        strokeWorkingTiles.clear()
-        strokeDisplacementTiles.clear()
+        registeredTiles.clear()
+        synchronized(this) {
+            pendingEffDirX = 0f
+            pendingEffDirY = 0f
+        }
         isGlTaskQueued.set(false)
 
         if (canvasView != null) {
+            canvasView.renderer.runOnGlThread {
+                if (MiltonNative.isLoaded) {
+                    MiltonNative.liquifySessionBegin()
+                }
+            }
             startContinuousTicker(canvasView)
         }
     }
@@ -100,8 +113,8 @@ class LiquifyManager {
             return
         }
 
-        // Clamp displacement step for Push to avoid unnatural tearing on fast flick
-        val maxStep = radius * 0.6f
+        // Clamp single-step delta for Push to prevent wild tearing on sudden touch jumps
+        val maxStep = radius * 1.0f
         val (effDirX, effDirY) = if (dist > maxStep && dist > 0.001f) {
             val scale = maxStep / dist
             (dx * scale) to (dy * scale)
@@ -115,14 +128,16 @@ class LiquifyManager {
         lastStrength = strength
         lastPressure = pressure
 
-        // Store latest parameters for the GL worker
-        pendingWorldX = worldX
-        pendingWorldY = worldY
-        pendingRadius = radius
-        pendingStrength = strength
-        pendingPressure = pressure
-        pendingEffDirX = effDirX
-        pendingEffDirY = effDirY
+        // Store latest parameters and accumulate movement deltas (never drop motion!)
+        synchronized(this) {
+            pendingWorldX = worldX
+            pendingWorldY = worldY
+            pendingRadius = radius
+            pendingStrength = strength
+            pendingPressure = pressure
+            pendingEffDirX += effDirX
+            pendingEffDirY += effDirY
+        }
 
         // If a GL task is already queued or executing, coalesce by updating parameters
         if (!isGlTaskQueued.compareAndSet(false, true)) {
@@ -138,148 +153,95 @@ class LiquifyManager {
 
         canvasView.renderer.runOnGlThread {
             try {
-                val dabWorldX = pendingWorldX
-                val dabWorldY = pendingWorldY
-                val dabRadius = pendingRadius
-                val dabStrength = pendingStrength
-                val dabPressure = pendingPressure
-                val dabEffDirX = pendingEffDirX
-                val dabEffDirY = pendingEffDirY
+                val dabWorldX: Float
+                val dabWorldY: Float
+                val dabRadius: Float
+                val dabStrength: Float
+                val dabPressure: Float
+                val dabEffDirX: Float
+                val dabEffDirY: Float
 
-                // Generous padding to accommodate displacement without border clamping
-                val pad = (dabRadius * 0.4f).toInt().coerceAtLeast(32)
+                synchronized(this) {
+                    dabWorldX = pendingWorldX
+                    dabWorldY = pendingWorldY
+                    dabRadius = pendingRadius
+                    dabStrength = pendingStrength
+                    dabPressure = pendingPressure
+                    dabEffDirX = pendingEffDirX
+                    dabEffDirY = pendingEffDirY
+                    pendingEffDirX = 0f
+                    pendingEffDirY = 0f
+                }
+
+                // Generous padding of 1 tile (512px) around the circle ensures Catmull-Rom
+                // and displaced source lookups across infinite canvas boundaries never hit missing tiles
+                val pad = TileCoord.TILE_SIZE
                 val pLeft = floor(dabWorldX - dabRadius - pad).toInt()
                 val pTop = floor(dabWorldY - dabRadius - pad).toInt()
                 val pRight = ceil(dabWorldX + dabRadius + pad).toInt()
                 val pBottom = ceil(dabWorldY + dabRadius + pad).toInt()
-
-                val pW = (pRight - pLeft).coerceAtLeast(1)
-                val pH = (pBottom - pTop).coerceAtLeast(1)
 
                 val minTx = floor(pLeft.toFloat() / TileCoord.TILE_SIZE).toInt()
                 val maxTx = floor(pRight.toFloat() / TileCoord.TILE_SIZE).toInt()
                 val minTy = floor(pTop.toFloat() / TileCoord.TILE_SIZE).toInt()
                 val maxTy = floor(pBottom.toFloat() / TileCoord.TILE_SIZE).toInt()
 
-                val effectiveStrength = (dabStrength * dabPressure.coerceIn(0.1f, 1.0f)).coerceIn(0.01f, 1.0f)
-
+                // 1. Ensure tiles exist and register with native LiquifySession ONCE per touched tile
                 for (layerId in targets) {
                     val layer = canvasView.layerManager.layers.find { it.id == layerId } ?: continue
 
-                    // 1. Ensure tiles exist and cache original, working, and displacement CPU buffers ONCE per tile
                     for (ty in minTy..maxTy) {
                         for (tx in minTx..maxTx) {
                             val coord = TileCoord(tx, ty)
                             val key = layerId to coord
-                            if (!strokeWorkingTiles.containsKey(key)) {
+                            if (registeredTiles.add(key)) {
                                 val tile = layer.tileMap.getOrCreateTile(tx, ty)
                                 tile.ensureResident(layer.tileMap.cacheDir)
                                 val originalBytes = tile.readPixels()
                                 strokeOriginalTiles[key] = originalBytes.clone()
-                                strokeWorkingTiles[key] = originalBytes.clone()
-                                strokeDisplacementTiles[key] = FloatArray(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 2)
                                 canvasView.renderer.undoManager.registerPreModifiedTile(
                                     layerId,
                                     coord,
                                     originalBytes.clone()
                                 )
-                            }
-                        }
-                    }
-
-                    // 2. Extract pristine original RGBA, working RGBA, and cumulative displacement field for this patch
-                    val patchRgba = ByteArray(pW * pH * 4)
-                    val origRgba = ByteArray(pW * pH * 4)
-                    val dispPatch = FloatArray(pW * pH * 2)
-
-                    for (ty in minTy..maxTy) {
-                        for (tx in minTx..maxTx) {
-                            val coord = TileCoord(tx, ty)
-                            val key = layerId to coord
-
-                            val tileWorkingBytes = strokeWorkingTiles[key]
-                            if (tileWorkingBytes != null) {
-                                MiltonNative.extractTileRegion(
-                                    tileWorkingBytes,
-                                    tx * TileCoord.TILE_SIZE,
-                                    ty * TileCoord.TILE_SIZE,
-                                    patchRgba,
-                                    pW, pH,
-                                    pLeft, pTop
-                                )
-                            }
-
-                            val tileOrigBytes = strokeOriginalTiles[key]
-                            if (tileOrigBytes != null) {
-                                MiltonNative.extractTileRegion(
-                                    tileOrigBytes,
-                                    tx * TileCoord.TILE_SIZE,
-                                    ty * TileCoord.TILE_SIZE,
-                                    origRgba,
-                                    pW, pH,
-                                    pLeft, pTop
-                                )
-                            }
-
-                            val tileDispFloats = strokeDisplacementTiles[key]
-                            if (tileDispFloats != null) {
-                                MiltonNative.extractTileDisplacement(
-                                    tileDispFloats,
-                                    tx * TileCoord.TILE_SIZE,
-                                    ty * TileCoord.TILE_SIZE,
-                                    dispPatch,
-                                    pW, pH,
-                                    pLeft, pTop
+                                MiltonNative.liquifySessionRegisterTile(
+                                    layerId,
+                                    tx,
+                                    ty,
+                                    originalBytes
                                 )
                             }
                         }
                     }
+                }
 
-                    // 3. Warp pixels via Rust SIMD kernel with accumulated displacement & Catmull-Rom sampling
-                    MiltonNative.liquifyPatch(
-                        patchRgba,
-                        origRgba,
-                        dispPatch,
-                        pW, pH,
-                        pLeft.toFloat(), pTop.toFloat(),
-                        dabWorldX, dabWorldY,
-                        dabRadius,
-                        effectiveStrength,
-                        mode.id,
-                        dabEffDirX, dabEffDirY
-                    )
+                val effectiveStrength = (dabStrength * dabPressure.coerceIn(0.2f, 1.0f)).coerceIn(0.01f, 1.0f)
+                val targetArray = targets.toLongArray()
 
-                    // 4. Blit updated displacement and warped RGBA back into intersecting tiles
-                    for (ty in minTy..maxTy) {
-                        for (tx in minTx..maxTx) {
-                            val coord = TileCoord(tx, ty)
-                            val key = layerId to coord
+                // 2. Perform native deformation directly in Rust memory with zero patch allocations
+                val dirtyArray = MiltonNative.liquifySessionApplyDab(
+                    targetArray,
+                    dabWorldX,
+                    dabWorldY,
+                    dabRadius,
+                    effectiveStrength,
+                    mode.id,
+                    dabEffDirX,
+                    dabEffDirY
+                )
 
-                            val tileDispFloats = strokeDisplacementTiles[key]
-                            if (tileDispFloats != null) {
-                                MiltonNative.blitTileDisplacementOverwrite(
-                                    tileDispFloats,
-                                    tx * TileCoord.TILE_SIZE,
-                                    ty * TileCoord.TILE_SIZE,
-                                    dispPatch,
-                                    pW, pH,
-                                    pLeft, pTop
-                                )
-                            }
+                // 3. For each dirty tile (layerId, tx, ty), upload updated pixels to Tile
+                if (dirtyArray != null && dirtyArray.isNotEmpty()) {
+                    val count = dirtyArray.size / 3
+                    for (i in 0 until count) {
+                        val layerId = dirtyArray[i * 3]
+                        val tx = dirtyArray[i * 3 + 1].toInt()
+                        val ty = dirtyArray[i * 3 + 2].toInt()
 
-                            val tileBytes = strokeWorkingTiles[key]
-                            if (tileBytes != null) {
-                                MiltonNative.blitPatchToTileOverwrite(
-                                    tileBytes,
-                                    tx * TileCoord.TILE_SIZE,
-                                    ty * TileCoord.TILE_SIZE,
-                                    patchRgba,
-                                    pW, pH,
-                                    pLeft, pTop
-                                )
-                                val tile = layer.tileMap.getExistingTile(tx, ty)
-                                tile?.writePixels(tileBytes)
-                            }
+                        val layer = canvasView.layerManager.layers.find { it.id == layerId } ?: continue
+                        if (MiltonNative.liquifySessionGetTilePixels(layerId, tx, ty, reusableTileBuffer)) {
+                            val tile = layer.tileMap.getExistingTile(tx, ty)
+                            tile?.writePixels(reusableTileBuffer)
                         }
                     }
                 }
@@ -345,9 +307,11 @@ class LiquifyManager {
             } catch (e: Exception) {
                 Log.e(TAG, "Error finalizing liquify stroke", e)
             } finally {
+                if (MiltonNative.isLoaded) {
+                    MiltonNative.liquifySessionEnd()
+                }
+                registeredTiles.clear()
                 strokeOriginalTiles.clear()
-                strokeWorkingTiles.clear()
-                strokeDisplacementTiles.clear()
                 canvasView.post {
                     canvasView.requestRedraw()
                     canvasView.onStrokeCompleted?.invoke(0)
@@ -373,9 +337,11 @@ class LiquifyManager {
             } catch (e: Exception) {
                 Log.e(TAG, "Error canceling liquify stroke", e)
             } finally {
+                if (MiltonNative.isLoaded) {
+                    MiltonNative.liquifySessionEnd()
+                }
+                registeredTiles.clear()
                 strokeOriginalTiles.clear()
-                strokeWorkingTiles.clear()
-                strokeDisplacementTiles.clear()
                 canvasView.post { canvasView.requestRedraw() }
             }
         }

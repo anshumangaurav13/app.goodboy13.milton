@@ -243,4 +243,39 @@ object MiltonNative {
         patchOriginX: Int,
         patchOriginY: Int
     ): Boolean
+
+    // Native Liquify Session API (zero-copy world-space tile deformation)
+    @JvmStatic
+    external fun liquifySessionBegin()
+
+    @JvmStatic
+    external fun liquifySessionRegisterTile(
+        layerId: Long,
+        tx: Int,
+        ty: Int,
+        origRgba: ByteArray
+    ): Boolean
+
+    @JvmStatic
+    external fun liquifySessionApplyDab(
+        targetLayers: LongArray,
+        centerX: Float,
+        centerY: Float,
+        radius: Float,
+        strength: Float,
+        mode: Int,
+        dirX: Float,
+        dirY: Float
+    ): LongArray?
+
+    @JvmStatic
+    external fun liquifySessionGetTilePixels(
+        layerId: Long,
+        tx: Int,
+        ty: Int,
+        outRgba: ByteArray
+    ): Boolean
+
+    @JvmStatic
+    external fun liquifySessionEnd()
 }
