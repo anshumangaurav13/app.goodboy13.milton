@@ -8,7 +8,6 @@ pub enum LiquifyMode {
     Pinch = 2,
     TwirlCw = 3,
     TwirlCcw = 4,
-    Reconstruct = 5,
 }
 
 impl LiquifyMode {
@@ -18,7 +17,6 @@ impl LiquifyMode {
             2 => LiquifyMode::Pinch,
             3 => LiquifyMode::TwirlCw,
             4 => LiquifyMode::TwirlCcw,
-            5 => LiquifyMode::Reconstruct,
             _ => LiquifyMode::Push,
         }
     }
@@ -176,35 +174,29 @@ pub fn liquify_patch(
                 let disp_idx = (y * width + x) * 2;
                 let dst_idx = (y * width + x) * 4;
 
-                let (new_dx, new_dy) = if mode == LiquifyMode::Reconstruct {
-                    let old_dx = disp[disp_idx];
-                    let old_dy = disp[disp_idx + 1];
-                    (old_dx * (1.0 - eff_s), old_dy * (1.0 - eff_s))
-                } else {
-                    let (u, v) = match mode {
-                        LiquifyMode::Push => (x as f32 - eff_s * dir_x, y as f32 - eff_s * dir_y),
-                        LiquifyMode::Expand => {
-                            (local_cx + dx * (1.0 - eff_s * 0.4), local_cy + dy * (1.0 - eff_s * 0.4))
-                        }
-                        LiquifyMode::Pinch => {
-                            (local_cx + dx * (1.0 + eff_s * 0.4), local_cy + dy * (1.0 + eff_s * 0.4))
-                        }
-                        LiquifyMode::TwirlCw => {
-                            let theta = dy.atan2(dx);
-                            let new_theta = theta - eff_s * 0.8;
-                            (local_cx + dist * new_theta.cos(), local_cy + dist * new_theta.sin())
-                        }
-                        LiquifyMode::TwirlCcw => {
-                            let theta = dy.atan2(dx);
-                            let new_theta = theta + eff_s * 0.8;
-                            (local_cx + dist * new_theta.cos(), local_cy + dist * new_theta.sin())
-                        }
-                        LiquifyMode::Reconstruct => unreachable!(),
-                    };
-
-                    let (prev_dx, prev_dy) = sample_displacement_bilinear(disp, width, height, u, v);
-                    ((u - x as f32) + prev_dx, (v - y as f32) + prev_dy)
+                let (u, v) = match mode {
+                    LiquifyMode::Push => (x as f32 - eff_s * dir_x, y as f32 - eff_s * dir_y),
+                    LiquifyMode::Expand => {
+                        (local_cx + dx * (1.0 - eff_s * 0.4), local_cy + dy * (1.0 - eff_s * 0.4))
+                    }
+                    LiquifyMode::Pinch => {
+                        (local_cx + dx * (1.0 + eff_s * 0.4), local_cy + dy * (1.0 + eff_s * 0.4))
+                    }
+                    LiquifyMode::TwirlCw => {
+                        let theta = dy.atan2(dx);
+                        let new_theta = theta - eff_s * 0.8;
+                        (local_cx + dist * new_theta.cos(), local_cy + dist * new_theta.sin())
+                    }
+                    LiquifyMode::TwirlCcw => {
+                        let theta = dy.atan2(dx);
+                        let new_theta = theta + eff_s * 0.8;
+                        (local_cx + dist * new_theta.cos(), local_cy + dist * new_theta.sin())
+                    }
                 };
+
+                let (prev_dx, prev_dy) = sample_displacement_bilinear(disp, width, height, u, v);
+                let new_dx = (u - x as f32) + prev_dx;
+                let new_dy = (v - y as f32) + prev_dy;
 
                 disp[disp_idx] = new_dx;
                 disp[disp_idx + 1] = new_dy;
@@ -239,18 +231,6 @@ pub fn liquify_patch(
 
             let dst_idx = (y * width + x) * 4;
 
-            if mode == LiquifyMode::Reconstruct {
-                if let Some(orig) = orig_rgba {
-                    for c in 0..4 {
-                        let cur_v = src[dst_idx + c] as f32;
-                        let orig_v = orig[dst_idx + c] as f32;
-                        let out_v = cur_v * (1.0 - eff_s) + orig_v * eff_s;
-                        patch_rgba[dst_idx + c] = out_v.round().clamp(0.0, 255.0) as u8;
-                    }
-                }
-                continue;
-            }
-
             let (u, v) = match mode {
                 LiquifyMode::Push => (x as f32 - eff_s * dir_x, y as f32 - eff_s * dir_y),
                 LiquifyMode::Expand => {
@@ -269,7 +249,6 @@ pub fn liquify_patch(
                     let new_theta = theta + eff_s * 0.8;
                     (local_cx + dist * new_theta.cos(), local_cy + dist * new_theta.sin())
                 }
-                LiquifyMode::Reconstruct => unreachable!(),
             };
 
             let cu = u.clamp(0.0, (width - 1) as f32);
@@ -801,24 +780,12 @@ pub fn session_apply_dab(
                     }
 
                     let cur_idx = (gl_ly * TILE_SIZE + lx) * 2;
-                    let tile = session.tiles.get(&key).unwrap();
-                    let cur_dx = tile.disp[cur_idx];
-                    let cur_dy = tile.disp[cur_idx + 1];
 
                     let dist = dist_sq.sqrt();
                     let u_dist = (dist / radius).clamp(0.0, 1.0);
                     let t = 1.0 - u_dist * u_dist;
                     let falloff = t * t * t;
                     let eff_s = (strength * falloff).clamp(0.0, 1.0);
-
-                    if mode == LiquifyMode::Reconstruct {
-                        // Strong, responsive reconstruct eraser: decays displacement towards 0
-                        let decay = (eff_s * 0.60).clamp(0.0, 1.0);
-                        let ndx = cur_dx * (1.0 - decay);
-                        let ndy = cur_dy * (1.0 - decay);
-                        entries.push((cur_idx, ndx, ndy));
-                        continue;
-                    }
 
                     // Inverse warp mapping in world coordinates
                     let (u, v) = match mode {
@@ -857,7 +824,6 @@ pub fn session_apply_dab(
                             let theta = dy.atan2(dx) + total_angle;
                             (center_x + dist * theta.cos(), center_y + dist * theta.sin())
                         }
-                        LiquifyMode::Reconstruct => unreachable!(),
                     };
 
                     let (prev_dx, prev_dy) = sample_world_displacement(ref_layer_id, u, v, &session.tiles);
@@ -1307,7 +1273,7 @@ mod tests {
     }
 
     #[test]
-    fn test_liquify_session_reconstruct_restores_original() {
+    fn test_liquify_session_immediate_deformation() {
         let _lock = TEST_LOCK.lock().unwrap();
         session_begin();
 
@@ -1320,8 +1286,8 @@ mod tests {
         let layer_id = 77i64;
         session_register_tile(layer_id, 0, 0, &orig_tile);
 
-        // Push pixel away from 100, 100
-        session_apply_dab(
+        // A single dab immediately deforms pixels on touch
+        let dirty = session_apply_dab(
             &[layer_id],
             100.0,
             100.0,
@@ -1332,29 +1298,11 @@ mod tests {
             0.0,
         );
 
+        assert!(!dirty.is_empty(), "First dab must mark tile dirty immediately");
         let mut warped = vec![0u8; 512 * 512 * 4];
-        session_get_tile_pixels(layer_id, 0, 0, &mut warped);
-        // Warp moved it away, so pixel at 100,100 is no longer 255
-        assert_ne!(warped[idx], 255);
-
-        // Now apply 5 Reconstruct dabs over the area
-        for _ in 0..5 {
-            session_apply_dab(
-                &[layer_id],
-                100.0,
-                100.0,
-                50.0,
-                1.0,
-                LiquifyMode::Reconstruct,
-                0.0,
-                0.0,
-            );
-        }
-
-        let mut restored = vec![0u8; 512 * 512 * 4];
-        session_get_tile_pixels(layer_id, 0, 0, &mut restored);
-        // Reconstruct should cleanly restore the pixel back near 255
-        assert!(restored[idx] > 220, "Reconstruct failed to restore pixel: {}", restored[idx]);
+        assert!(session_get_tile_pixels(layer_id, 0, 0, &mut warped));
+        // Push moved the pixel away from center
+        assert_ne!(warped[idx], 255, "Pixel at center must be deformed immediately on first dab");
 
         session_end();
     }

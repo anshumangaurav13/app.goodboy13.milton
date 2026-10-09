@@ -65,31 +65,99 @@ class LiquifyManager {
     fun startStroke(
         worldX: Float,
         worldY: Float,
+        radius: Float = 50f,
+        strength: Float = 0.5f,
+        pressure: Float = 1.0f,
         targets: Set<Long>,
         canvasView: MiltonCanvasView? = null
     ) {
         isStrokeActive = true
         lastWorldX = worldX
         lastWorldY = worldY
-        lastRadius = 0f
-        lastStrength = 0f
-        lastPressure = 0f
+        lastRadius = radius
+        lastStrength = strength
+        lastPressure = pressure
         targetLayerIds = targets
         strokeOriginalTiles.clear()
         registeredTiles.clear()
         synchronized(this) {
+            pendingWorldX = worldX
+            pendingWorldY = worldY
+            pendingRadius = radius
+            pendingStrength = strength
+            pendingPressure = pressure
             pendingEffDirX = 0f
             pendingEffDirY = 0f
         }
         isGlTaskQueued.set(false)
 
         if (canvasView != null) {
+            val actualTargets = if (targets.isEmpty()) {
+                setOf(canvasView.layerManager.activeLayerId)
+            } else {
+                targets
+            }
+            // Pre-register tiles directly under the initial touch on the GL thread
             canvasView.renderer.runOnGlThread {
                 if (MiltonNative.isLoaded) {
                     MiltonNative.liquifySessionBegin()
+                    registerTilesInArea(canvasView, worldX, worldY, worldX, worldY, radius, actualTargets)
                 }
             }
             startContinuousTicker(canvasView)
+        }
+    }
+
+    /**
+     * Ensures all tiles intersecting the swept dab segment [from -> to] plus margin
+     * are resident in memory and registered in the native LiquifySession.
+     */
+    private fun registerTilesInArea(
+        canvasView: MiltonCanvasView,
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float,
+        radius: Float,
+        targets: Set<Long>
+    ) {
+        val pad = 48
+        val minX = minOf(x1, x2) - radius - pad
+        val maxX = maxOf(x1, x2) + radius + pad
+        val minY = minOf(y1, y2) - radius - pad
+        val maxY = maxOf(y1, y2) + radius + pad
+
+        val minTx = floor(minX / TileCoord.TILE_SIZE).toInt()
+        val maxTx = floor(maxX / TileCoord.TILE_SIZE).toInt()
+        val minTy = floor(minY / TileCoord.TILE_SIZE).toInt()
+        val maxTy = floor(maxY / TileCoord.TILE_SIZE).toInt()
+
+        for (layerId in targets) {
+            val layer = canvasView.layerManager.layers.find { it.id == layerId } ?: continue
+
+            for (ty in minTy..maxTy) {
+                for (tx in minTx..maxTx) {
+                    val coord = TileCoord(tx, ty)
+                    val key = layerId to coord
+                    if (registeredTiles.add(key)) {
+                        val tile = layer.tileMap.getOrCreateTile(tx, ty)
+                        tile.ensureResident(layer.tileMap.cacheDir)
+                        val originalBytes = tile.readPixels()
+                        strokeOriginalTiles[key] = originalBytes.clone()
+                        canvasView.renderer.undoManager.registerPreModifiedTile(
+                            layerId,
+                            coord,
+                            originalBytes.clone()
+                        )
+                        MiltonNative.liquifySessionRegisterTile(
+                            layerId,
+                            tx,
+                            ty,
+                            originalBytes
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -104,12 +172,14 @@ class LiquifyManager {
     ) {
         if (!isStrokeActive || !MiltonNative.isLoaded) return
 
-        val dx = worldX - lastWorldX
-        val dy = worldY - lastWorldY
+        val prevX = lastWorldX
+        val prevY = lastWorldY
+        val dx = worldX - prevX
+        val dy = worldY - prevY
         val dist = hypot(dx, dy)
 
         // For Push mode without continuous movement, require non-zero step
-        if (mode == MiltonNative.LiquifyMode.PUSH && dist < 0.2f && !isContinuous) {
+        if (mode == MiltonNative.LiquifyMode.PUSH && dist < 0.1f && !isContinuous) {
             return
         }
 
@@ -139,7 +209,14 @@ class LiquifyManager {
             pendingEffDirY += effDirY
         }
 
-        // If a GL task is already queued or executing, coalesce by updating parameters
+        scheduleGlDab(canvasView, prevX, prevY)
+    }
+
+    private fun scheduleGlDab(
+        canvasView: MiltonCanvasView,
+        fromX: Float,
+        fromY: Float
+    ) {
         if (!isGlTaskQueued.compareAndSet(false, true)) {
             canvasView.requestRedraw()
             return
@@ -173,47 +250,8 @@ class LiquifyManager {
                     pendingEffDirY = 0f
                 }
 
-                // Generous padding of at least 2 tiles (1024px) or radius around the circle ensures Catmull-Rom
-                // and displaced source lookups across infinite canvas boundaries never hit missing tiles
-                val pad = (dabRadius.toInt() + TileCoord.TILE_SIZE).coerceAtLeast(TileCoord.TILE_SIZE * 2)
-                val pLeft = floor(dabWorldX - dabRadius - pad).toInt()
-                val pTop = floor(dabWorldY - dabRadius - pad).toInt()
-                val pRight = ceil(dabWorldX + dabRadius + pad).toInt()
-                val pBottom = ceil(dabWorldY + dabRadius + pad).toInt()
-
-                val minTx = floor(pLeft.toFloat() / TileCoord.TILE_SIZE).toInt()
-                val maxTx = floor(pRight.toFloat() / TileCoord.TILE_SIZE).toInt()
-                val minTy = floor(pTop.toFloat() / TileCoord.TILE_SIZE).toInt()
-                val maxTy = floor(pBottom.toFloat() / TileCoord.TILE_SIZE).toInt()
-
-                // 1. Ensure tiles exist and register with native LiquifySession ONCE per touched tile
-                for (layerId in targets) {
-                    val layer = canvasView.layerManager.layers.find { it.id == layerId } ?: continue
-
-                    for (ty in minTy..maxTy) {
-                        for (tx in minTx..maxTx) {
-                            val coord = TileCoord(tx, ty)
-                            val key = layerId to coord
-                            if (registeredTiles.add(key)) {
-                                val tile = layer.tileMap.getOrCreateTile(tx, ty)
-                                tile.ensureResident(layer.tileMap.cacheDir)
-                                val originalBytes = tile.readPixels()
-                                strokeOriginalTiles[key] = originalBytes.clone()
-                                canvasView.renderer.undoManager.registerPreModifiedTile(
-                                    layerId,
-                                    coord,
-                                    originalBytes.clone()
-                                )
-                                MiltonNative.liquifySessionRegisterTile(
-                                    layerId,
-                                    tx,
-                                    ty,
-                                    originalBytes
-                                )
-                            }
-                        }
-                    }
-                }
+                // 1. Ensure tiles along move segment are resident and registered in native session
+                registerTilesInArea(canvasView, fromX, fromY, dabWorldX, dabWorldY, dabRadius, targets)
 
                 val effectiveStrength = (dabStrength * dabPressure.coerceIn(0.2f, 1.0f)).coerceIn(0.01f, 1.0f)
                 val targetArray = targets.toLongArray()
@@ -250,6 +288,16 @@ class LiquifyManager {
             } finally {
                 isGlTaskQueued.set(false)
                 canvasView.post { canvasView.requestRedraw() }
+
+                // Drain any additional motion deltas accumulated during execution
+                if (isStrokeActive) {
+                    val hasPendingMotion = synchronized(this) {
+                        hypot(pendingEffDirX, pendingEffDirY) > 0.05f
+                    }
+                    if (hasPendingMotion) {
+                        scheduleGlDab(canvasView, lastWorldX, lastWorldY)
+                    }
+                }
             }
         }
         canvasView.requestRedraw()

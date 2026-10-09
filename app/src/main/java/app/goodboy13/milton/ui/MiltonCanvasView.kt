@@ -857,15 +857,29 @@ class MiltonCanvasView @JvmOverloads constructor(
                     } else {
                         setOf(layerManager.activeLayerId)
                     }
-                    liquifyManager.startStroke(worldPos.x, worldPos.y, targets, this)
-                    liquifyManager.applyDab(
-                        this,
-                        worldPos.x,
-                        worldPos.y,
-                        radius,
-                        brushOpacity,
-                        pressure
+                    if (liquifyManager.isStrokeInProgress) {
+                        liquifyManager.finishStroke(this)
+                    }
+                    liquifyManager.startStroke(
+                        worldX = worldPos.x,
+                        worldY = worldPos.y,
+                        radius = radius,
+                        strength = brushOpacity,
+                        pressure = pressure,
+                        targets = targets,
+                        canvasView = this
                     )
+                    if (liquifyManager.mode != app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH) {
+                        liquifyManager.applyDab(
+                            canvasView = this,
+                            worldX = worldPos.x,
+                            worldY = worldPos.y,
+                            radius = radius,
+                            strength = brushOpacity,
+                            pressure = pressure,
+                            isContinuous = true
+                        )
+                    }
                     onLiquifyReticleChanged?.invoke(
                         LiquifyReticleState(sx, sy, radiusScreen, isVisible = true)
                     )

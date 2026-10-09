@@ -174,8 +174,7 @@ object MiltonNative {
         EXPAND(1),
         PINCH(2),
         TWIRL_CW(3),
-        TWIRL_CCW(4),
-        RECONSTRUCT(5)
+        TWIRL_CCW(4)
     }
 
     @JvmStatic

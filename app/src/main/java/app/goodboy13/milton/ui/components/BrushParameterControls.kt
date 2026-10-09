@@ -355,43 +355,94 @@ fun ToolParametersFloatingWindow(
                     modifier = Modifier.padding(top = 2.dp)
                 )
 
-                val modes = listOf(
-                    "Push" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH,
-                    "Expand" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.EXPAND,
-                    "Pinch" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PINCH,
-                    "Twirl CW" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.TWIRL_CW,
-                    "Twirl CCW" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.TWIRL_CCW,
-                    "Reconstruct" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.RECONSTRUCT
-                )
-
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    for (pair in modes.chunked(2)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            for ((label, m) in pair) {
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(28.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (liquifyMode == m) Color(0xFF3949AB) else Color(0xFF22262E))
-                                        .border(
-                                            width = 1.dp,
-                                            color = if (liquifyMode == m) Color(0xFF90CAF9) else Color(0x30FFFFFF),
-                                            shape = RoundedCornerShape(6.dp)
-                                        )
-                                        .clickable { onLiquifyModeChange(m) },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = label,
-                                        fontSize = 10.5.sp,
-                                        fontWeight = if (liquifyMode == m) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (liquifyMode == m) Color.White else Color.White.copy(alpha = 0.75f)
+                    // Row 1: Push (Primary continuous deformation)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(28.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (liquifyMode == app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH) Color(0xFF3949AB) else Color(0xFF22262E))
+                            .border(
+                                width = 1.dp,
+                                color = if (liquifyMode == app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH) Color(0xFF90CAF9) else Color(0x30FFFFFF),
+                                shape = RoundedCornerShape(6.dp)
+                            )
+                            .clickable { onLiquifyModeChange(app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Push",
+                            fontSize = 11.sp,
+                            fontWeight = if (liquifyMode == app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH) FontWeight.Bold else FontWeight.Normal,
+                            color = if (liquifyMode == app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH) Color.White else Color.White.copy(alpha = 0.75f)
+                        )
+                    }
+
+                    // Row 2: Expand & Pinch
+                    val pair1 = listOf(
+                        "Expand" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.EXPAND,
+                        "Pinch" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PINCH
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        for ((label, m) in pair1) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(28.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (liquifyMode == m) Color(0xFF3949AB) else Color(0xFF22262E))
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (liquifyMode == m) Color(0xFF90CAF9) else Color(0x30FFFFFF),
+                                        shape = RoundedCornerShape(6.dp)
                                     )
-                                }
+                                    .clickable { onLiquifyModeChange(m) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = if (liquifyMode == m) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (liquifyMode == m) Color.White else Color.White.copy(alpha = 0.75f)
+                                )
+                            }
+                        }
+                    }
+
+                    // Row 3: Twirl CW & Twirl CCW
+                    val pair2 = listOf(
+                        "Twirl CW" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.TWIRL_CW,
+                        "Twirl CCW" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.TWIRL_CCW
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        for ((label, m) in pair2) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(28.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (liquifyMode == m) Color(0xFF3949AB) else Color(0xFF22262E))
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (liquifyMode == m) Color(0xFF90CAF9) else Color(0x30FFFFFF),
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .clickable { onLiquifyModeChange(m) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = if (liquifyMode == m) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (liquifyMode == m) Color.White else Color.White.copy(alpha = 0.75f)
+                                )
                             }
                         }
                     }
