@@ -288,9 +288,9 @@ private fun QuickRailSizeScrubber(
                             val delta = dx + dy
                             totalMoved += kotlin.math.abs(dx) + kotlin.math.abs(dy)
 
-                            // Continuous proportional sensitivity: slow & precise in low range, swift in large range
-                            val factor = (0.05f + 0.0055f * accumulatedSize).coerceIn(0.05f, 3.0f)
-                            accumulatedSize = (accumulatedSize + delta * factor).coerceIn(1f, 500f)
+                            // Non-linear proportional sensitivity: sensitive & precise at small sizes, accelerating at large sizes
+                            val factor = (0.02f + 0.007f * accumulatedSize).coerceIn(0.02f, 7.0f)
+                            accumulatedSize = (accumulatedSize + delta * factor).coerceIn(1f, 1000f)
                             onSizeChangeState.value(accumulatedSize)
                             change.consume()
                         }
@@ -308,7 +308,7 @@ private fun QuickRailSizeScrubber(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            val indicatorRadius = (2.5f + (size / 500f).coerceIn(0f, 1f) * 9f).dp
+            val indicatorRadius = (2.5f + (size / 1000f).coerceIn(0f, 1f) * 9f).dp
             Box(
                 modifier = Modifier
                     .size(indicatorRadius * 2f)

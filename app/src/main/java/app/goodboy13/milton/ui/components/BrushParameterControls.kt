@@ -112,8 +112,8 @@ fun ValueDragControl(
                             val delta = dx + dy
 
                             val factor = if (span > 150f) {
-                                // Continuous proportional sensitivity: slow & precise in low range, swift in large range
-                                (0.05f + 0.0055f * accumulatedValue).coerceIn(0.05f, 3.0f)
+                                // Non-linear proportional sensitivity: sensitive & precise at small sizes, accelerating at large sizes
+                                (0.02f + 0.007f * accumulatedValue).coerceIn(0.02f, 7.0f)
                             } else {
                                 // Percentage ranges (e.g. 1..100%): responsive sweep
                                 (span / 300f).coerceAtLeast(0.25f)
@@ -232,7 +232,7 @@ fun StrokePreviewBox(
                 val strokeAlpha = (minAlpha + (maxAlpha - minAlpha) * normOpacityY).coerceIn(0.08f, 1.0f)
 
                 // Scaled stroke thickness for preview box
-                val previewWidth = (1.5f + (brushSize / 500f).coerceIn(0f, 1f) * 18f) * (0.30f + 0.70f * mappedSizeP)
+                val previewWidth = (1.5f + (brushSize / 1000f).coerceIn(0f, 1f) * 18f) * (0.30f + 0.70f * mappedSizeP)
 
                 val strokeColor = if (brushType == BrushType.ERASER) {
                     Color(0xFFB0BEC5).copy(alpha = strokeAlpha)
@@ -325,12 +325,12 @@ fun ToolParametersFloatingWindow(
                     )
                 }
             } else if (brushType == BrushType.LIQUIFY) {
-                // Size Scrubber (10px .. 500px)
+                // Size Scrubber (10px .. 1000px)
                 ValueDragControl(
                     label = "Size",
                     value = brushSize,
                     onValueChange = onBrushSizeChange,
-                    valueRange = 10f..500f,
+                    valueRange = 10f..1000f,
                     unit = "px",
                     displayDecimals = 1,
                     fillColor = Color(0xFF4DD0E1)
@@ -407,12 +407,12 @@ fun ToolParametersFloatingWindow(
                     opacityBezierConfig = opacityBezierConfig
                 )
 
-                // Size Scrubber (1px .. 500px)
+                // Size Scrubber (1px .. 1000px)
                 ValueDragControl(
                     label = "Size",
                     value = brushSize,
                     onValueChange = onBrushSizeChange,
-                    valueRange = 1f..500f,
+                    valueRange = 1f..1000f,
                     unit = "px",
                     displayDecimals = 1,
                     fillColor = Color(0xFF64B5F6)

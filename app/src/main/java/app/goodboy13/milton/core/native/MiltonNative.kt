@@ -182,6 +182,7 @@ object MiltonNative {
     external fun liquifyPatch(
         patchRgba: ByteArray,
         origRgba: ByteArray?,
+        dispField: FloatArray?,
         width: Int,
         height: Int,
         patchOriginX: Float,
@@ -213,6 +214,30 @@ object MiltonNative {
         tileOriginX: Int,
         tileOriginY: Int,
         patchRgba: ByteArray,
+        patchW: Int,
+        patchH: Int,
+        patchOriginX: Int,
+        patchOriginY: Int
+    ): Boolean
+
+    @JvmStatic
+    external fun extractTileDisplacement(
+        tileDisp: FloatArray,
+        tileOriginX: Int,
+        tileOriginY: Int,
+        patchDisp: FloatArray,
+        patchW: Int,
+        patchH: Int,
+        patchOriginX: Int,
+        patchOriginY: Int
+    ): Boolean
+
+    @JvmStatic
+    external fun blitTileDisplacementOverwrite(
+        tileDisp: FloatArray,
+        tileOriginX: Int,
+        tileOriginY: Int,
+        patchDisp: FloatArray,
         patchW: Int,
         patchH: Int,
         patchOriginX: Int,

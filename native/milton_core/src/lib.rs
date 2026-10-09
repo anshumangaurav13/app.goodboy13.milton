@@ -569,6 +569,7 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquif
     _class: JClass<'local>,
     patch_rgba: JByteArray<'local>,
     orig_rgba: JByteArray<'local>,
+    disp_field: JFloatArray<'local>,
     width: jint,
     height: jint,
     patch_origin_x: jfloat,
@@ -591,6 +592,25 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquif
         None
     };
 
+    let mut disp_vec = if !disp_field.is_null() {
+        let len = match env.get_array_length(&disp_field) {
+            Ok(l) => l as usize,
+            Err(_) => 0,
+        };
+        if len >= (width as usize) * (height as usize) * 2 {
+            let mut v = vec![0.0f32; len];
+            if env.get_float_array_region(&disp_field, 0, &mut v).is_ok() {
+                Some(v)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     if patch.len() < (width as usize) * (height as usize) * 4 {
         return JNI_FALSE;
     }
@@ -598,6 +618,7 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquif
     liquify::liquify_patch(
         &mut patch,
         orig.as_deref(),
+        disp_vec.as_deref_mut(),
         width as usize,
         height as usize,
         patch_origin_x as f32,
@@ -616,6 +637,12 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquif
 
     if env.set_byte_array_region(&patch_rgba, 0, patch_slice).is_err() {
         return JNI_FALSE;
+    }
+
+    if let Some(ref d) = disp_vec {
+        if env.set_float_array_region(&disp_field, 0, d).is_err() {
+            return JNI_FALSE;
+        }
     }
 
     JNI_TRUE
@@ -709,6 +736,116 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_blitPa
         unsafe { std::slice::from_raw_parts(tile.as_ptr() as *const i8, tile.len()) };
 
     if env.set_byte_array_region(&tile_rgba, 0, tile_slice).is_err() {
+        return JNI_FALSE;
+    }
+
+    JNI_TRUE
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_extractTileDisplacement<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    tile_disp: JFloatArray<'local>,
+    tile_origin_x: jint,
+    tile_origin_y: jint,
+    patch_disp: JFloatArray<'local>,
+    patch_w: jint,
+    patch_h: jint,
+    patch_origin_x: jint,
+    patch_origin_y: jint,
+) -> jboolean {
+    let tile_len = match env.get_array_length(&tile_disp) {
+        Ok(l) => l as usize,
+        Err(_) => return JNI_FALSE,
+    };
+    let patch_len = match env.get_array_length(&patch_disp) {
+        Ok(l) => l as usize,
+        Err(_) => return JNI_FALSE,
+    };
+
+    let expected_patch = (patch_w as usize) * (patch_h as usize) * 2;
+    if tile_len < 512 * 512 * 2 || patch_len < expected_patch {
+        return JNI_FALSE;
+    }
+
+    let mut tile = vec![0.0f32; tile_len];
+    if env.get_float_array_region(&tile_disp, 0, &mut tile).is_err() {
+        return JNI_FALSE;
+    }
+
+    let mut patch = vec![0.0f32; patch_len];
+    if env.get_float_array_region(&patch_disp, 0, &mut patch).is_err() {
+        return JNI_FALSE;
+    }
+
+    liquify::extract_tile_displacement(
+        &tile,
+        tile_origin_x,
+        tile_origin_y,
+        &mut patch,
+        patch_w as usize,
+        patch_h as usize,
+        patch_origin_x,
+        patch_origin_y,
+    );
+
+    if env.set_float_array_region(&patch_disp, 0, &patch).is_err() {
+        return JNI_FALSE;
+    }
+
+    JNI_TRUE
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_blitTileDisplacementOverwrite<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    tile_disp: JFloatArray<'local>,
+    tile_origin_x: jint,
+    tile_origin_y: jint,
+    patch_disp: JFloatArray<'local>,
+    patch_w: jint,
+    patch_h: jint,
+    patch_origin_x: jint,
+    patch_origin_y: jint,
+) -> jboolean {
+    let tile_len = match env.get_array_length(&tile_disp) {
+        Ok(l) => l as usize,
+        Err(_) => return JNI_FALSE,
+    };
+    let patch_len = match env.get_array_length(&patch_disp) {
+        Ok(l) => l as usize,
+        Err(_) => return JNI_FALSE,
+    };
+
+    let expected_patch = (patch_w as usize) * (patch_h as usize) * 2;
+    if tile_len < 512 * 512 * 2 || patch_len < expected_patch {
+        return JNI_FALSE;
+    }
+
+    let mut tile = vec![0.0f32; tile_len];
+    if env.get_float_array_region(&tile_disp, 0, &mut tile).is_err() {
+        return JNI_FALSE;
+    }
+
+    let mut patch = vec![0.0f32; patch_len];
+    if env.get_float_array_region(&patch_disp, 0, &mut patch).is_err() {
+        return JNI_FALSE;
+    }
+
+    liquify::blit_tile_displacement_overwrite(
+        &mut tile,
+        tile_origin_x,
+        tile_origin_y,
+        &patch,
+        patch_w as usize,
+        patch_h as usize,
+        patch_origin_x,
+        patch_origin_y,
+    );
+
+    if env.set_float_array_region(&tile_disp, 0, &tile).is_err() {
         return JNI_FALSE;
     }
 
