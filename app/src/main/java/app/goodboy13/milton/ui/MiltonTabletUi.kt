@@ -230,8 +230,6 @@ fun MiltonTabletUi(
                 onSizeBezierConfigChange = actions.tool.onSizeBezierConfigChange,
                 opacityBezierConfig = state.tool.opacityBezierConfig,
                 onOpacityBezierConfigChange = actions.tool.onOpacityBezierConfigChange,
-                liquifyMode = state.tool.liquifyMode,
-                onLiquifyModeChange = actions.tool.onLiquifyModeChange,
                 onClose = { showToolParametersWindow = false },
                 containerWidth = containerW,
                 containerHeight = containerH,
@@ -334,7 +332,7 @@ fun MiltonTabletUi(
             LayersFloatingWindow(
                 layers = state.layers.layers,
                 activeLayerId = state.layers.activeLayerId,
-                isTransformMode = (state.tool.brushType == BrushType.LASSO || state.tool.brushType == BrushType.LIQUIFY),
+                isTransformMode = (state.tool.brushType == BrushType.LASSO),
                 selectedTransformLayerIds = state.selectedTransformLayerIds,
                 onToggleTransformLayer = actions.layers.onToggleTransformLayer,
                 onSelectLayer = actions.layers.onSelectLayer,
@@ -360,13 +358,6 @@ fun MiltonTabletUi(
         if (state.tool.eyedropperReticleState.isVisible) {
             EyedropperReticleOverlay(
                 state = state.tool.eyedropperReticleState
-            )
-        }
-
-        // 6b. Live Liquify Reticle Overlay
-        if (state.tool.liquifyReticleState.isVisible) {
-            app.goodboy13.milton.ui.reticle.LiquifyReticleOverlay(
-                state = state.tool.liquifyReticleState
             )
         }
 

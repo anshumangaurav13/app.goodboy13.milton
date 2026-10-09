@@ -25,13 +25,6 @@ data class EyedropperReticleState(
     val isVisible: Boolean = false
 )
 
-data class LiquifyReticleState(
-    val screenX: Float = 0f,
-    val screenY: Float = 0f,
-    val radiusScreen: Float = 0f,
-    val isVisible: Boolean = false
-)
-
 /**
  * Pure Infinite Canvas View:
  * - Stylus-only drawing (rejects fingers/palm for drawing).
@@ -57,7 +50,6 @@ class MiltonCanvasView @JvmOverloads constructor(
     val layerManager: app.goodboy13.milton.core.layer.LayerManager get() = renderer.layerManager
     val brushEngine = BrushEngine()
     val selectionManager = SelectionTransformManager()
-    val liquifyManager = app.goodboy13.milton.core.liquify.LiquifyManager()
     var selectedTransformLayerIds: Set<Long> = emptySet()
 
     private var frontBufferedRenderer: GLFrontBufferedRenderer<DabPacket>? = null
@@ -161,13 +153,6 @@ class MiltonCanvasView @JvmOverloads constructor(
             isEraserMode = (value == app.goodboy13.milton.core.brush.BrushType.ERASER)
         }
 
-    var liquifyMode: app.goodboy13.milton.core.native.MiltonNative.LiquifyMode
-        get() = liquifyManager.mode
-        set(value) {
-            liquifyManager.mode = value
-            brushEngine.properties.liquifyMode = value
-        }
-
     var isEraserMode: Boolean = false
         set(value) {
             field = value
@@ -244,7 +229,6 @@ class MiltonCanvasView @JvmOverloads constructor(
 
     var onColorPicked: ((Int) -> Unit)? = null
     var onEyedropperReticleChanged: ((EyedropperReticleState) -> Unit)? = null
-    var onLiquifyReticleChanged: ((LiquifyReticleState) -> Unit)? = null
     var onStrokeCompleted: ((Int) -> Unit)? = null
 
     private var lastSampledColor: Int = 0xFF000000.toInt()
@@ -252,7 +236,6 @@ class MiltonCanvasView @JvmOverloads constructor(
     private var lastEyedropperScreenY: Float = 0f
     private var isEyedropperTouching: Boolean = false
     private var isEyedropperHovering: Boolean = false
-    private var isLiquifyHovering: Boolean = false
 
     fun undo() {
         renderer.requestUndo()
@@ -312,13 +295,10 @@ class MiltonCanvasView @JvmOverloads constructor(
         isRHeld = r
         isShiftHeld = shift
 
-        // If any modifier is pressed, cancel any in-progress lasso or liquify stroke immediately
+        // If any modifier is pressed, cancel any in-progress lasso stroke immediately
         if (space || ctrl || alt || r) {
             if (selectionManager.state.value is SelectionState.DrawingLasso) {
                 selectionManager.cancelLasso()
-            }
-            if (liquifyManager.isStrokeInProgress) {
-                liquifyManager.cancelStroke(this)
             }
         }
 
@@ -452,7 +432,6 @@ class MiltonCanvasView @JvmOverloads constructor(
 
     override fun onHoverEvent(event: MotionEvent): Boolean {
         if (handleEyedropperHover(event)) return true
-        if (handleLiquifyHover(event)) return true
         return super.onHoverEvent(event)
     }
 
@@ -461,7 +440,6 @@ class MiltonCanvasView @JvmOverloads constructor(
             event.actionMasked == MotionEvent.ACTION_HOVER_ENTER ||
             event.actionMasked == MotionEvent.ACTION_HOVER_EXIT) {
             if (handleEyedropperHover(event)) return true
-            if (handleLiquifyHover(event)) return true
         }
         return super.onGenericMotionEvent(event)
     }
@@ -503,39 +481,6 @@ class MiltonCanvasView @JvmOverloads constructor(
                         EyedropperReticleState(isVisible = false)
                     )
                 }
-                return true
-            }
-        }
-        return false
-    }
-
-    private fun handleLiquifyHover(event: MotionEvent): Boolean {
-        if (brushType != app.goodboy13.milton.core.brush.BrushType.LIQUIFY) {
-            if (isLiquifyHovering) {
-                isLiquifyHovering = false
-                onLiquifyReticleChanged?.invoke(LiquifyReticleState(isVisible = false))
-            }
-            return false
-        }
-
-        val radius = (brushSize * 0.5f).coerceAtLeast(4f)
-        val radiusScreen = radius * renderer.viewport.zoom
-        when (event.actionMasked) {
-            MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
-                isLiquifyHovering = true
-                onLiquifyReticleChanged?.invoke(
-                    LiquifyReticleState(
-                        screenX = event.x,
-                        screenY = event.y,
-                        radiusScreen = radiusScreen,
-                        isVisible = true
-                    )
-                )
-                return true
-            }
-            MotionEvent.ACTION_HOVER_EXIT -> {
-                isLiquifyHovering = false
-                onLiquifyReticleChanged?.invoke(LiquifyReticleState(isVisible = false))
                 return true
             }
         }
@@ -841,72 +786,6 @@ class MiltonCanvasView @JvmOverloads constructor(
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     selectionManager.cancelLasso()
-                }
-            }
-            return true
-        }
-
-        // 4b. Liquify Mode (Stylus only!)
-        if (brushType == app.goodboy13.milton.core.brush.BrushType.LIQUIFY) {
-            val radius = (brushSize * 0.5f).coerceAtLeast(4f)
-            val radiusScreen = radius * renderer.viewport.zoom
-            when (action) {
-                MotionEvent.ACTION_DOWN -> {
-                    val targets = if (selectedTransformLayerIds.isNotEmpty()) {
-                        selectedTransformLayerIds
-                    } else {
-                        setOf(layerManager.activeLayerId)
-                    }
-                    if (liquifyManager.isStrokeInProgress) {
-                        liquifyManager.finishStroke(this)
-                    }
-                    liquifyManager.startStroke(
-                        worldX = worldPos.x,
-                        worldY = worldPos.y,
-                        radius = radius,
-                        strength = brushOpacity,
-                        pressure = pressure,
-                        targets = targets,
-                        canvasView = this
-                    )
-                    if (liquifyManager.mode != app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH) {
-                        liquifyManager.applyDab(
-                            canvasView = this,
-                            worldX = worldPos.x,
-                            worldY = worldPos.y,
-                            radius = radius,
-                            strength = brushOpacity,
-                            pressure = pressure,
-                            isContinuous = true
-                        )
-                    }
-                    onLiquifyReticleChanged?.invoke(
-                        LiquifyReticleState(sx, sy, radiusScreen, isVisible = true)
-                    )
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val historySize = event.historySize
-                    for (h in 0 until historySize) {
-                        val hx = event.getHistoricalX(stylusIndex, h)
-                        val hy = event.getHistoricalY(stylusIndex, h)
-                        val hpRaw = event.getHistoricalPressure(stylusIndex, h)
-                        val hp = if (hpRaw <= 0.001f) pressure else hpRaw.coerceIn(0.01f, 1.0f)
-                        val hw = renderer.viewport.screenToWorld(hx, hy)
-                        liquifyManager.addPoint(hw.x, hw.y, radius, brushOpacity, hp)
-                    }
-                    liquifyManager.addPoint(worldPos.x, worldPos.y, radius, brushOpacity, pressure)
-                    liquifyManager.flushDab(this)
-                    onLiquifyReticleChanged?.invoke(
-                        LiquifyReticleState(sx, sy, radiusScreen, isVisible = true)
-                    )
-                }
-                MotionEvent.ACTION_UP -> {
-                    liquifyManager.finishStroke(this)
-                    onLiquifyReticleChanged?.invoke(LiquifyReticleState(isVisible = false))
-                }
-                MotionEvent.ACTION_CANCEL -> {
-                    liquifyManager.cancelStroke(this)
-                    onLiquifyReticleChanged?.invoke(LiquifyReticleState(isVisible = false))
                 }
             }
             return true

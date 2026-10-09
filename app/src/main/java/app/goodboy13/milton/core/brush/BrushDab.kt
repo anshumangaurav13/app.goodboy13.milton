@@ -24,8 +24,7 @@ enum class BrushType(val displayName: String) {
     PENCIL("Pencil"),
     PAINTBRUSH("Paintbrush"),
     ERASER("Eraser"),
-    LASSO("Lasso"),
-    LIQUIFY("Liquify")
+    LASSO("Lasso")
 }
 
 data class BrushProperties(
@@ -40,8 +39,7 @@ data class BrushProperties(
     var brushMode: Int = 1,
     var stabilizer: Float = 0.10f,
     var sizeBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.05f),
-    var opacityBezierConfig: BezierControlPoints = PressureCurveDefaults.SOFT.copy(minPercent = 0.20f),
-    var liquifyMode: app.goodboy13.milton.core.native.MiltonNative.LiquifyMode = app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH
+    var opacityBezierConfig: BezierControlPoints = PressureCurveDefaults.SOFT.copy(minPercent = 0.20f)
 ) {
     // Legacy alias
     var bezierConfig: BezierControlPoints
@@ -52,16 +50,14 @@ data class BrushProperties(
         BrushType.PEN to 30.0f,
         BrushType.PENCIL to 35.0f,
         BrushType.PAINTBRUSH to 250.0f,
-        BrushType.ERASER to 120.0f,
-        BrushType.LIQUIFY to 80.0f
+        BrushType.ERASER to 120.0f
     )
 
     private val savedOpacities = mutableMapOf(
         BrushType.PEN to 1.0f,
         BrushType.PENCIL to 0.75f,
         BrushType.PAINTBRUSH to 0.60f,
-        BrushType.ERASER to 1.0f,
-        BrushType.LIQUIFY to 0.50f
+        BrushType.ERASER to 1.0f
     )
 
     private val savedStabilizers = mutableMapOf(
@@ -127,9 +123,6 @@ data class BrushProperties(
                 brushMode = 0
             }
             BrushType.LASSO -> {
-                isEraser = false
-            }
-            BrushType.LIQUIFY -> {
                 isEraser = false
             }
         }

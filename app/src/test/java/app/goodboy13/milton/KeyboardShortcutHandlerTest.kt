@@ -27,7 +27,6 @@ class KeyboardShortcutHandlerTest {
         var cycleEraserCount = 0
         var toggleEyedropperCount = 0
         var selectLassoCount = 0
-        var selectLiquifyCount = 0
 
         var brushSizeStepUpCount = 0
         var brushSizeStepDownCount = 0
@@ -70,7 +69,6 @@ class KeyboardShortcutHandlerTest {
         override fun onCycleEraser() { cycleEraserCount++ }
         override fun onToggleEyedropper() { toggleEyedropperCount++ }
         override fun onSelectLasso() { selectLassoCount++ }
-        override fun onSelectLiquify() { selectLiquifyCount++ }
 
         override fun onStepBrushSize(increase: Boolean) {
             if (increase) brushSizeStepUpCount++ else brushSizeStepDownCount++
@@ -141,9 +139,6 @@ class KeyboardShortcutHandlerTest {
 
         handler.handleKeyDown(KeyEvent.KEYCODE_L, createKeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_L))
         assertEquals(1, actions.selectLassoCount)
-
-        handler.handleKeyDown(KeyEvent.KEYCODE_W, createKeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_W))
-        assertEquals(1, actions.selectLiquifyCount)
     }
 
     @Test

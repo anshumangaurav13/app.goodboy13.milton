@@ -275,8 +275,6 @@ fun ToolParametersFloatingWindow(
     onSizeBezierConfigChange: (BezierControlPoints) -> Unit,
     opacityBezierConfig: BezierControlPoints,
     onOpacityBezierConfigChange: (BezierControlPoints) -> Unit,
-    liquifyMode: app.goodboy13.milton.core.native.MiltonNative.LiquifyMode = app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH,
-    onLiquifyModeChange: (app.goodboy13.milton.core.native.MiltonNative.LiquifyMode) -> Unit = {},
     onClose: () -> Unit,
     containerWidth: Int,
     containerHeight: Int,
@@ -300,7 +298,6 @@ fun ToolParametersFloatingWindow(
                 BrushType.PAINTBRUSH -> PaintbrushIcon(tint = Color(0xFFA5D6A7), modifier = Modifier.size(16.dp))
                 BrushType.ERASER -> EraserIcon(tint = Color(0xFFEF9A9A), modifier = Modifier.size(16.dp))
                 BrushType.LASSO -> LassoIcon(tint = Color(0xFFCE93D8), modifier = Modifier.size(16.dp))
-                BrushType.LIQUIFY -> LiquifyIcon(tint = Color(0xFF4DD0E1), modifier = Modifier.size(16.dp))
             }
         }
     ) {
@@ -323,129 +320,6 @@ fun ToolParametersFloatingWindow(
                         lineHeight = 15.sp,
                         color = Color.White.copy(alpha = 0.8f)
                     )
-                }
-            } else if (brushType == BrushType.LIQUIFY) {
-                // Size Scrubber (10px .. 1000px)
-                ValueDragControl(
-                    label = "Size",
-                    value = brushSize,
-                    onValueChange = onBrushSizeChange,
-                    valueRange = 10f..1000f,
-                    unit = "px",
-                    displayDecimals = 1,
-                    fillColor = Color(0xFF4DD0E1)
-                )
-
-                // Strength Scrubber (stored in opacity)
-                ValueDragControl(
-                    label = "Strength",
-                    value = brushOpacity * 100f,
-                    onValueChange = { onBrushOpacityChange(it / 100f) },
-                    valueRange = 5f..100f,
-                    unit = "%",
-                    displayDecimals = 0,
-                    fillColor = Color(0xFFFFB74D)
-                )
-
-                Text(
-                    text = "Mode",
-                    fontSize = 11.sp,
-                    color = Color.White.copy(alpha = 0.65f),
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(top = 2.dp)
-                )
-
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    // Row 1: Push (Primary continuous deformation)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(28.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (liquifyMode == app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH) Color(0xFF3949AB) else Color(0xFF22262E))
-                            .border(
-                                width = 1.dp,
-                                color = if (liquifyMode == app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH) Color(0xFF90CAF9) else Color(0x30FFFFFF),
-                                shape = RoundedCornerShape(6.dp)
-                            )
-                            .clickable { onLiquifyModeChange(app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Push",
-                            fontSize = 11.sp,
-                            fontWeight = if (liquifyMode == app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH) FontWeight.Bold else FontWeight.Normal,
-                            color = if (liquifyMode == app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PUSH) Color.White else Color.White.copy(alpha = 0.75f)
-                        )
-                    }
-
-                    // Row 2: Expand & Pinch
-                    val pair1 = listOf(
-                        "Expand" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.EXPAND,
-                        "Pinch" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.PINCH
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        for ((label, m) in pair1) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(28.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (liquifyMode == m) Color(0xFF3949AB) else Color(0xFF22262E))
-                                    .border(
-                                        width = 1.dp,
-                                        color = if (liquifyMode == m) Color(0xFF90CAF9) else Color(0x30FFFFFF),
-                                        shape = RoundedCornerShape(6.dp)
-                                    )
-                                    .clickable { onLiquifyModeChange(m) },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = label,
-                                    fontSize = 10.5.sp,
-                                    fontWeight = if (liquifyMode == m) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (liquifyMode == m) Color.White else Color.White.copy(alpha = 0.75f)
-                                )
-                            }
-                        }
-                    }
-
-                    // Row 3: Twirl CW & Twirl CCW
-                    val pair2 = listOf(
-                        "Twirl CW" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.TWIRL_CW,
-                        "Twirl CCW" to app.goodboy13.milton.core.native.MiltonNative.LiquifyMode.TWIRL_CCW
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        for ((label, m) in pair2) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(28.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (liquifyMode == m) Color(0xFF3949AB) else Color(0xFF22262E))
-                                    .border(
-                                        width = 1.dp,
-                                        color = if (liquifyMode == m) Color(0xFF90CAF9) else Color(0x30FFFFFF),
-                                        shape = RoundedCornerShape(6.dp)
-                                    )
-                                    .clickable { onLiquifyModeChange(m) },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = label,
-                                    fontSize = 10.5.sp,
-                                    fontWeight = if (liquifyMode == m) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (liquifyMode == m) Color.White else Color.White.copy(alpha = 0.75f)
-                                )
-                            }
-                        }
-                    }
                 }
             } else {
                 // Live S-curve stroke preview

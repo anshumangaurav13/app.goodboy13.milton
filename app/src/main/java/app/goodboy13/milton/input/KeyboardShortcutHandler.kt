@@ -21,7 +21,6 @@ interface KeyboardShortcutActions {
     fun onCycleEraser()
     fun onToggleEyedropper()
     fun onSelectLasso()
-    fun onSelectLiquify()
 
     // Brush Parameters & Color
     fun onStepBrushSize(increase: Boolean)
@@ -203,10 +202,6 @@ class KeyboardShortcutHandler(
         }
         if (!ctrl && !shift && !alt && keyCode == KeyEvent.KEYCODE_L) {
             actions.onSelectLasso()
-            return true
-        }
-        if (!ctrl && !shift && !alt && keyCode == KeyEvent.KEYCODE_W) {
-            actions.onSelectLiquify()
             return true
         }
 

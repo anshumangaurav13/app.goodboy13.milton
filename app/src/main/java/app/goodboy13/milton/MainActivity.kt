@@ -130,10 +130,6 @@ class MainActivity : ComponentActivity() {
                 viewModel.selectLasso(canvasView)
             }
 
-            override fun onSelectLiquify() {
-                viewModel.selectLiquify(canvasView)
-            }
-
             override fun onStepBrushSize(increase: Boolean) {
                 canvasView.stepBrushSize(increase)
             }
@@ -233,8 +229,7 @@ class MainActivity : ComponentActivity() {
                         onBrushColorChange = { viewModel.setBrushColor(it, canvasView) },
                         onSizeBezierConfigChange = { viewModel.setSizeBezierConfig(it, canvasView) },
                         onOpacityBezierConfigChange = { viewModel.setOpacityBezierConfig(it, canvasView) },
-                        onToggleEyedropper = { viewModel.toggleEyedropper(canvasView) },
-                        onLiquifyModeChange = { viewModel.setLiquifyMode(it, canvasView) }
+                        onToggleEyedropper = { viewModel.toggleEyedropper(canvasView) }
                     ),
                     viewport = ViewportActions(
                         onUndo = { canvasView.undo() },

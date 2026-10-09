@@ -78,8 +78,7 @@ fun KeyboardShortcutsDialog(
                 ShortcutItem(listOf("P"), "Cycle between Pen and Pencil"),
                 ShortcutItem(listOf("E"), "Cycle between Eraser and previous brush"),
                 ShortcutItem(listOf("I"), "Eyedropper tool toggle"),
-                ShortcutItem(listOf("L"), "Lasso Selection & Free Transform tool"),
-                ShortcutItem(listOf("W"), "Liquify Warp tool")
+                ShortcutItem(listOf("L"), "Lasso Selection & Free Transform tool")
             )
         ),
         ShortcutCategory(
