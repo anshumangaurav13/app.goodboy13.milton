@@ -559,6 +559,196 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_blitPa
     JNI_TRUE
 }
 
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_selectionSessionBegin<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    points_x: JFloatArray<'local>,
+    points_y: JFloatArray<'local>,
+) -> jboolean {
+    let len_x = match env.get_array_length(&points_x) {
+        Ok(l) => l as usize,
+        Err(_) => return JNI_FALSE,
+    };
+    let len_y = match env.get_array_length(&points_y) {
+        Ok(l) => l as usize,
+        Err(_) => return JNI_FALSE,
+    };
+
+    if len_x != len_y || len_x < 3 {
+        return JNI_FALSE;
+    }
+
+    let mut xs = vec![0.0f32; len_x];
+    let mut ys = vec![0.0f32; len_y];
+    if env.get_float_array_region(&points_x, 0, &mut xs).is_err()
+        || env.get_float_array_region(&points_y, 0, &mut ys).is_err()
+    {
+        return JNI_FALSE;
+    }
+
+    let points: Vec<selection::Point2D> = xs
+        .into_iter()
+        .zip(ys.into_iter())
+        .map(|(x, y)| selection::Point2D { x, y })
+        .collect();
+
+    selection::session_begin(points);
+    JNI_TRUE
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_selectionSessionCutTile<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    layer_id: jlong,
+    tx: jint,
+    ty: jint,
+    tile_rgba: JByteArray<'local>,
+) -> jboolean {
+    let mut tile = match env.convert_byte_array(&tile_rgba) {
+        Ok(b) => b,
+        Err(_) => return JNI_FALSE,
+    };
+
+    if selection::session_cut_tile(layer_id as i64, tx as i32, ty as i32, &mut tile) {
+        let tile_slice: &[i8] =
+            unsafe { std::slice::from_raw_parts(tile.as_ptr() as *const i8, tile.len()) };
+        if env.set_byte_array_region(&tile_rgba, 0, tile_slice).is_ok() {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    } else {
+        JNI_FALSE
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_selectionSessionGetPreview<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    layer_id: jlong,
+    max_dim: jint,
+) -> JByteArray<'local> {
+    match selection::session_get_preview(layer_id as i64, max_dim as usize) {
+        Some((pw, ph, rgba)) => {
+            let mut packed = Vec::with_capacity(8 + rgba.len());
+            packed.extend_from_slice(&(pw as u32).to_be_bytes());
+            packed.extend_from_slice(&(ph as u32).to_be_bytes());
+            packed.extend_from_slice(&rgba);
+            env.byte_array_from_slice(&packed).unwrap_or_default()
+        }
+        None => JByteArray::default(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_selectionSessionGetAffectedDestTiles<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    layer_id: jlong,
+    scale_x: jfloat,
+    scale_y: jfloat,
+    rotation_rad: jfloat,
+    trans_x: jfloat,
+    trans_y: jfloat,
+    pivot_x: jfloat,
+    pivot_y: jfloat,
+    flip_h: jboolean,
+    flip_v: jboolean,
+) -> JIntArray<'local> {
+    let tiles = selection::session_get_affected_dest_tiles(
+        layer_id as i64,
+        scale_x as f32,
+        scale_y as f32,
+        rotation_rad as f32,
+        trans_x as f32,
+        trans_y as f32,
+        pivot_x as f32,
+        pivot_y as f32,
+        flip_h == JNI_TRUE,
+        flip_v == JNI_TRUE,
+    );
+
+    let mut flat = Vec::with_capacity(tiles.len() * 2);
+    for (tx, ty) in tiles {
+        flat.push(tx as jint);
+        flat.push(ty as jint);
+    }
+
+    let array = match env.new_int_array(flat.len() as jint) {
+        Ok(a) => a,
+        Err(_) => return JIntArray::default(),
+    };
+
+    if env.set_int_array_region(&array, 0, &flat).is_ok() {
+        array
+    } else {
+        JIntArray::default()
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_selectionSessionBlitToTile<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    layer_id: jlong,
+    tx: jint,
+    ty: jint,
+    tile_rgba: JByteArray<'local>,
+    scale_x: jfloat,
+    scale_y: jfloat,
+    rotation_rad: jfloat,
+    trans_x: jfloat,
+    trans_y: jfloat,
+    pivot_x: jfloat,
+    pivot_y: jfloat,
+    flip_h: jboolean,
+    flip_v: jboolean,
+) -> jboolean {
+    let mut tile = match env.convert_byte_array(&tile_rgba) {
+        Ok(b) => b,
+        Err(_) => return JNI_FALSE,
+    };
+
+    let modified = selection::session_blit_to_tile(
+        layer_id as i64,
+        tx as i32,
+        ty as i32,
+        &mut tile,
+        scale_x as f32,
+        scale_y as f32,
+        rotation_rad as f32,
+        trans_x as f32,
+        trans_y as f32,
+        pivot_x as f32,
+        pivot_y as f32,
+        flip_h == JNI_TRUE,
+        flip_v == JNI_TRUE,
+    );
+
+    if modified {
+        let tile_slice: &[i8] =
+            unsafe { std::slice::from_raw_parts(tile.as_ptr() as *const i8, tile.len()) };
+        if env.set_byte_array_region(&tile_rgba, 0, tile_slice).is_ok() {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    } else {
+        JNI_FALSE
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_selectionSessionEnd<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) {
+    selection::session_end();
+}
+
 // ============================================================================
 // #5 LIQUIFY TOOL JNI BINDINGS
 // ============================================================================

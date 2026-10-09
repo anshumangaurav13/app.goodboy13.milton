@@ -346,13 +346,6 @@ private fun TransformSessionOverlay(
                 val nativeCanvas = drawContext.canvas.nativeCanvas
                 val paint = Paint().apply { isFilterBitmap = true }
 
-                val srcPoly = floatArrayOf(
-                    0f, 0f,
-                    session.srcBounds.width, 0f,
-                    session.srcBounds.width, session.srcBounds.height,
-                    0f, session.srcBounds.height
-                )
-
                 val dstPoly = floatArrayOf(
                     p0.x, p0.y,
                     p1.x, p1.y,
@@ -360,11 +353,17 @@ private fun TransformSessionOverlay(
                     p3.x, p3.y
                 )
 
-                val matrix = Matrix()
-                val mapped = matrix.setPolyToPoly(srcPoly, 0, dstPoly, 0, 4)
-
-                if (mapped) {
-                    for ((_, patch) in session.layerPatches) {
+                for ((_, patch) in session.layerPatches) {
+                    val pw = patch.previewBitmap.width.toFloat()
+                    val ph = patch.previewBitmap.height.toFloat()
+                    val srcPoly = floatArrayOf(
+                        0f, 0f,
+                        pw, 0f,
+                        pw, ph,
+                        0f, ph
+                    )
+                    val matrix = Matrix()
+                    if (matrix.setPolyToPoly(srcPoly, 0, dstPoly, 0, 4)) {
                         nativeCanvas.drawBitmap(patch.previewBitmap, matrix, paint)
                     }
                 }

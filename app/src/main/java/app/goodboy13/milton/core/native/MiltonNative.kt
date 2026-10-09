@@ -165,6 +165,50 @@ object MiltonNative {
         patchOriginY: Int
     ): Boolean
 
+    // Native Sparse Selection Session API ("Rust Magic")
+    @JvmStatic
+    external fun selectionSessionBegin(pointsX: FloatArray, pointsY: FloatArray): Boolean
+
+    @JvmStatic
+    external fun selectionSessionCutTile(layerId: Long, tx: Int, ty: Int, tileRgba: ByteArray): Boolean
+
+    @JvmStatic
+    external fun selectionSessionGetPreview(layerId: Long, maxDim: Int): ByteArray?
+
+    @JvmStatic
+    external fun selectionSessionGetAffectedDestTiles(
+        layerId: Long,
+        scaleX: Float,
+        scaleY: Float,
+        rotationRad: Float,
+        transX: Float,
+        transY: Float,
+        pivotX: Float,
+        pivotY: Float,
+        flipH: Boolean,
+        flipV: Boolean
+    ): IntArray?
+
+    @JvmStatic
+    external fun selectionSessionBlitToTile(
+        layerId: Long,
+        tx: Int,
+        ty: Int,
+        tileRgba: ByteArray,
+        scaleX: Float,
+        scaleY: Float,
+        rotationRad: Float,
+        transX: Float,
+        transY: Float,
+        pivotX: Float,
+        pivotY: Float,
+        flipH: Boolean,
+        flipV: Boolean
+    ): Boolean
+
+    @JvmStatic
+    external fun selectionSessionEnd()
+
     // ========================================================================
     // #5 LIQUIFY TOOL
     // ========================================================================

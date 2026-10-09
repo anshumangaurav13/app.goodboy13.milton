@@ -24,8 +24,8 @@ data class TileSnapshot(
 data class LayerPatch(
     val width: Int,
     val height: Int,
-    val rgbaBytes: ByteArray,
-    val previewBitmap: Bitmap
+    val previewBitmap: Bitmap,
+    val rgbaBytes: ByteArray? = null
 )
 
 data class TransformSession(
@@ -150,60 +150,80 @@ class SelectionTransformManager {
                 val allOriginalTiles = mutableMapOf<Long, List<TileSnapshot>>()
                 val allPatches = mutableMapOf<Long, LayerPatch>()
 
-                val srcW = srcBounds.width.roundToInt().coerceAtLeast(1)
-                val srcH = srcBounds.height.roundToInt().coerceAtLeast(1)
-
                 val pointsX = FloatArray(polygon.size) { polygon[it].x }
                 val pointsY = FloatArray(polygon.size) { polygon[it].y }
 
+                if (MiltonNative.isLoaded) {
+                    MiltonNative.selectionSessionBegin(pointsX, pointsY)
+                }
+
                 val minTx = floor(srcBounds.left / TileCoord.TILE_SIZE).toInt()
-                val maxTx = floor(srcBounds.right / TileCoord.TILE_SIZE).toInt()
+                val maxTx = floor((srcBounds.right - 1f) / TileCoord.TILE_SIZE).toInt()
                 val minTy = floor(srcBounds.top / TileCoord.TILE_SIZE).toInt()
-                val maxTy = floor(srcBounds.bottom / TileCoord.TILE_SIZE).toInt()
+                val maxTy = floor((srcBounds.bottom - 1f) / TileCoord.TILE_SIZE).toInt()
 
                 for (layerId in targets) {
                     val layer = canvasView.layerManager.layers.find { it.id == layerId } ?: continue
                     val snapshots = mutableListOf<TileSnapshot>()
-                    val patchRgba = ByteArray(srcW * srcH * 4)
 
-                    for (ty in minTy..maxTy) {
-                        for (tx in minTx..maxTx) {
-                            val tile = layer.tileMap.getOrCreateTile(tx, ty)
-                            val originalBytes = tile.readPixels()
-                            snapshots.add(TileSnapshot(tx, ty, originalBytes.clone()))
+                    // Sparse query: only examine existing tiles with content intersecting bounds!
+                    val candidateTiles = layer.tileMap.getAllTiles().filter { tile ->
+                        tile.hasContent &&
+                        tile.coord.tx in minTx..maxTx &&
+                        tile.coord.ty in minTy..maxTy
+                    }
 
-                            val mask = MiltonNative.rasterizePolygonMask(
-                                pointsX, pointsY,
-                                (tx * TileCoord.TILE_SIZE).toFloat(),
-                                (ty * TileCoord.TILE_SIZE).toFloat()
+                    for (tile in candidateTiles) {
+                        tile.ensureResident(layer.tileMap.cacheDir)
+                        val originalBytes = tile.readPixels()
+                        val workingTile = originalBytes.clone()
+
+                        val cut = if (MiltonNative.isLoaded) {
+                            MiltonNative.selectionSessionCutTile(
+                                layerId,
+                                tile.coord.tx,
+                                tile.coord.ty,
+                                workingTile
                             )
+                        } else {
+                            false
+                        }
 
-                            if (mask != null && MiltonNative.isLoaded) {
-                                val workingTile = originalBytes.clone()
-                                val ok = MiltonNative.extractAndClearTileSelection(
-                                    workingTile,
-                                    tx * TileCoord.TILE_SIZE,
-                                    ty * TileCoord.TILE_SIZE,
-                                    mask,
-                                    patchRgba,
-                                    srcW,
-                                    srcH,
-                                    srcBounds.left.roundToInt(),
-                                    srcBounds.top.roundToInt()
-                                )
-                                if (ok) {
-                                    tile.writePixels(workingTile)
-                                }
-                            }
+                        if (cut) {
+                            tile.writePixels(workingTile)
+                            snapshots.add(TileSnapshot(tile.coord.tx, tile.coord.ty, originalBytes))
                         }
                     }
 
-                    // Create bitmap preview
-                    val previewBitmap = Bitmap.createBitmap(srcW, srcH, Bitmap.Config.ARGB_8888)
-                    previewBitmap.copyPixelsFromBuffer(ByteBuffer.wrap(patchRgba))
+                    // Create lightweight downsampled preview bitmap (capped at max 1024)
+                    val packed = if (MiltonNative.isLoaded) {
+                        MiltonNative.selectionSessionGetPreview(layerId, 1024)
+                    } else null
 
-                    allOriginalTiles[layerId] = snapshots
-                    allPatches[layerId] = LayerPatch(srcW, srcH, patchRgba, previewBitmap)
+                    if (packed != null && packed.size >= 8) {
+                        val buf = ByteBuffer.wrap(packed).order(java.nio.ByteOrder.BIG_ENDIAN)
+                        val previewW = buf.int
+                        val previewH = buf.int
+                        val expectedLen = previewW * previewH * 4
+                        if (packed.size >= 8 + expectedLen) {
+                            val previewBitmap = Bitmap.createBitmap(previewW, previewH, Bitmap.Config.ARGB_8888)
+                            buf.position(8)
+                            previewBitmap.copyPixelsFromBuffer(buf)
+                            allPatches[layerId] = LayerPatch(previewW, previewH, previewBitmap)
+                        }
+                    }
+
+                    if (snapshots.isNotEmpty()) {
+                        allOriginalTiles[layerId] = snapshots
+                    }
+                }
+
+                if (allOriginalTiles.isEmpty()) {
+                    if (MiltonNative.isLoaded) {
+                        MiltonNative.selectionSessionEnd()
+                    }
+                    _state.value = SelectionState.Idle
+                    return@runOnGlThread
                 }
 
                 val session = TransformSession(
@@ -218,6 +238,9 @@ class SelectionTransformManager {
                 canvasView.post { canvasView.requestRedraw() }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start transform session", e)
+                if (MiltonNative.isLoaded) {
+                    MiltonNative.selectionSessionEnd()
+                }
                 _state.value = SelectionState.Idle
             }
         }
@@ -249,6 +272,9 @@ class SelectionTransformManager {
             } catch (e: Exception) {
                 Log.e(TAG, "Error restoring tiles on cancel", e)
             } finally {
+                if (MiltonNative.isLoaded) {
+                    MiltonNative.selectionSessionEnd()
+                }
                 _state.value = SelectionState.Idle
                 canvasView.post { canvasView.requestRedraw() }
             }
@@ -269,31 +295,6 @@ class SelectionTransformManager {
                 val affectedLayers = mutableListOf<Pair<Long, app.goodboy13.milton.core.tile.TileMap>>()
                 for (layerId in session.targetLayerIds) {
                     val layer = canvasView.layerManager.layers.find { it.id == layerId } ?: continue
-                    val patch = session.layerPatches[layerId] ?: continue
-
-                    // Transform via Rust native engine
-                    val transformed = MiltonNative.transformPatch(
-                        patch.rgbaBytes,
-                        patch.width,
-                        patch.height,
-                        session.scaleX,
-                        session.scaleY,
-                        session.rotationRad,
-                        session.pivotX - session.srcBounds.left,
-                        session.pivotY - session.srcBounds.top,
-                        session.flipH,
-                        session.flipV
-                    ) ?: continue
-
-                    val destLeft = session.pivotX + transformed.offsetX + session.translationX
-                    val destTop = session.pivotY + transformed.offsetY + session.translationY
-                    val destRight = destLeft + transformed.width
-                    val destBottom = destTop + transformed.height
-
-                    val minTx = floor(destLeft / TileCoord.TILE_SIZE).toInt()
-                    val maxTx = floor(destRight / TileCoord.TILE_SIZE).toInt()
-                    val minTy = floor(destTop / TileCoord.TILE_SIZE).toInt()
-                    val maxTy = floor(destBottom / TileCoord.TILE_SIZE).toInt()
 
                     // Register original source tiles into UndoManager
                     val origSnapshots = session.originalTiles[layerId] ?: emptyList()
@@ -305,10 +306,27 @@ class SelectionTransformManager {
                         )
                     }
 
-                    for (ty in minTy..maxTy) {
-                        for (tx in minTx..maxTx) {
+                    if (MiltonNative.isLoaded) {
+                        val affectedCoords = MiltonNative.selectionSessionGetAffectedDestTiles(
+                            layerId,
+                            session.scaleX,
+                            session.scaleY,
+                            session.rotationRad,
+                            session.translationX,
+                            session.translationY,
+                            session.pivotX,
+                            session.pivotY,
+                            session.flipH,
+                            session.flipV
+                        ) ?: IntArray(0)
+
+                        for (i in 0 until affectedCoords.size step 2) {
+                            val tx = affectedCoords[i]
+                            val ty = affectedCoords[i + 1]
                             val tile = layer.tileMap.getOrCreateTile(tx, ty)
+                            tile.ensureResident(layer.tileMap.cacheDir)
                             val curBytes = tile.readPixels()
+
                             // Register pre-blit destination tile state if not already registered
                             canvasView.renderer.undoManager.registerPreModifiedTile(
                                 layerId,
@@ -316,17 +334,25 @@ class SelectionTransformManager {
                                 if (tile.isInitialized && tile.hasContent) curBytes.clone() else null
                             )
 
-                            MiltonNative.blitPatchToTile(
+                            val modified = MiltonNative.selectionSessionBlitToTile(
+                                layerId,
+                                tx,
+                                ty,
                                 curBytes,
-                                tx * TileCoord.TILE_SIZE,
-                                ty * TileCoord.TILE_SIZE,
-                                transformed.rgbaBytes,
-                                transformed.width,
-                                transformed.height,
-                                destLeft.roundToInt(),
-                                destTop.roundToInt()
+                                session.scaleX,
+                                session.scaleY,
+                                session.rotationRad,
+                                session.translationX,
+                                session.translationY,
+                                session.pivotX,
+                                session.pivotY,
+                                session.flipH,
+                                session.flipV
                             )
-                            tile.writePixels(curBytes)
+
+                            if (modified) {
+                                tile.writePixels(curBytes)
+                            }
                         }
                     }
 
@@ -339,6 +365,9 @@ class SelectionTransformManager {
             } catch (e: Exception) {
                 Log.e(TAG, "Error committing transform", e)
             } finally {
+                if (MiltonNative.isLoaded) {
+                    MiltonNative.selectionSessionEnd()
+                }
                 _state.value = SelectionState.Idle
                 canvasView.post { canvasView.requestRedraw() }
             }
