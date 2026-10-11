@@ -12,6 +12,7 @@ data class ToolActions(
     val onBrushOpacityChange: (Float) -> Unit = {},
     val onBrushStabilizerChange: (Float) -> Unit = {},
     val onBrushHardnessChange: (Float) -> Unit = {},
+    val onBrushTiltChange: (Float) -> Unit = {},
     val onBrushColorChange: (Int) -> Unit = {},
     val onSizeBezierConfigChange: (BezierControlPoints) -> Unit = {},
     val onOpacityBezierConfigChange: (BezierControlPoints) -> Unit = {},

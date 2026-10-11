@@ -50,7 +50,7 @@ data class BezierControlPoints(
      */
     fun solveY(rawPressure: Float): Float {
         val minP = minPercent.coerceIn(0.0f, 1.0f)
-        val maxP = maxPercent.coerceIn(minP, 1.0f)
+        val maxP = maxPercent.coerceIn(0.0f, 1.0f)
         val clampedY = solveNormalizedY(rawPressure)
         return (minP + (maxP - minP) * clampedY).coerceIn(0.0f, 1.0f)
     }

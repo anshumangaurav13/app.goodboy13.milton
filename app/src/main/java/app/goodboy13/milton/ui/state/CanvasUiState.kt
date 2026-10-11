@@ -17,6 +17,7 @@ data class ToolUiState(
     val brushOpacity: Float = 0.85f,
     val brushStabilizer: Float = 0.10f,
     val brushHardness: Float = 0.70f,
+    val brushTilt: Float = 0.50f,
     val brushColorRgb: Int = 0xFF141518.toInt(),
     val sizeBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.50f),
     val opacityBezierConfig: BezierControlPoints = PressureCurveDefaults.SOFT.copy(minPercent = 0.20f),

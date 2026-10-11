@@ -83,6 +83,15 @@ object ToolPreferences {
         return getPrefs(context).getFloat("hardness_${type.name}", defaultHardness)
     }
 
+    // --- Per-Tool Tilt Sensitivity / Effect ---
+    fun saveToolTilt(context: Context, type: BrushType, tilt: Float) {
+        getPrefs(context).edit().putFloat("tilt_${type.name}", tilt).apply()
+    }
+
+    fun loadToolTilt(context: Context, type: BrushType, defaultTilt: Float = 0.50f): Float {
+        return getPrefs(context).getFloat("tilt_${type.name}", defaultTilt)
+    }
+
     // --- Per-Tool Size Bezier Curve ---
     fun saveToolSizeBezier(context: Context, type: BrushType, curve: BezierControlPoints) {
         val p = type.name

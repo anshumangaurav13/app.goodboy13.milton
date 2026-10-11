@@ -178,4 +178,41 @@ class BrushEngineTest {
         // Positions should be closely aligned regardless of sampling frequency
         org.junit.Assert.assertEquals(lastSlowX, lastFastX, 2.0f)
     }
+
+    @Test
+    fun testTiltRadiusScaling() {
+        val pencilProps = BrushProperties(
+            brushType = BrushType.PENCIL,
+            size = 20f,
+            tilt = 0.50f,
+            sizeBezierConfig = app.goodboy13.milton.core.model.PressureCurveDefaults.LINEAR.copy(minPercent = 1.0f)
+        )
+        val engine = BrushEngine(pencilProps)
+        // Upright stylus: tilt = 0f
+        val dabsUpright = engine.startStroke(0f, 0f, 1f, 0L, tilt = 0f)
+        assertEquals(10f, dabsUpright.first().radius, 0.01f)
+
+        // Fully tilted stylus: tilt = 1f
+        // effectiveTilt = 1f * 0.5f = 0.5f, tiltScale = 1.0 + 0.5 * 2.5 = 2.25f
+        val dabsTilted = engine.startStroke(0f, 0f, 1f, 0L, tilt = 1.0f)
+        val expectedRadius = 10f * (1.0f + 0.5f * 2.5f)
+        assertEquals(expectedRadius, dabsTilted.first().radius, 0.01f)
+    }
+
+    @Test
+    fun testDiscreteLeadGradeMapping() {
+        assertEquals("HB", app.goodboy13.milton.ui.components.LEAD_GRADES[9])
+        assertEquals("9H", app.goodboy13.milton.ui.components.LEAD_GRADES.first())
+        assertEquals("9B", app.goodboy13.milton.ui.components.LEAD_GRADES.last())
+        assertEquals(19, app.goodboy13.milton.ui.components.LEAD_GRADES.size)
+
+        // HB should map to ~0.45f hardness
+        val hbHardness = app.goodboy13.milton.ui.components.gradeToHardness(9)
+        assertEquals(0.45f, hbHardness, 0.01f)
+
+        // 2B (index 11)
+        val b2Hardness = app.goodboy13.milton.ui.components.gradeToHardness(11)
+        val b2Index = app.goodboy13.milton.ui.components.hardnessToGradeIndex(b2Hardness)
+        assertEquals(11, b2Index)
+    }
 }

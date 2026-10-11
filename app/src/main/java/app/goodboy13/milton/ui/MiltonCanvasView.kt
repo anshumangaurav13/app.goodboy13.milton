@@ -192,6 +192,12 @@ class MiltonCanvasView @JvmOverloads constructor(
             brushEngine.properties.hardness = value
         }
 
+    var brushTilt: Float
+        get() = brushEngine.properties.tilt
+        set(value) {
+            brushEngine.properties.tilt = value
+        }
+
     var brushColorRgb: Int
         get() = brushEngine.properties.colorRgb
         set(value) {
@@ -803,12 +809,15 @@ class MiltonCanvasView @JvmOverloads constructor(
                 ((buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0) ||
                 ((buttonState and MotionEvent.BUTTON_STYLUS_SECONDARY) != 0)
 
+        val rawTilt = event.getAxisValue(MotionEvent.AXIS_TILT, stylusIndex)
+        val tilt = if (rawTilt > 0.05f) (rawTilt / 1.5707963f).coerceIn(0f, 1f) else 0f
+
         when (action) {
             MotionEvent.ACTION_DOWN -> {
                 brushEngine.properties.isEraser = isEraserMode || isHardwareEraser
                 val isEraser = brushEngine.properties.isEraser
-                Log.i(TAG, "Stylus DOWN at screen=($sx, $sy), world=(${worldPos.x}, ${worldPos.y}), pressure=$pressure, isEraser=$isEraser")
-                val initialDabs = brushEngine.startStroke(worldPos.x, worldPos.y, pressure, event.eventTime)
+                Log.i(TAG, "Stylus DOWN at screen=($sx, $sy), world=(${worldPos.x}, ${worldPos.y}), pressure=$pressure, tilt=$tilt, isEraser=$isEraser")
+                val initialDabs = brushEngine.startStroke(worldPos.x, worldPos.y, pressure, event.eventTime, tilt)
                 if (initialDabs.isNotEmpty()) {
                     renderer.queueDabs(initialDabs)
                     if (isEraser) {
@@ -832,11 +841,13 @@ class MiltonCanvasView @JvmOverloads constructor(
                     val hp = if (hpRaw <= 0.001f) pressure else hpRaw.coerceIn(0.01f, 1.0f)
                     val ht = event.getHistoricalEventTime(h)
                     val hw = renderer.viewport.screenToWorld(hx, hy)
-                    dabs.addAll(brushEngine.addPoint(hw.x, hw.y, hp, ht))
+                    val htiltRaw = event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, stylusIndex, h)
+                    val htilt = if (htiltRaw > 0.05f) (htiltRaw / 1.5707963f).coerceIn(0f, 1f) else tilt
+                    dabs.addAll(brushEngine.addPoint(hw.x, hw.y, hp, ht, htilt))
                 }
 
                 // Add current point
-                dabs.addAll(brushEngine.addPoint(worldPos.x, worldPos.y, pressure, event.eventTime))
+                dabs.addAll(brushEngine.addPoint(worldPos.x, worldPos.y, pressure, event.eventTime, tilt))
 
                 if (dabs.isNotEmpty()) {
                     renderer.queueDabs(dabs)

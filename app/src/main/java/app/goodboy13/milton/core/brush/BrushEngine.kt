@@ -33,7 +33,8 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
         worldX: Float,
         worldY: Float,
         pressure: Float,
-        eventTimeMillis: Long = -1L
+        eventTimeMillis: Long = -1L,
+        tilt: Float = 0f
     ): List<BrushDab> {
         isStrokeActive = true
         currentStrokeId = System.nanoTime()
@@ -48,7 +49,9 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
         lastNormOpacityY = properties.opacityBezierConfig.solveNormalizedY(clampedP)
         distanceFromLastDab = 0f
 
-        val radius = max(properties.minRadius, (properties.size * 0.5f) * lastSizeP)
+        val effectiveTilt = if (tilt > 0.05f) (tilt * properties.tilt).coerceIn(0f, 1f) else 0f
+        val tiltScale = if (properties.brushMode == 1) 1.0f + effectiveTilt * 2.5f else 1.0f
+        val radius = max(properties.minRadius, (properties.size * 0.5f) * lastSizeP * tiltScale)
         val dabAlpha = computeAlpha(lastNormOpacityY)
 
         val initialDab = BrushDab(
@@ -61,6 +64,7 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
             hardness = properties.hardness,
             brushMode = properties.brushMode,
             pressure = lastSizeP,
+            tilt = effectiveTilt,
             strokeId = currentStrokeId
         )
         return listOf(initialDab)
@@ -70,10 +74,11 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
         worldX: Float,
         worldY: Float,
         pressure: Float,
-        eventTimeMillis: Long = -1L
+        eventTimeMillis: Long = -1L,
+        tilt: Float = 0f
     ): List<BrushDab> {
         if (!isStrokeActive) {
-            return startStroke(worldX, worldY, pressure, eventTimeMillis)
+            return startStroke(worldX, worldY, pressure, eventTimeMillis, tilt)
         }
 
         rawLastX = worldX
@@ -134,8 +139,11 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
 
         val dabs = mutableListOf<BrushDab>()
 
+        val effectiveTilt = if (tilt > 0.05f) (tilt * properties.tilt).coerceIn(0f, 1f) else 0f
+        val tiltScale = if (properties.brushMode == 1) 1.0f + effectiveTilt * 2.5f else 1.0f
+
         val avgSizeP = (prevSizeP + currentSizeP) * 0.5f
-        val radius = max(properties.minRadius, (properties.size * 0.5f) * avgSizeP)
+        val radius = max(properties.minRadius, (properties.size * 0.5f) * avgSizeP * tiltScale)
         val stepSize = max(0.8f, radius * properties.spacing * 2.0f)
 
         var d = stepSize - distanceFromLastDab
@@ -147,7 +155,7 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
             val iy = lastY + dy * t
             val ipSize = prevSizeP + (currentSizeP - prevSizeP) * t
             val ipNormOpacityY = prevNormOpacityY + (currentNormOpacityY - prevNormOpacityY) * t
-            val ir = max(properties.minRadius, (properties.size * 0.5f) * ipSize)
+            val ir = max(properties.minRadius, (properties.size * 0.5f) * ipSize * tiltScale)
             val dabAlpha = computeAlpha(ipNormOpacityY)
 
             dabs.add(
@@ -161,6 +169,7 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
                     hardness = properties.hardness,
                     brushMode = properties.brushMode,
                     pressure = ipSize,
+                    tilt = effectiveTilt,
                     strokeId = currentStrokeId
                 )
             )

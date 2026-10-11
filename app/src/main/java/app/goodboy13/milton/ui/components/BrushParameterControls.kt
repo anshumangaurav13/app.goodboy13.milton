@@ -45,7 +45,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -182,6 +184,7 @@ fun StrokePreviewBox(
     brushColorRgb: Int,
     sizeBezierConfig: BezierControlPoints,
     opacityBezierConfig: BezierControlPoints,
+    brushTilt: Float = 0.5f,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -233,7 +236,8 @@ fun StrokePreviewBox(
                 val strokeAlpha = (minAlpha + (maxAlpha - minAlpha) * normOpacityY).coerceIn(0.08f, 1.0f)
 
                 // Scaled stroke thickness for preview box
-                val previewWidth = (1.5f + (brushSize / 1000f).coerceIn(0f, 1f) * 18f) * (0.30f + 0.70f * mappedSizeP)
+                val tiltFactor = if (brushType == BrushType.PENCIL) 1.0f + brushTilt * 0.4f else 1.0f
+                val previewWidth = (1.5f + (brushSize / 1000f).coerceIn(0f, 1f) * 18f) * (0.30f + 0.70f * mappedSizeP) * tiltFactor
 
                 val strokeColor = if (brushType == BrushType.ERASER) {
                     Color(0xFFB0BEC5).copy(alpha = strokeAlpha)
@@ -257,10 +261,175 @@ fun StrokePreviewBox(
 }
 
 /**
+ * Compact curve toggle button next to Size and Opacity scrubbers.
+ */
+@Composable
+fun CurveToggleButton(
+    isActive: Boolean,
+    activeColor: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(38.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (isActive) activeColor.copy(alpha = 0.22f) else Color(0xFF22262E))
+            .border(
+                width = if (isActive) 1.5.dp else 1.dp,
+                color = if (isActive) activeColor else Color(0x35FFFFFF),
+                shape = RoundedCornerShape(10.dp)
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.size(18.dp)) {
+            val w = size.width
+            val h = size.height
+            val path = Path().apply {
+                moveTo(2f, h - 2f)
+                cubicTo(w * 0.35f, h * 0.85f, w * 0.65f, h * 0.15f, w - 2f, 2f)
+            }
+            drawPath(
+                path = path,
+                color = if (isActive) activeColor else Color.White.copy(alpha = 0.70f),
+                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+            )
+            drawCircle(
+                color = if (isActive) activeColor else Color.White.copy(alpha = 0.90f),
+                radius = 2.2.dp.toPx(),
+                center = Offset(w * 0.5f, h * 0.5f)
+            )
+        }
+    }
+}
+
+val LEAD_GRADES = listOf(
+    "9H", "8H", "7H", "6H", "5H", "4H", "3H", "2H", "H",
+    "HB",
+    "B", "2B", "3B", "4B", "5B", "6B", "7B", "8B", "9B"
+)
+
+fun gradeToHardness(index: Int): Float {
+    val clamped = index.coerceIn(0, LEAD_GRADES.lastIndex)
+    return if (clamped <= 9) {
+        0.08f + (0.45f - 0.08f) * (clamped / 9f)
+    } else {
+        0.45f + (1.00f - 0.45f) * ((clamped - 9) / 9f)
+    }
+}
+
+fun hardnessToGradeIndex(hardness: Float): Int {
+    var bestIndex = 11 // default 2B
+    var bestDiff = Float.MAX_VALUE
+    for (i in LEAD_GRADES.indices) {
+        val h = gradeToHardness(i)
+        val diff = kotlin.math.abs(h - hardness)
+        if (diff < bestDiff) {
+            bestDiff = diff
+            bestIndex = i
+        }
+    }
+    return bestIndex
+}
+
+/**
+ * Tactile discrete lead grade scrubber stepping smoothly from 9H to 9B with HB in the middle.
+ * Displays only the discrete grade without any float/numbers.
+ */
+@Composable
+fun DiscreteLeadGradeControl(
+    hardness: Float,
+    onHardnessChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    fillColor: Color = Color(0xFFFFCC80)
+) {
+    val currentIndex = remember(hardness) { hardnessToGradeIndex(hardness) }
+    val currentOnHardnessChange = rememberUpdatedState(onHardnessChange)
+    var isDragging by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(38.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF22262E))
+            .border(
+                width = if (isDragging) 1.5.dp else 1.dp,
+                color = if (isDragging) fillColor.copy(alpha = 0.85f) else Color(0x35FFFFFF),
+                shape = RoundedCornerShape(10.dp)
+            )
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    isDragging = true
+                    var accumulatedDx = 0f
+                    var activeIndex = currentIndex
+                    down.consume()
+
+                    val pxPerStep = 18f
+
+                    do {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull()
+                        if (change != null && change.pressed) {
+                            val dx = change.position.x - change.previousPosition.x
+                            accumulatedDx += dx
+
+                            val stepsDelta = (accumulatedDx / pxPerStep).toInt()
+                            if (stepsDelta != 0) {
+                                val newIndex = (activeIndex + stepsDelta).coerceIn(0, LEAD_GRADES.lastIndex)
+                                if (newIndex != activeIndex) {
+                                    activeIndex = newIndex
+                                    accumulatedDx -= stepsDelta * pxPerStep
+                                    currentOnHardnessChange.value(gradeToHardness(newIndex))
+                                }
+                            }
+                            change.consume()
+                        }
+                    } while (event.changes.any { it.pressed })
+
+                    isDragging = false
+                }
+            }
+    ) {
+        val fraction = (currentIndex.toFloat() / LEAD_GRADES.lastIndex.toFloat()).coerceIn(0f, 1f)
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(fraction)
+                .background(fillColor.copy(alpha = if (isDragging) 0.35f else 0.22f))
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Lead Grade",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White.copy(alpha = 0.75f)
+            )
+
+            Text(
+                text = LEAD_GRADES[currentIndex],
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (isDragging) fillColor else Color.White
+            )
+        }
+    }
+}
+
+/**
  * Draggable Floating Tool Parameters Window.
  * Confined within app bounds, width 204dp to match other floating windows.
  * Switching the active tool updates this window in place.
- * Bezier pressure curves are neatly collapsed under Size and Opacity.
+ * Curve controls are toggled via dedicated buttons directly next to the Size & Opacity sliders.
  */
 @Composable
 fun ToolParametersFloatingWindow(
@@ -271,6 +440,8 @@ fun ToolParametersFloatingWindow(
     onBrushOpacityChange: (Float) -> Unit,
     brushHardness: Float = 0.70f,
     onBrushHardnessChange: (Float) -> Unit = {},
+    brushTilt: Float = 0.50f,
+    onBrushTiltChange: (Float) -> Unit = {},
     brushStabilizer: Float = 0.10f,
     onBrushStabilizerChange: (Float) -> Unit = {},
     brushColorRgb: Int,
@@ -332,43 +503,33 @@ fun ToolParametersFloatingWindow(
                     brushOpacity = brushOpacity,
                     brushColorRgb = brushColorRgb,
                     sizeBezierConfig = sizeBezierConfig,
-                    opacityBezierConfig = opacityBezierConfig
+                    opacityBezierConfig = opacityBezierConfig,
+                    brushTilt = brushTilt
                 )
 
-                // Size Scrubber (1px .. 1000px)
-                ValueDragControl(
-                    label = "Size",
-                    value = brushSize,
-                    onValueChange = onBrushSizeChange,
-                    valueRange = 1f..1000f,
-                    unit = "px",
-                    displayDecimals = 1,
-                    fillColor = Color(0xFF64B5F6)
-                )
-
-                // Collapsible Size Dynamics Accordion
+                // 1. Size Slider with Curve Button
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable { showSizeDynamics = !showSizeDynamics }
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Size Pressure Curve",
-                        fontSize = 11.sp,
-                        color = if (showSizeDynamics) Color(0xFF64B5F6) else Color.White.copy(alpha = 0.65f),
-                        fontWeight = FontWeight.Medium
+                    ValueDragControl(
+                        label = "Size",
+                        value = brushSize,
+                        onValueChange = onBrushSizeChange,
+                        valueRange = 1f..1000f,
+                        unit = "px",
+                        displayDecimals = 1,
+                        fillColor = Color(0xFF64B5F6),
+                        modifier = Modifier.weight(1f)
                     )
-                    Icon(
-                        imageVector = if (showSizeDynamics) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = null,
-                        tint = if (showSizeDynamics) Color(0xFF64B5F6) else Color.White.copy(alpha = 0.5f),
-                        modifier = Modifier.size(16.dp)
+                    CurveToggleButton(
+                        isActive = showSizeDynamics,
+                        activeColor = Color(0xFF64B5F6),
+                        onClick = { showSizeDynamics = !showSizeDynamics }
                     )
                 }
+
                 AnimatedVisibility(visible = showSizeDynamics) {
                     BezierCurveGraph(
                         config = sizeBezierConfig,
@@ -377,61 +538,29 @@ fun ToolParametersFloatingWindow(
                     )
                 }
 
-                // Lead Grade (Hardness) Scrubber for Pencil (0.10 .. 1.00)
-                if (brushType == BrushType.PENCIL) {
-                    val grade = when {
-                        brushHardness <= 0.25f -> "2H"
-                        brushHardness <= 0.45f -> "HB"
-                        brushHardness <= 0.75f -> "2B"
-                        else -> "6B"
-                    }
-                    val gradeText = String.format(Locale.US, "%.2f (%s)", brushHardness, grade)
-                    ValueDragControl(
-                        label = "Lead Grade",
-                        value = brushHardness,
-                        onValueChange = onBrushHardnessChange,
-                        valueRange = 0.10f..1.00f,
-                        unit = "",
-                        displayDecimals = 2,
-                        customValueText = gradeText,
-                        fillColor = Color(0xFFFFCC80)
-                    )
-                }
-
-                // Opacity Scrubber (1% .. 100%)
-                ValueDragControl(
-                    label = "Opacity",
-                    value = brushOpacity * 100f,
-                    onValueChange = { onBrushOpacityChange(it / 100f) },
-                    valueRange = 1f..100f,
-                    unit = "%",
-                    displayDecimals = 0,
-                    fillColor = Color(0xFFFFB74D)
-                )
-
-                // Collapsible Opacity Dynamics Accordion
+                // 2. Opacity Slider with Curve Button
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable { showOpacityDynamics = !showOpacityDynamics }
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Opacity Pressure Curve",
-                        fontSize = 11.sp,
-                        color = if (showOpacityDynamics) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.65f),
-                        fontWeight = FontWeight.Medium
+                    ValueDragControl(
+                        label = "Opacity",
+                        value = brushOpacity * 100f,
+                        onValueChange = { onBrushOpacityChange(it / 100f) },
+                        valueRange = 1f..100f,
+                        unit = "%",
+                        displayDecimals = 0,
+                        fillColor = Color(0xFFFFB74D),
+                        modifier = Modifier.weight(1f)
                     )
-                    Icon(
-                        imageVector = if (showOpacityDynamics) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = null,
-                        tint = if (showOpacityDynamics) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.5f),
-                        modifier = Modifier.size(16.dp)
+                    CurveToggleButton(
+                        isActive = showOpacityDynamics,
+                        activeColor = Color(0xFFFFB74D),
+                        onClick = { showOpacityDynamics = !showOpacityDynamics }
                     )
                 }
+
                 AnimatedVisibility(visible = showOpacityDynamics) {
                     BezierCurveGraph(
                         config = opacityBezierConfig,
@@ -440,7 +569,28 @@ fun ToolParametersFloatingWindow(
                     )
                 }
 
-                // Stabilizer Scrubber (0% .. 100%)
+                // Pencil Specific Controls: 3. Tilt, 4. Lead Grade
+                if (brushType == BrushType.PENCIL) {
+                    // 3. Tilt Shading Control (0% .. 100%)
+                    ValueDragControl(
+                        label = "Tilt",
+                        value = brushTilt * 100f,
+                        onValueChange = { onBrushTiltChange(it / 100f) },
+                        valueRange = 0f..100f,
+                        unit = "%",
+                        displayDecimals = 0,
+                        fillColor = Color(0xFF80DEEA)
+                    )
+
+                    // 4. Lead Grade Discrete Control (9H .. 9B, HB in middle)
+                    DiscreteLeadGradeControl(
+                        hardness = brushHardness,
+                        onHardnessChange = onBrushHardnessChange,
+                        fillColor = Color(0xFFFFCC80)
+                    )
+                }
+
+                // 5. Stabilizer Slider (0% .. 100%)
                 ValueDragControl(
                     label = "Stabilizer",
                     value = brushStabilizer * 100f,

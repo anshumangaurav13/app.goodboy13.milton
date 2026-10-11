@@ -16,6 +16,7 @@ data class BrushDab(
     val hardness: Float = 0.85f,
     val brushMode: Int = 0, // 0 = Pen/Eraser, 1 = Pencil, 2 = Paintbrush
     val pressure: Float = 0.5f,
+    val tilt: Float = 0.0f,
     val strokeId: Long = 0L
 )
 
@@ -34,6 +35,7 @@ data class BrushProperties(
     var opacity: Float = 0.85f,
     var spacing: Float = 0.16f,
     var hardness: Float = 0.70f,
+    var tilt: Float = 0.50f,
     var minRadius: Float = 1.5f,
     var isEraser: Boolean = false,
     var brushMode: Int = 1,
@@ -67,6 +69,13 @@ data class BrushProperties(
         BrushType.ERASER to 0.0f
     )
 
+    private val savedTilts = mutableMapOf(
+        BrushType.PEN to 0.0f,
+        BrushType.PENCIL to 0.50f,
+        BrushType.PAINTBRUSH to 0.20f,
+        BrushType.ERASER to 0.0f
+    )
+
     private val savedHardnesses = mutableMapOf(
         BrushType.PEN to 0.94f,
         BrushType.PENCIL to 0.70f,
@@ -88,19 +97,22 @@ data class BrushProperties(
         BrushType.ERASER to PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f)
     )
 
-    fun applyPreset(type: BrushType) {
-        // Save current tool's settings before switching
-        savedSizes[brushType] = size
-        savedOpacities[brushType] = opacity
-        savedStabilizers[brushType] = stabilizer
-        savedHardnesses[brushType] = hardness
-        savedSizeBeziers[brushType] = sizeBezierConfig
-        savedOpacityBeziers[brushType] = opacityBezierConfig
+    fun applyPreset(type: BrushType, saveCurrentFirst: Boolean = true) {
+        if (saveCurrentFirst) {
+            savedSizes[brushType] = size
+            savedOpacities[brushType] = opacity
+            savedStabilizers[brushType] = stabilizer
+            savedTilts[brushType] = tilt
+            savedHardnesses[brushType] = hardness
+            savedSizeBeziers[brushType] = sizeBezierConfig
+            savedOpacityBeziers[brushType] = opacityBezierConfig
+        }
 
         brushType = type
         size = savedSizes[type] ?: 24f
         opacity = savedOpacities[type] ?: 0.85f
         stabilizer = savedStabilizers[type] ?: 0.0f
+        tilt = savedTilts[type] ?: 0.50f
         hardness = savedHardnesses[type] ?: 0.70f
         sizeBezierConfig = savedSizeBeziers[type] ?: PressureCurveDefaults.STANDARD
         opacityBezierConfig = savedOpacityBeziers[type] ?: PressureCurveDefaults.STANDARD
@@ -142,18 +154,20 @@ data class BrushProperties(
             savedSizes[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolSize(context, t, savedSizes[t] ?: 24f)
             savedOpacities[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolOpacity(context, t, savedOpacities[t] ?: 0.85f)
             savedStabilizers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolStabilizer(context, t, savedStabilizers[t] ?: 0.10f)
+            savedTilts[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolTilt(context, t, savedTilts[t] ?: 0.50f)
             savedHardnesses[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolHardness(context, t, savedHardnesses[t] ?: 0.70f)
             savedSizeBeziers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolSizeBezier(context, t, savedSizeBeziers[t] ?: PressureCurveDefaults.STANDARD)
             savedOpacityBeziers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolOpacityBezier(context, t, savedOpacityBeziers[t] ?: PressureCurveDefaults.STANDARD)
         }
         val active = app.goodboy13.milton.core.preferences.ToolPreferences.loadActiveBrushType(context)
-        applyPreset(active)
+        applyPreset(active, saveCurrentFirst = false)
     }
 
     fun savePreferences(context: android.content.Context) {
         savedSizes[brushType] = size
         savedOpacities[brushType] = opacity
         savedStabilizers[brushType] = stabilizer
+        savedTilts[brushType] = tilt
         savedHardnesses[brushType] = hardness
         savedSizeBeziers[brushType] = sizeBezierConfig
         savedOpacityBeziers[brushType] = opacityBezierConfig
@@ -162,6 +176,7 @@ data class BrushProperties(
             savedSizes[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolSize(context, t, it) }
             savedOpacities[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolOpacity(context, t, it) }
             savedStabilizers[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolStabilizer(context, t, it) }
+            savedTilts[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolTilt(context, t, it) }
             savedHardnesses[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolHardness(context, t, it) }
             savedSizeBeziers[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolSizeBezier(context, t, it) }
             savedOpacityBeziers[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolOpacityBezier(context, t, it) }

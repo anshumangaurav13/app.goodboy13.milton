@@ -226,6 +226,7 @@ class MainActivity : ComponentActivity() {
                         onBrushSizeChange = { viewModel.setBrushSize(it, canvasView) },
                         onBrushOpacityChange = { viewModel.setBrushOpacity(it, canvasView) },
                         onBrushHardnessChange = { viewModel.setBrushHardness(it, canvasView) },
+                        onBrushTiltChange = { viewModel.setBrushTilt(it, canvasView) },
                         onBrushStabilizerChange = { viewModel.setBrushStabilizer(it, canvasView) },
                         onBrushColorChange = { viewModel.setBrushColor(it, canvasView) },
                         onSizeBezierConfigChange = { viewModel.setSizeBezierConfig(it, canvasView) },

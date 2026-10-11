@@ -191,6 +191,7 @@ class CanvasViewModel : ViewModel() {
                     brushSize = canvasView.brushSize,
                     brushOpacity = canvasView.brushOpacity,
                     brushHardness = canvasView.brushHardness,
+                    brushTilt = canvasView.brushTilt,
                     brushStabilizer = canvasView.brushStabilizer,
                     brushColorRgb = color,
                     sizeBezierConfig = canvasView.sizeBezierConfig,
@@ -208,6 +209,7 @@ class CanvasViewModel : ViewModel() {
                     brushSize = canvasView.brushSize,
                     brushOpacity = canvasView.brushOpacity,
                     brushHardness = canvasView.brushHardness,
+                    brushTilt = canvasView.brushTilt,
                     brushStabilizer = canvasView.brushStabilizer,
                     sizeBezierConfig = canvasView.sizeBezierConfig,
                     opacityBezierConfig = canvasView.opacityBezierConfig
@@ -292,6 +294,7 @@ class CanvasViewModel : ViewModel() {
                     brushSize = canvasView.brushSize,
                     brushOpacity = canvasView.brushOpacity,
                     brushHardness = canvasView.brushHardness,
+                    brushTilt = canvasView.brushTilt,
                     brushStabilizer = canvasView.brushStabilizer,
                     sizeBezierConfig = canvasView.sizeBezierConfig,
                     opacityBezierConfig = canvasView.opacityBezierConfig
@@ -366,6 +369,14 @@ class CanvasViewModel : ViewModel() {
             app.goodboy13.milton.core.preferences.ToolPreferences.saveToolHardness(ctx, canvasView.brushType, hardness)
         }
         _uiState.update { it.copy(tool = it.tool.copy(brushHardness = hardness)) }
+    }
+
+    fun setBrushTilt(tilt: Float, canvasView: MiltonCanvasView) {
+        canvasView.brushTilt = tilt
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveToolTilt(ctx, canvasView.brushType, tilt)
+        }
+        _uiState.update { it.copy(tool = it.tool.copy(brushTilt = tilt)) }
     }
 
     fun setBrushStabilizer(stabilizer: Float, canvasView: MiltonCanvasView) {
