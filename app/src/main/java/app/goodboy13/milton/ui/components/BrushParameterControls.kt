@@ -144,31 +144,38 @@ fun ValueDragControl(
         )
 
         // Text Content
+        val textPadding = if (height < 36.dp) 8.dp else 12.dp
+        val textSize = if (height < 36.dp) 11.sp else 13.sp
+
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = textPadding),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = label,
-                fontSize = 13.sp,
+                fontSize = textSize,
                 fontWeight = FontWeight.Medium,
-                color = Color.White.copy(alpha = 0.75f)
+                color = Color.White.copy(alpha = 0.75f),
+                maxLines = 1,
+                softWrap = false
             )
 
             val formatted = customValueText ?: if (displayDecimals == 0) {
-                "${value.roundToInt()} $unit"
+                if (unit == "%") "${value.roundToInt()}%" else "${value.roundToInt()} $unit"
             } else {
-                String.format(Locale.US, "%.1f %s", value, unit)
+                if (unit == "%") String.format(Locale.US, "%.1f%%", value) else String.format(Locale.US, "%.1f %s", value, unit)
             }
 
             Text(
                 text = formatted,
-                fontSize = 13.sp,
+                fontSize = textSize,
                 fontWeight = FontWeight.Bold,
-                color = if (isDragging) fillColor else Color.White
+                color = if (isDragging) fillColor else Color.White,
+                maxLines = 1,
+                softWrap = false
             )
         }
     }

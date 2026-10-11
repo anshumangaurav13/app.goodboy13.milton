@@ -392,6 +392,7 @@ fun BezierCurveGraph(
                 unit = "%",
                 displayDecimals = 0,
                 fillColor = handleStartColor,
+                height = 30.dp,
                 modifier = Modifier.weight(1f)
             )
             ValueDragControl(
@@ -404,6 +405,7 @@ fun BezierCurveGraph(
                 unit = "%",
                 displayDecimals = 0,
                 fillColor = handleEndColor,
+                height = 30.dp,
                 modifier = Modifier.weight(1f)
             )
         }
