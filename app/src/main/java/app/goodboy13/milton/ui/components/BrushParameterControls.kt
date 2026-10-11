@@ -69,6 +69,7 @@ fun ValueDragControl(
     unit: String = "px",
     displayDecimals: Int = 1,
     fillColor: Color = Color(0xFF64B5F6),
+    customValueText: String? = null,
     modifier: Modifier = Modifier
 ) {
     var isDragging by remember { mutableStateOf(false) }
@@ -154,7 +155,7 @@ fun ValueDragControl(
                 color = Color.White.copy(alpha = 0.75f)
             )
 
-            val formatted = if (displayDecimals == 0) {
+            val formatted = customValueText ?: if (displayDecimals == 0) {
                 "${value.roundToInt()} $unit"
             } else {
                 String.format(Locale.US, "%.1f %s", value, unit)
@@ -268,6 +269,8 @@ fun ToolParametersFloatingWindow(
     onBrushSizeChange: (Float) -> Unit,
     brushOpacity: Float,
     onBrushOpacityChange: (Float) -> Unit,
+    brushHardness: Float = 0.70f,
+    onBrushHardnessChange: (Float) -> Unit = {},
     brushStabilizer: Float = 0.10f,
     onBrushStabilizerChange: (Float) -> Unit = {},
     brushColorRgb: Int,
@@ -371,6 +374,27 @@ fun ToolParametersFloatingWindow(
                         config = sizeBezierConfig,
                         onConfigChange = onSizeBezierConfigChange,
                         curveColor = Color(0xFF64B5F6)
+                    )
+                }
+
+                // Lead Grade (Hardness) Scrubber for Pencil (0.10 .. 1.00)
+                if (brushType == BrushType.PENCIL) {
+                    val grade = when {
+                        brushHardness <= 0.25f -> "2H"
+                        brushHardness <= 0.45f -> "HB"
+                        brushHardness <= 0.75f -> "2B"
+                        else -> "6B"
+                    }
+                    val gradeText = String.format(Locale.US, "%.2f (%s)", brushHardness, grade)
+                    ValueDragControl(
+                        label = "Lead Grade",
+                        value = brushHardness,
+                        onValueChange = onBrushHardnessChange,
+                        valueRange = 0.10f..1.00f,
+                        unit = "",
+                        displayDecimals = 2,
+                        customValueText = gradeText,
+                        fillColor = Color(0xFFFFCC80)
                     )
                 }
 

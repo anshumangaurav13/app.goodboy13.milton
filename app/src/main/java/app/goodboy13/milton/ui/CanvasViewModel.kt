@@ -190,6 +190,7 @@ class CanvasViewModel : ViewModel() {
                     brushType = activeType,
                     brushSize = canvasView.brushSize,
                     brushOpacity = canvasView.brushOpacity,
+                    brushHardness = canvasView.brushHardness,
                     brushStabilizer = canvasView.brushStabilizer,
                     brushColorRgb = color,
                     sizeBezierConfig = canvasView.sizeBezierConfig,
@@ -206,6 +207,7 @@ class CanvasViewModel : ViewModel() {
                 tool = state.tool.copy(
                     brushSize = canvasView.brushSize,
                     brushOpacity = canvasView.brushOpacity,
+                    brushHardness = canvasView.brushHardness,
                     brushStabilizer = canvasView.brushStabilizer,
                     sizeBezierConfig = canvasView.sizeBezierConfig,
                     opacityBezierConfig = canvasView.opacityBezierConfig
@@ -289,6 +291,7 @@ class CanvasViewModel : ViewModel() {
                     brushType = type,
                     brushSize = canvasView.brushSize,
                     brushOpacity = canvasView.brushOpacity,
+                    brushHardness = canvasView.brushHardness,
                     brushStabilizer = canvasView.brushStabilizer,
                     sizeBezierConfig = canvasView.sizeBezierConfig,
                     opacityBezierConfig = canvasView.opacityBezierConfig
@@ -355,6 +358,14 @@ class CanvasViewModel : ViewModel() {
             app.goodboy13.milton.core.preferences.ToolPreferences.saveToolOpacity(ctx, canvasView.brushType, opacity)
         }
         _uiState.update { it.copy(tool = it.tool.copy(brushOpacity = opacity)) }
+    }
+
+    fun setBrushHardness(hardness: Float, canvasView: MiltonCanvasView) {
+        canvasView.brushHardness = hardness
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveToolHardness(ctx, canvasView.brushType, hardness)
+        }
+        _uiState.update { it.copy(tool = it.tool.copy(brushHardness = hardness)) }
     }
 
     fun setBrushStabilizer(stabilizer: Float, canvasView: MiltonCanvasView) {

@@ -223,6 +223,8 @@ fun MiltonTabletUi(
                 onBrushSizeChange = actions.tool.onBrushSizeChange,
                 brushOpacity = state.tool.brushOpacity,
                 onBrushOpacityChange = actions.tool.onBrushOpacityChange,
+                brushHardness = state.tool.brushHardness,
+                onBrushHardnessChange = actions.tool.onBrushHardnessChange,
                 brushStabilizer = state.tool.brushStabilizer,
                 onBrushStabilizerChange = actions.tool.onBrushStabilizerChange,
                 brushColorRgb = state.tool.brushColorRgb,

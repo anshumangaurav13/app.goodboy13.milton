@@ -74,64 +74,74 @@ class DabShader {
 
             layout(location = 0) inout vec4 fragColor;
 
-            float hash(vec2 p) {
-                vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-                p3 += dot(p3, p3.yzx + 33.33);
-                return fract((p3.x + p3.y) * p3.z);
+            // Persistent 2D integer paper tooth hash (identical to Graphite Lab)
+            float paperTooth(vec2 p) {
+                ivec2 ip = ivec2(floor(p));
+                uint h = (uint(ip.x) * 374761393u + uint(ip.y) * 668265263u) ^ 0x5bf03635u;
+                h = (h ^ (h >> 13u)) * 1274126177u;
+                return float((h ^ (h >> 16u)) & 0xffffu) / 65535.0;
             }
 
-            float paperTooth(vec2 p) {
-                vec2 i = floor(p);
-                vec2 f = fract(p);
-                f = f * f * (3.0 - 2.0 * f);
-                float a = hash(i);
-                float b = hash(i + vec2(1.0, 0.0));
-                float c = hash(i + vec2(0.0, 1.0));
-                float d = hash(i + vec2(1.0, 1.0));
-                return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+            // High-frequency stochastic micro-particle deposition hash per dab stamp
+            float particleHash(vec2 p, vec2 dabCenter) {
+                ivec2 ip = ivec2(floor(p));
+                ivec2 ic = ivec2(floor(dabCenter * 8.0));
+                uint h = (uint(ip.x) * 1664525u + uint(ip.y) * 1013904223u + uint(ic.x) * 374761393u + uint(ic.y) * 668265263u) ^ 0x6a09e667u;
+                h = (h ^ (h >> 13u)) * 2246822519u;
+                return float((h ^ (h >> 16u)) & 0xffffu) / 65535.0;
             }
 
             void main() {
                 float dist = 0.0;
                 vec2 pixelCoord = floor(vWorldPos + vec2(0.01));
+
+                float dabAlpha = 0.0;
                 if (uBrushMode == 1) {
                     vec2 pixelCenter = pixelCoord + vec2(0.5);
                     dist = length(pixelCenter - vDabCenter) / vRadius;
                     if (dist > 1.0) {
                         discard;
                     }
+
+                    // 1. Effective graphite hardness modulated by stylus pressure (Graphite Lab physics)
+                    float effHardness = uHardness * (0.6 + 0.4 * uPressure);
+
+                    // 2. Micro-particle deposition density per dab stamp
+                    float pRand = particleHash(pixelCoord, vDabCenter);
+                    float particleDensity = clamp(0.286 * (0.6 + effHardness), 0.15, 0.70);
+                    if (pRand > particleDensity) {
+                        discard;
+                    }
+
+                    // 3. Persistent paper tooth test:
+                    // Graphite catches on paper fiber peaks. At higher pressure/softness, graphite reaches deeper into tooth valleys.
+                    float tooth = paperTooth(pixelCoord);
+                    float toothThreshold = max(0.05, 1.0 - (0.55 + 0.42 * effHardness));
+                    if (tooth < toothThreshold) {
+                        discard;
+                    }
+
+                    // 4. Natural linear radial falloff from lead contact center
+                    float falloff = clamp(1.0 - dist, 0.0, 1.0);
+
+                    // 5. Rich carbon deposit opacity with microscopic grain variance
+                    float grainRand = fract(pRand * 13.37 + tooth * 7.19);
+                    float alphaDeposit = (0.16 + 0.36 * grainRand) * (0.35 + 0.65 * falloff) * effHardness;
+
+                    dabAlpha = alphaDeposit * uColor.a;
+                } else if (uBrushMode == 2) {
+                    dist = length(vLocalCoord);
+                    if (dist > 1.0) {
+                        discard;
+                    }
+                    // Paintbrush: soft feathered edge
+                    float edge = smoothstep(1.0, uHardness, dist);
+                    dabAlpha = edge * uColor.a;
                 } else {
                     dist = length(vLocalCoord);
                     if (dist > 1.0) {
                         discard;
                     }
-                }
-
-                float dabAlpha = 0.0;
-                if (uBrushMode == 1) {
-                    // Multi-octave natural paper tooth:
-                    // 1. Fibrous coarse paper tooth
-                    float coarseTooth = paperTooth(pixelCoord * 0.25);
-                    // 2. Medium paper grain
-                    float mediumTooth = paperTooth(pixelCoord * 0.50 + vec2(37.0, 61.0));
-                    // 3. Subtle micro-grit
-                    float microGrit = hash(pixelCoord);
-                    float paper = coarseTooth * 0.45 + mediumTooth * 0.35 + microGrit * 0.20;
-
-                    // Dense graphite deposition: deep, rich core with organic paper tooth peaks
-                    float p = clamp(uPressure, 0.0, 1.0);
-                    float threshold = mix(0.48, 0.06, p);
-                    float toothBite = smoothstep(threshold - 0.08, threshold + 0.08, paper);
-
-                    // Crisp graphite perimeter with tight edge taper
-                    float edge = smoothstep(1.0, 0.72, dist);
-
-                    dabAlpha = edge * toothBite * uColor.a;
-                } else if (uBrushMode == 2) {
-                    // Paintbrush: soft feathered edge
-                    float edge = smoothstep(1.0, uHardness, dist);
-                    dabAlpha = edge * uColor.a;
-                } else {
                     // Pen / Eraser: firm anti-aliased edge
                     dabAlpha = smoothstep(1.0, uHardness, dist) * uColor.a;
                 }
@@ -157,7 +167,6 @@ class DabShader {
                 }
 
                 // Check if destination pixel was already painted with the current stroke's color.
-                // Cross-multiplication test (|dst.rgb - srcColor * dst.a|) avoids 8-bit division noise at feathered edges.
                 vec3 premulExpected = srcColor * dst.a;
                 vec3 colorDiff = abs(dst.rgb - premulExpected);
                 bool isSameStrokeColor = all(lessThan(colorDiff, vec3(0.045)));
@@ -165,14 +174,6 @@ class DabShader {
                 float outAlpha = dst.a + dabAlpha * (1.0 - dst.a);
 
                 if (isSameStrokeColor) {
-                    if (uBrushMode == 1) {
-                        // Pencil: take max intra-stroke alpha so graphite preserves paper tooth peaks
-                        // without compounding into a solid dense smudge along the stroke path
-                        float pencilAlpha = max(dst.a, dabAlpha);
-                        fragColor = vec4(srcColor * pencilAlpha, pencilAlpha);
-                        return;
-                    }
-                    // Intra-stroke accumulation: smooth continuous stroke geometry with zero scallop rings
                     fragColor = vec4(srcColor * outAlpha, outAlpha);
                     return;
                 }
@@ -201,63 +202,73 @@ class DabShader {
 
             out vec4 fragColor;
 
-            float hash(vec2 p) {
-                vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-                p3 += dot(p3, p3.yzx + 33.33);
-                return fract((p3.x + p3.y) * p3.z);
+            // Persistent 2D integer paper tooth hash (identical to Graphite Lab)
+            float paperTooth(vec2 p) {
+                ivec2 ip = ivec2(floor(p));
+                uint h = (uint(ip.x) * 374761393u + uint(ip.y) * 668265263u) ^ 0x5bf03635u;
+                h = (h ^ (h >> 13u)) * 1274126177u;
+                return float((h ^ (h >> 16u)) & 0xffffu) / 65535.0;
             }
 
-            float paperTooth(vec2 p) {
-                vec2 i = floor(p);
-                vec2 f = fract(p);
-                f = f * f * (3.0 - 2.0 * f);
-                float a = hash(i);
-                float b = hash(i + vec2(1.0, 0.0));
-                float c = hash(i + vec2(0.0, 1.0));
-                float d = hash(i + vec2(1.0, 1.0));
-                return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+            // High-frequency stochastic micro-particle deposition hash per dab stamp
+            float particleHash(vec2 p, vec2 dabCenter) {
+                ivec2 ip = ivec2(floor(p));
+                ivec2 ic = ivec2(floor(dabCenter * 8.0));
+                uint h = (uint(ip.x) * 1664525u + uint(ip.y) * 1013904223u + uint(ic.x) * 374761393u + uint(ic.y) * 668265263u) ^ 0x6a09e667u;
+                h = (h ^ (h >> 13u)) * 2246822519u;
+                return float((h ^ (h >> 16u)) & 0xffffu) / 65535.0;
             }
 
             void main() {
                 float dist = 0.0;
                 vec2 pixelCoord = floor(vWorldPos + vec2(0.01));
+
+                float dabAlpha = 0.0;
                 if (uBrushMode == 1) {
                     vec2 pixelCenter = pixelCoord + vec2(0.5);
                     dist = length(pixelCenter - vDabCenter) / vRadius;
                     if (dist > 1.0) {
                         discard;
                     }
+
+                    // 1. Effective graphite hardness modulated by stylus pressure (Graphite Lab physics)
+                    float effHardness = uHardness * (0.6 + 0.4 * uPressure);
+
+                    // 2. Micro-particle deposition density per dab stamp
+                    float pRand = particleHash(pixelCoord, vDabCenter);
+                    float particleDensity = clamp(0.286 * (0.6 + effHardness), 0.15, 0.70);
+                    if (pRand > particleDensity) {
+                        discard;
+                    }
+
+                    // 3. Persistent paper tooth test:
+                    // Graphite catches on paper fiber peaks. At higher pressure/softness, graphite reaches deeper into tooth valleys.
+                    float tooth = paperTooth(pixelCoord);
+                    float toothThreshold = max(0.05, 1.0 - (0.55 + 0.42 * effHardness));
+                    if (tooth < toothThreshold) {
+                        discard;
+                    }
+
+                    // 4. Natural linear radial falloff from lead contact center
+                    float falloff = clamp(1.0 - dist, 0.0, 1.0);
+
+                    // 5. Rich carbon deposit opacity with microscopic grain variance
+                    float grainRand = fract(pRand * 13.37 + tooth * 7.19);
+                    float alphaDeposit = (0.16 + 0.36 * grainRand) * (0.35 + 0.65 * falloff) * effHardness;
+
+                    dabAlpha = alphaDeposit * uColor.a;
+                } else if (uBrushMode == 2) {
+                    dist = length(vLocalCoord);
+                    if (dist > 1.0) {
+                        discard;
+                    }
+                    float edge = smoothstep(1.0, uHardness, dist);
+                    dabAlpha = edge * uColor.a;
                 } else {
                     dist = length(vLocalCoord);
                     if (dist > 1.0) {
                         discard;
                     }
-                }
-
-                float dabAlpha = 0.0;
-                if (uBrushMode == 1) {
-                    // Multi-octave natural paper tooth:
-                    // 1. Fibrous coarse paper tooth
-                    float coarseTooth = paperTooth(pixelCoord * 0.25);
-                    // 2. Medium paper grain
-                    float mediumTooth = paperTooth(pixelCoord * 0.50 + vec2(37.0, 61.0));
-                    // 3. Subtle micro-grit
-                    float microGrit = hash(pixelCoord);
-                    float paper = coarseTooth * 0.45 + mediumTooth * 0.35 + microGrit * 0.20;
-
-                    // Dense graphite deposition: deep, rich core with organic paper tooth peaks
-                    float p = clamp(uPressure, 0.0, 1.0);
-                    float threshold = mix(0.48, 0.06, p);
-                    float toothBite = smoothstep(threshold - 0.08, threshold + 0.08, paper);
-
-                    // Crisp graphite perimeter with tight edge taper
-                    float edge = smoothstep(1.0, 0.72, dist);
-
-                    dabAlpha = edge * toothBite * uColor.a;
-                } else if (uBrushMode == 2) {
-                    float edge = smoothstep(1.0, uHardness, dist);
-                    dabAlpha = edge * uColor.a;
-                } else {
                     dabAlpha = smoothstep(1.0, uHardness, dist) * uColor.a;
                 }
 

@@ -13,11 +13,12 @@ import app.goodboy13.milton.ui.QUICK_PALETTE_COLORS
  */
 data class ToolUiState(
     val brushType: BrushType = BrushType.PENCIL,
-    val brushSize: Float = 35f,
-    val brushOpacity: Float = 0.75f,
+    val brushSize: Float = 24f,
+    val brushOpacity: Float = 0.85f,
     val brushStabilizer: Float = 0.10f,
-    val brushColorRgb: Int = 0xFF333333.toInt(),
-    val sizeBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.05f),
+    val brushHardness: Float = 0.70f,
+    val brushColorRgb: Int = 0xFF141518.toInt(),
+    val sizeBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.50f),
     val opacityBezierConfig: BezierControlPoints = PressureCurveDefaults.SOFT.copy(minPercent = 0.20f),
     val isEraserMode: Boolean = false,
     val isEyedropperActive: Boolean = false,

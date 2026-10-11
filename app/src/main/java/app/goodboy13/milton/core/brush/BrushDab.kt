@@ -29,16 +29,16 @@ enum class BrushType(val displayName: String) {
 
 data class BrushProperties(
     var brushType: BrushType = BrushType.PENCIL,
-    var size: Float = 35.0f,
-    var colorRgb: Int = 0xFF333333.toInt(), // Nice graphite default
-    var opacity: Float = 0.75f,
-    var spacing: Float = 0.08f,
-    var hardness: Float = 0.40f,
+    var size: Float = 24.0f,
+    var colorRgb: Int = 0xFF141518.toInt(), // Deep rich carbon graphite tone
+    var opacity: Float = 0.85f,
+    var spacing: Float = 0.16f,
+    var hardness: Float = 0.70f,
     var minRadius: Float = 1.5f,
     var isEraser: Boolean = false,
     var brushMode: Int = 1,
     var stabilizer: Float = 0.10f,
-    var sizeBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.05f),
+    var sizeBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.50f),
     var opacityBezierConfig: BezierControlPoints = PressureCurveDefaults.SOFT.copy(minPercent = 0.20f)
 ) {
     // Legacy alias
@@ -48,14 +48,14 @@ data class BrushProperties(
 
     private val savedSizes = mutableMapOf(
         BrushType.PEN to 30.0f,
-        BrushType.PENCIL to 35.0f,
+        BrushType.PENCIL to 24.0f,
         BrushType.PAINTBRUSH to 250.0f,
         BrushType.ERASER to 120.0f
     )
 
     private val savedOpacities = mutableMapOf(
         BrushType.PEN to 1.0f,
-        BrushType.PENCIL to 0.75f,
+        BrushType.PENCIL to 0.85f,
         BrushType.PAINTBRUSH to 0.60f,
         BrushType.ERASER to 1.0f
     )
@@ -67,9 +67,16 @@ data class BrushProperties(
         BrushType.ERASER to 0.0f
     )
 
+    private val savedHardnesses = mutableMapOf(
+        BrushType.PEN to 0.94f,
+        BrushType.PENCIL to 0.70f,
+        BrushType.PAINTBRUSH to 0.70f,
+        BrushType.ERASER to 0.85f
+    )
+
     private val savedSizeBeziers = mutableMapOf(
         BrushType.PEN to PressureCurveDefaults.STANDARD.copy(minPercent = 0.15f),
-        BrushType.PENCIL to PressureCurveDefaults.STANDARD.copy(minPercent = 0.05f),
+        BrushType.PENCIL to PressureCurveDefaults.STANDARD.copy(minPercent = 0.50f),
         BrushType.PAINTBRUSH to PressureCurveDefaults.STANDARD.copy(minPercent = 0.45f),
         BrushType.ERASER to PressureCurveDefaults.STANDARD.copy(minPercent = 0.45f)
     )
@@ -86,13 +93,15 @@ data class BrushProperties(
         savedSizes[brushType] = size
         savedOpacities[brushType] = opacity
         savedStabilizers[brushType] = stabilizer
+        savedHardnesses[brushType] = hardness
         savedSizeBeziers[brushType] = sizeBezierConfig
         savedOpacityBeziers[brushType] = opacityBezierConfig
 
         brushType = type
-        size = savedSizes[type] ?: 35f
-        opacity = savedOpacities[type] ?: 0.75f
+        size = savedSizes[type] ?: 24f
+        opacity = savedOpacities[type] ?: 0.85f
         stabilizer = savedStabilizers[type] ?: 0.0f
+        hardness = savedHardnesses[type] ?: 0.70f
         sizeBezierConfig = savedSizeBeziers[type] ?: PressureCurveDefaults.STANDARD
         opacityBezierConfig = savedOpacityBeziers[type] ?: PressureCurveDefaults.STANDARD
         minRadius = (size * 0.12f).coerceAtLeast(1.2f)
@@ -105,8 +114,8 @@ data class BrushProperties(
                 brushMode = 0
             }
             BrushType.PENCIL -> {
-                hardness = 0.40f
-                spacing = 0.08f
+                hardness = savedHardnesses[type] ?: 0.70f
+                spacing = 0.16f
                 isEraser = false
                 brushMode = 1
             }
@@ -130,9 +139,10 @@ data class BrushProperties(
 
     fun loadPreferences(context: android.content.Context) {
         for (t in BrushType.values()) {
-            savedSizes[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolSize(context, t, savedSizes[t] ?: 35f)
-            savedOpacities[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolOpacity(context, t, savedOpacities[t] ?: 0.75f)
+            savedSizes[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolSize(context, t, savedSizes[t] ?: 24f)
+            savedOpacities[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolOpacity(context, t, savedOpacities[t] ?: 0.85f)
             savedStabilizers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolStabilizer(context, t, savedStabilizers[t] ?: 0.10f)
+            savedHardnesses[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolHardness(context, t, savedHardnesses[t] ?: 0.70f)
             savedSizeBeziers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolSizeBezier(context, t, savedSizeBeziers[t] ?: PressureCurveDefaults.STANDARD)
             savedOpacityBeziers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolOpacityBezier(context, t, savedOpacityBeziers[t] ?: PressureCurveDefaults.STANDARD)
         }
@@ -144,6 +154,7 @@ data class BrushProperties(
         savedSizes[brushType] = size
         savedOpacities[brushType] = opacity
         savedStabilizers[brushType] = stabilizer
+        savedHardnesses[brushType] = hardness
         savedSizeBeziers[brushType] = sizeBezierConfig
         savedOpacityBeziers[brushType] = opacityBezierConfig
         app.goodboy13.milton.core.preferences.ToolPreferences.saveActiveBrushType(context, brushType)
@@ -151,6 +162,7 @@ data class BrushProperties(
             savedSizes[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolSize(context, t, it) }
             savedOpacities[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolOpacity(context, t, it) }
             savedStabilizers[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolStabilizer(context, t, it) }
+            savedHardnesses[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolHardness(context, t, it) }
             savedSizeBeziers[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolSizeBezier(context, t, it) }
             savedOpacityBeziers[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolOpacityBezier(context, t, it) }
         }

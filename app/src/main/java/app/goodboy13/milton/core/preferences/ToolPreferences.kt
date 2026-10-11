@@ -20,7 +20,7 @@ object ToolPreferences {
 
     // Default values
     val DEFAULT_RECENT_COLORS = listOf(
-        0xFF333333.toInt(), // Graphite Default
+        0xFF141518.toInt(), // Deep Carbon Graphite Default
         0xFF111111.toInt(), // Ink Black
         0xFFFFFFFF.toInt(), // Paper White
         0xFFD32F2F.toInt(), // Crimson Red
@@ -72,6 +72,15 @@ object ToolPreferences {
 
     fun loadToolStabilizer(context: Context, type: BrushType, defaultStabilizer: Float = 0.10f): Float {
         return getPrefs(context).getFloat("stabilizer_${type.name}", defaultStabilizer)
+    }
+
+    // --- Per-Tool Hardness (Graphite Grade) ---
+    fun saveToolHardness(context: Context, type: BrushType, hardness: Float) {
+        getPrefs(context).edit().putFloat("hardness_${type.name}", hardness).apply()
+    }
+
+    fun loadToolHardness(context: Context, type: BrushType, defaultHardness: Float = 0.70f): Float {
+        return getPrefs(context).getFloat("hardness_${type.name}", defaultHardness)
     }
 
     // --- Per-Tool Size Bezier Curve ---
