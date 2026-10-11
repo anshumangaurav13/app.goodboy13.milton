@@ -29,7 +29,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -69,77 +71,58 @@ fun BezierCurveGraph(
     val currentConfig by rememberUpdatedState(config)
     val currentOnConfigChange by rememberUpdatedState(onConfigChange)
 
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF161920))
+            .border(1.dp, Color(0x30FFFFFF), RoundedCornerShape(10.dp))
+            .padding(8.dp)
     ) {
-        // Coordinate readout header (Start, P1, P2, End)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 2.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .background(handleStartColor, CircleShape)
-                )
-                Spacer(modifier = Modifier.width(2.dp))
-                Text(
-                    text = "${(config.minPercent * 100f).roundToInt()}%",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 9.sp,
-                    color = Color.White.copy(alpha = 0.8f)
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .background(handle1Color, CircleShape)
-                )
-                Spacer(modifier = Modifier.width(2.dp))
-                Text(
-                    text = String.format(Locale.US, "P1:(%.2f,%.2f)", config.cp1x, config.cp1y),
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 9.sp,
-                    color = Color.White.copy(alpha = 0.8f)
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .background(handle2Color, CircleShape)
-                )
-                Spacer(modifier = Modifier.width(2.dp))
-                Text(
-                    text = String.format(Locale.US, "P2:(%.2f,%.2f)", config.cp2x, config.cp2y),
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 9.sp,
-                    color = Color.White.copy(alpha = 0.8f)
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .background(handleEndColor, CircleShape)
-                )
-                Spacer(modifier = Modifier.width(2.dp))
-                Text(
-                    text = "${(config.maxPercent * 100f).roundToInt()}%",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 9.sp,
-                    color = Color.White.copy(alpha = 0.8f)
-                )
-            }
-        }
+            // Sleek Header Bar: dynamic active handle readout on left, range badge on right
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val (labelText, labelColor) = when (activeHandle) {
+                    1 -> String.format(Locale.US, "CP1: (%.2f, %.2f)", config.cp1x, config.cp1y) to handle1Color
+                    2 -> String.format(Locale.US, "CP2: (%.2f, %.2f)", config.cp2x, config.cp2y) to handle2Color
+                    3 -> "Start: ${(config.minPercent * 100f).roundToInt()}%" to handleStartColor
+                    4 -> "End: ${(config.maxPercent * 100f).roundToInt()}%" to handleEndColor
+                    else -> "Response Curve" to Color.White.copy(alpha = 0.70f)
+                }
 
-        Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = labelText,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = labelColor,
+                    maxLines = 1
+                )
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF22262E))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "${(config.minPercent * 100f).roundToInt()}% → ${(config.maxPercent * 100f).roundToInt()}%",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = curveColor.copy(alpha = 0.90f),
+                        maxLines = 1
+                    )
+                }
+            }
 
         // Interactive Graph Canvas Area
         BoxWithConstraints(
@@ -306,6 +289,27 @@ fun BezierCurveGraph(
                     strokeWidth = 1.6f
                 )
 
+                // 4.5. Subtle translucent gradient fill under the curve
+                val areaPath = Path().apply {
+                    moveTo(startPos.x, graphBottom)
+                    lineTo(startPos.x, startPos.y)
+                    cubicTo(
+                        cp1Pos.x, cp1Pos.y,
+                        cp2Pos.x, cp2Pos.y,
+                        endPos.x, endPos.y
+                    )
+                    lineTo(endPos.x, graphBottom)
+                    close()
+                }
+                drawPath(
+                    path = areaPath,
+                    brush = Brush.verticalGradient(
+                        colors = listOf(curveColor.copy(alpha = 0.20f), curveColor.copy(alpha = 0.02f)),
+                        startY = graphTop,
+                        endY = graphBottom
+                    )
+                )
+
                 // 5. Continuous Cubic Bezier Curve (scaled to minPercent..maxPercent)
                 val curvePath = Path().apply {
                     moveTo(startPos.x, startPos.y)
@@ -373,8 +377,6 @@ fun BezierCurveGraph(
             }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
-
         // Start & End percentage scrubbers side-by-side
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -408,7 +410,6 @@ fun BezierCurveGraph(
 
         // Preset Chips: single horizontal row of mini curve icons
         if (presets.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(6.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -459,3 +460,5 @@ fun BezierCurveGraph(
         }
     }
 }
+}
+

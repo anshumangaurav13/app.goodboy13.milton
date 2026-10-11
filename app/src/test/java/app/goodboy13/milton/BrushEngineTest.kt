@@ -185,7 +185,8 @@ class BrushEngineTest {
             brushType = BrushType.PENCIL,
             size = 20f,
             tilt = 0.50f,
-            sizeBezierConfig = app.goodboy13.milton.core.model.PressureCurveDefaults.LINEAR.copy(minPercent = 1.0f)
+            sizeBezierConfig = app.goodboy13.milton.core.model.PressureCurveDefaults.LINEAR.copy(minPercent = 1.0f),
+            tiltBezierConfig = app.goodboy13.milton.core.model.PressureCurveDefaults.LINEAR.copy(minPercent = 0.0f, maxPercent = 1.0f)
         )
         val engine = BrushEngine(pencilProps)
         // Upright stylus: tilt = 0f
@@ -193,9 +194,9 @@ class BrushEngineTest {
         assertEquals(10f, dabsUpright.first().radius, 0.01f)
 
         // Fully tilted stylus: tilt = 1f
-        // effectiveTilt = 1f * 0.5f = 0.5f, tiltScale = 1.0 + 0.5 * 2.5 = 2.25f
+        // tiltResponse = 1.0f, tiltScale = 1.0 + 1.0 * (0.5 * 3.5) = 2.75f
         val dabsTilted = engine.startStroke(0f, 0f, 1f, 0L, tilt = 1.0f)
-        val expectedRadius = 10f * (1.0f + 0.5f * 2.5f)
+        val expectedRadius = 10f * (1.0f + 0.5f * 3.5f)
         assertEquals(expectedRadius, dabsTilted.first().radius, 0.01f)
     }
 

@@ -21,6 +21,7 @@ data class ToolUiState(
     val brushColorRgb: Int = 0xFF141518.toInt(),
     val sizeBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.50f),
     val opacityBezierConfig: BezierControlPoints = PressureCurveDefaults.SOFT.copy(minPercent = 0.20f),
+    val tiltBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f),
     val isEraserMode: Boolean = false,
     val isEyedropperActive: Boolean = false,
     val recentColors: List<Int> = QUICK_PALETTE_COLORS,

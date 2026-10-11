@@ -16,6 +16,7 @@ data class ToolActions(
     val onBrushColorChange: (Int) -> Unit = {},
     val onSizeBezierConfigChange: (BezierControlPoints) -> Unit = {},
     val onOpacityBezierConfigChange: (BezierControlPoints) -> Unit = {},
+    val onTiltBezierConfigChange: (BezierControlPoints) -> Unit = {},
     val onToggleEyedropper: () -> Unit = {}
 )
 

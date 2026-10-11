@@ -72,6 +72,7 @@ fun ValueDragControl(
     displayDecimals: Int = 1,
     fillColor: Color = Color(0xFF64B5F6),
     customValueText: String? = null,
+    height: androidx.compose.ui.unit.Dp = 38.dp,
     modifier: Modifier = Modifier
 ) {
     var isDragging by remember { mutableStateOf(false) }
@@ -81,7 +82,7 @@ fun ValueDragControl(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(38.dp)
+            .height(height)
             .clip(RoundedCornerShape(10.dp))
             .background(Color(0xFF22262E))
             .border(
@@ -185,6 +186,7 @@ fun StrokePreviewBox(
     sizeBezierConfig: BezierControlPoints,
     opacityBezierConfig: BezierControlPoints,
     brushTilt: Float = 0.5f,
+    tiltBezierConfig: BezierControlPoints = BezierControlPoints(),
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -235,8 +237,9 @@ fun StrokePreviewBox(
                 val normOpacityY = opacityBezierConfig.solveNormalizedY(rawP)
                 val strokeAlpha = (minAlpha + (maxAlpha - minAlpha) * normOpacityY).coerceIn(0.08f, 1.0f)
 
-                // Scaled stroke thickness for preview box
-                val tiltFactor = if (brushType == BrushType.PENCIL) 1.0f + brushTilt * 0.4f else 1.0f
+                // Scaled stroke thickness for preview box using tiltBezierConfig
+                val tiltResponse = if (brushType == BrushType.PENCIL) tiltBezierConfig.solveY(brushTilt) else 0f
+                val tiltFactor = if (brushType == BrushType.PENCIL) 1.0f + tiltResponse * (brushTilt * 1.5f) else 1.0f
                 val previewWidth = (1.5f + (brushSize / 1000f).coerceIn(0f, 1f) * 18f) * (0.30f + 0.70f * mappedSizeP) * tiltFactor
 
                 val strokeColor = if (brushType == BrushType.ERASER) {
@@ -260,8 +263,12 @@ fun StrokePreviewBox(
     }
 }
 
+enum class ActiveCurveDynamics {
+    NONE, SIZE, OPACITY, TILT
+}
+
 /**
- * Compact curve toggle button next to Size and Opacity scrubbers.
+ * Compact curve toggle button next to Size, Opacity, and Tilt scrubbers.
  */
 @Composable
 fun CurveToggleButton(
@@ -449,14 +456,15 @@ fun ToolParametersFloatingWindow(
     onSizeBezierConfigChange: (BezierControlPoints) -> Unit,
     opacityBezierConfig: BezierControlPoints,
     onOpacityBezierConfigChange: (BezierControlPoints) -> Unit,
+    tiltBezierConfig: BezierControlPoints = BezierControlPoints(),
+    onTiltBezierConfigChange: (BezierControlPoints) -> Unit = {},
     onClose: () -> Unit,
     containerWidth: Int,
     containerHeight: Int,
     state: FloatingWindowState,
     modifier: Modifier = Modifier
 ) {
-    var showSizeDynamics by remember { mutableStateOf(false) }
-    var showOpacityDynamics by remember { mutableStateOf(false) }
+    var activeCurveDynamics by remember { mutableStateOf(ActiveCurveDynamics.NONE) }
 
     DraggableFloatingWindow(
         title = brushType.displayName,
@@ -504,7 +512,8 @@ fun ToolParametersFloatingWindow(
                     brushColorRgb = brushColorRgb,
                     sizeBezierConfig = sizeBezierConfig,
                     opacityBezierConfig = opacityBezierConfig,
-                    brushTilt = brushTilt
+                    brushTilt = brushTilt,
+                    tiltBezierConfig = tiltBezierConfig
                 )
 
                 // 1. Size Slider with Curve Button
@@ -524,13 +533,19 @@ fun ToolParametersFloatingWindow(
                         modifier = Modifier.weight(1f)
                     )
                     CurveToggleButton(
-                        isActive = showSizeDynamics,
+                        isActive = activeCurveDynamics == ActiveCurveDynamics.SIZE,
                         activeColor = Color(0xFF64B5F6),
-                        onClick = { showSizeDynamics = !showSizeDynamics }
+                        onClick = {
+                            activeCurveDynamics = if (activeCurveDynamics == ActiveCurveDynamics.SIZE) {
+                                ActiveCurveDynamics.NONE
+                            } else {
+                                ActiveCurveDynamics.SIZE
+                            }
+                        }
                     )
                 }
 
-                AnimatedVisibility(visible = showSizeDynamics) {
+                AnimatedVisibility(visible = activeCurveDynamics == ActiveCurveDynamics.SIZE) {
                     BezierCurveGraph(
                         config = sizeBezierConfig,
                         onConfigChange = onSizeBezierConfigChange,
@@ -555,13 +570,19 @@ fun ToolParametersFloatingWindow(
                         modifier = Modifier.weight(1f)
                     )
                     CurveToggleButton(
-                        isActive = showOpacityDynamics,
+                        isActive = activeCurveDynamics == ActiveCurveDynamics.OPACITY,
                         activeColor = Color(0xFFFFB74D),
-                        onClick = { showOpacityDynamics = !showOpacityDynamics }
+                        onClick = {
+                            activeCurveDynamics = if (activeCurveDynamics == ActiveCurveDynamics.OPACITY) {
+                                ActiveCurveDynamics.NONE
+                            } else {
+                                ActiveCurveDynamics.OPACITY
+                            }
+                        }
                     )
                 }
 
-                AnimatedVisibility(visible = showOpacityDynamics) {
+                AnimatedVisibility(visible = activeCurveDynamics == ActiveCurveDynamics.OPACITY) {
                     BezierCurveGraph(
                         config = opacityBezierConfig,
                         onConfigChange = onOpacityBezierConfigChange,
@@ -571,16 +592,42 @@ fun ToolParametersFloatingWindow(
 
                 // Pencil Specific Controls: 3. Tilt, 4. Lead Grade
                 if (brushType == BrushType.PENCIL) {
-                    // 3. Tilt Shading Control (0% .. 100%)
-                    ValueDragControl(
-                        label = "Tilt",
-                        value = brushTilt * 100f,
-                        onValueChange = { onBrushTiltChange(it / 100f) },
-                        valueRange = 0f..100f,
-                        unit = "%",
-                        displayDecimals = 0,
-                        fillColor = Color(0xFF80DEEA)
-                    )
+                    // 3. Tilt Shading Control with Curve Button (0% .. 100%)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ValueDragControl(
+                            label = "Tilt",
+                            value = brushTilt * 100f,
+                            onValueChange = { onBrushTiltChange(it / 100f) },
+                            valueRange = 0f..100f,
+                            unit = "%",
+                            displayDecimals = 0,
+                            fillColor = Color(0xFF80DEEA),
+                            modifier = Modifier.weight(1f)
+                        )
+                        CurveToggleButton(
+                            isActive = activeCurveDynamics == ActiveCurveDynamics.TILT,
+                            activeColor = Color(0xFF80DEEA),
+                            onClick = {
+                                activeCurveDynamics = if (activeCurveDynamics == ActiveCurveDynamics.TILT) {
+                                    ActiveCurveDynamics.NONE
+                                } else {
+                                    ActiveCurveDynamics.TILT
+                                }
+                            }
+                        )
+                    }
+
+                    AnimatedVisibility(visible = activeCurveDynamics == ActiveCurveDynamics.TILT) {
+                        BezierCurveGraph(
+                            config = tiltBezierConfig,
+                            onConfigChange = onTiltBezierConfigChange,
+                            curveColor = Color(0xFF80DEEA)
+                        )
+                    }
 
                     // 4. Lead Grade Discrete Control (9H .. 9B, HB in middle)
                     DiscreteLeadGradeControl(

@@ -216,6 +216,12 @@ class MiltonCanvasView @JvmOverloads constructor(
             brushEngine.properties.opacityBezierConfig = value
         }
 
+    var tiltBezierConfig: app.goodboy13.milton.core.model.BezierControlPoints
+        get() = brushEngine.properties.tiltBezierConfig
+        set(value) {
+            brushEngine.properties.tiltBezierConfig = value
+        }
+
     var bezierConfig: app.goodboy13.milton.core.model.BezierControlPoints
         get() = brushEngine.properties.sizeBezierConfig
         set(value) {

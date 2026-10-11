@@ -146,6 +146,33 @@ object ToolPreferences {
         )
     }
 
+    // --- Per-Tool Tilt Bezier Curve ---
+    fun saveToolTiltBezier(context: Context, type: BrushType, curve: BezierControlPoints) {
+        val p = type.name
+        getPrefs(context).edit()
+            .putFloat("tilt_bezier_cp1x_$p", curve.cp1x)
+            .putFloat("tilt_bezier_cp1y_$p", curve.cp1y)
+            .putFloat("tilt_bezier_cp2x_$p", curve.cp2x)
+            .putFloat("tilt_bezier_cp2y_$p", curve.cp2y)
+            .putFloat("tilt_bezier_min_$p", curve.minPercent)
+            .putFloat("tilt_bezier_max_$p", curve.maxPercent)
+            .apply()
+    }
+
+    fun loadToolTiltBezier(context: Context, type: BrushType, defaultCurve: BezierControlPoints): BezierControlPoints {
+        val p = type.name
+        val prefs = getPrefs(context)
+        if (!prefs.contains("tilt_bezier_cp1x_$p")) return defaultCurve
+        return BezierControlPoints(
+            cp1x = prefs.getFloat("tilt_bezier_cp1x_$p", defaultCurve.cp1x),
+            cp1y = prefs.getFloat("tilt_bezier_cp1y_$p", defaultCurve.cp1y),
+            cp2x = prefs.getFloat("tilt_bezier_cp2x_$p", defaultCurve.cp2x),
+            cp2y = prefs.getFloat("tilt_bezier_cp2y_$p", defaultCurve.cp2y),
+            minPercent = prefs.getFloat("tilt_bezier_min_$p", defaultCurve.minPercent),
+            maxPercent = prefs.getFloat("tilt_bezier_max_$p", defaultCurve.maxPercent)
+        )
+    }
+
     // --- Color ---
     fun saveBrushColor(context: Context, colorRgb: Int) {
         getPrefs(context).edit().putInt(KEY_BRUSH_COLOR, colorRgb).apply()

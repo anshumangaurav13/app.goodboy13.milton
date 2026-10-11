@@ -234,6 +234,8 @@ fun MiltonTabletUi(
                 onSizeBezierConfigChange = actions.tool.onSizeBezierConfigChange,
                 opacityBezierConfig = state.tool.opacityBezierConfig,
                 onOpacityBezierConfigChange = actions.tool.onOpacityBezierConfigChange,
+                tiltBezierConfig = state.tool.tiltBezierConfig,
+                onTiltBezierConfigChange = actions.tool.onTiltBezierConfigChange,
                 onClose = { showToolParametersWindow = false },
                 containerWidth = containerW,
                 containerHeight = containerH,
@@ -393,6 +395,8 @@ fun MiltonTabletUi(
     onSizeBezierConfigChange: (BezierControlPoints) -> Unit = {},
     opacityBezierConfig: BezierControlPoints = BezierControlPoints(),
     onOpacityBezierConfigChange: (BezierControlPoints) -> Unit = {},
+    tiltBezierConfig: BezierControlPoints = BezierControlPoints(),
+    onTiltBezierConfigChange: (BezierControlPoints) -> Unit = {},
     bezierConfig: BezierControlPoints = sizeBezierConfig,
     onBezierConfigChange: (BezierControlPoints) -> Unit = onSizeBezierConfigChange,
     canUndo: Boolean,
@@ -454,6 +458,7 @@ fun MiltonTabletUi(
             brushColorRgb = brushColorRgb,
             sizeBezierConfig = sizeBezierConfig,
             opacityBezierConfig = opacityBezierConfig,
+            tiltBezierConfig = tiltBezierConfig,
             isEyedropperActive = isEyedropperActive,
             recentColors = recentColors,
             eyedropperReticleState = eyedropperReticleState
@@ -491,6 +496,7 @@ fun MiltonTabletUi(
             onBrushColorChange = onBrushColorChange,
             onSizeBezierConfigChange = onSizeBezierConfigChange,
             onOpacityBezierConfigChange = onOpacityBezierConfigChange,
+            onTiltBezierConfigChange = onTiltBezierConfigChange,
             onToggleEyedropper = onToggleEyedropper
         ),
         viewport = ViewportActions(

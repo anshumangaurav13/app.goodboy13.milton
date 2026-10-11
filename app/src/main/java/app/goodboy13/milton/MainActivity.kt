@@ -231,6 +231,7 @@ class MainActivity : ComponentActivity() {
                         onBrushColorChange = { viewModel.setBrushColor(it, canvasView) },
                         onSizeBezierConfigChange = { viewModel.setSizeBezierConfig(it, canvasView) },
                         onOpacityBezierConfigChange = { viewModel.setOpacityBezierConfig(it, canvasView) },
+                        onTiltBezierConfigChange = { viewModel.setTiltBezierConfig(it, canvasView) },
                         onToggleEyedropper = { viewModel.toggleEyedropper(canvasView) }
                     ),
                     viewport = ViewportActions(

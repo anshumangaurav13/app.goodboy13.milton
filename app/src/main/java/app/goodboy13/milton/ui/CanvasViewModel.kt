@@ -196,6 +196,7 @@ class CanvasViewModel : ViewModel() {
                     brushColorRgb = color,
                     sizeBezierConfig = canvasView.sizeBezierConfig,
                     opacityBezierConfig = canvasView.opacityBezierConfig,
+                    tiltBezierConfig = canvasView.tiltBezierConfig,
                     recentColors = recents
                 )
             )
@@ -212,7 +213,8 @@ class CanvasViewModel : ViewModel() {
                     brushTilt = canvasView.brushTilt,
                     brushStabilizer = canvasView.brushStabilizer,
                     sizeBezierConfig = canvasView.sizeBezierConfig,
-                    opacityBezierConfig = canvasView.opacityBezierConfig
+                    opacityBezierConfig = canvasView.opacityBezierConfig,
+                    tiltBezierConfig = canvasView.tiltBezierConfig
                 ),
                 viewport = state.viewport.copy(
                     isCanvasFlipped = canvasView.isCanvasFlipped
@@ -297,7 +299,8 @@ class CanvasViewModel : ViewModel() {
                     brushTilt = canvasView.brushTilt,
                     brushStabilizer = canvasView.brushStabilizer,
                     sizeBezierConfig = canvasView.sizeBezierConfig,
-                    opacityBezierConfig = canvasView.opacityBezierConfig
+                    opacityBezierConfig = canvasView.opacityBezierConfig,
+                    tiltBezierConfig = canvasView.tiltBezierConfig
                 )
             )
         }
@@ -409,6 +412,14 @@ class CanvasViewModel : ViewModel() {
             app.goodboy13.milton.core.preferences.ToolPreferences.saveToolOpacityBezier(ctx, canvasView.brushType, config)
         }
         _uiState.update { it.copy(tool = it.tool.copy(opacityBezierConfig = config)) }
+    }
+
+    fun setTiltBezierConfig(config: BezierControlPoints, canvasView: MiltonCanvasView) {
+        canvasView.tiltBezierConfig = config
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveToolTiltBezier(ctx, canvasView.brushType, config)
+        }
+        _uiState.update { it.copy(tool = it.tool.copy(tiltBezierConfig = config)) }
     }
 
     fun toggleEyedropper(canvasView: MiltonCanvasView) {
