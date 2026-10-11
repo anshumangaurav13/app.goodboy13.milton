@@ -9,6 +9,7 @@ import androidx.graphics.lowlatency.BufferInfo
 import app.goodboy13.milton.core.brush.BrushDab
 import app.goodboy13.milton.core.layer.Layer
 import app.goodboy13.milton.core.model.WorldRect
+import app.goodboy13.milton.core.tile.RasterTile
 import app.goodboy13.milton.core.tile.TileCoord
 import app.goodboy13.milton.core.tile.TileMap
 import app.goodboy13.milton.core.viewport.Viewport
@@ -43,6 +44,15 @@ class GlSceneRenderer {
     private val screenProjectionMatrix = FloatArray(16)
     private val worldToViewMatrix = FloatArray(16)
     private val finalMvpMatrix = FloatArray(16)
+
+    // Reusable buffers on GL render thread to eliminate frame-rate GC allocations
+    private val reusableVisibleTiles = mutableListOf<RasterTile>()
+    private val reusableAffectedTiles = mutableListOf<RasterTile>()
+    private val tileDabsBucketMap = HashMap<Long, TileDabBucket>()
+    private val bucketPool = ArrayList<TileDabBucket>()
+    private val activeBuckets = ArrayList<TileDabBucket>()
+
+    private fun packTileCoord(tx: Int, ty: Int): Long = (tx.toLong() shl 32) or (ty.toLong() and 0xFFFFFFFFL)
 
     var isGlInitialized = false
         private set
@@ -209,7 +219,7 @@ class GlSceneRenderer {
 
         for (layer in layers) {
             if (!layer.isVisible || layer.opacity <= 0.001f) continue
-            val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds)
+            val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds, reusableVisibleTiles)
             if (visibleTiles.isEmpty()) continue
 
             tileBlitShader.setOpacity(layer.opacity)
@@ -228,12 +238,23 @@ class GlSceneRenderer {
     /**
      * Two-pass scratch FBO composition: accumulates brush dabs into a scratch FBO ribbon,
      * then composites onto destination tile FBO in a single pass. Directly attenuates for eraser dabs.
+     * Uses non-allocating pooled TileDabBuckets and bindFboDirect() to eliminate GPU stalls and GC churn.
      */
-    fun stampDabsIntoTiles(targetTileMap: TileMap, dabs: List<BrushDab>) {
+    fun stampDabsIntoTiles(
+        targetTileMap: TileMap,
+        dabs: List<BrushDab>,
+        onTilesResolved: ((Collection<RasterTile>) -> Unit)? = null
+    ) {
         if (dabs.isEmpty()) return
 
+        tileDabsBucketMap.clear()
+        for (i in activeBuckets.indices) {
+            bucketPool.add(activeBuckets[i])
+        }
+        activeBuckets.clear()
+        reusableAffectedTiles.clear()
+
         val tileSize = TileCoord.TILE_SIZE.toFloat()
-        val tileDabsMap = mutableMapOf<Pair<Int, Int>, MutableList<BrushDab>>()
         for (dab in dabs) {
             val reach = dab.radius + 2.0f
             val minTx = floor((dab.x - reach) / tileSize).toInt()
@@ -242,18 +263,36 @@ class GlSceneRenderer {
             val maxTy = floor((dab.y + reach) / tileSize).toInt()
             for (ty in minTy..maxTy) {
                 for (tx in minTx..maxTx) {
-                    tileDabsMap.getOrPut(tx to ty) { mutableListOf() }.add(dab)
+                    val key = packTileCoord(tx, ty)
+                    var bucket = tileDabsBucketMap[key]
+                    if (bucket == null) {
+                        val tile = targetTileMap.getOrCreateTile(tx, ty)
+                        tile.ensureResident(targetTileMap.cacheDir)
+                        bucket = if (bucketPool.isNotEmpty()) bucketPool.removeAt(bucketPool.size - 1) else TileDabBucket()
+                        bucket.reset(tx, ty, tile)
+                        tileDabsBucketMap[key] = bucket
+                        activeBuckets.add(bucket)
+                        reusableAffectedTiles.add(tile)
+                    }
+                    if (dab.isEraser) {
+                        bucket.eraserDabs.add(dab)
+                    } else {
+                        bucket.brushDabs.add(dab)
+                    }
                 }
             }
         }
 
-        for ((coord, tileDabs) in tileDabsMap) {
-            val (tx, ty) = coord
-            val tile = targetTileMap.getOrCreateTile(tx, ty)
-            tile.ensureResident(targetTileMap.cacheDir)
+        // Notify callback (e.g. undo pre-stroke snapshot) before modifying tile FBOs
+        onTilesResolved?.invoke(reusableAffectedTiles)
 
-            val eraserDabs = tileDabs.filter { it.isEraser }
-            val brushDabs = tileDabs.filter { !it.isEraser }
+        for (i in activeBuckets.indices) {
+            val bucket = activeBuckets[i]
+            val tx = bucket.tx
+            val ty = bucket.ty
+            val tile = bucket.tile ?: continue
+            val eraserDabs = bucket.eraserDabs
+            val brushDabs = bucket.brushDabs
 
             if (brushDabs.isNotEmpty()) {
                 tile.hasContent = true
@@ -261,7 +300,7 @@ class GlSceneRenderer {
 
             // 1. Eraser dabs directly attenuate the tile FBO
             if (eraserDabs.isNotEmpty()) {
-                tile.bindFbo()
+                tile.bindFboDirect()
                 if (dabShader.usesFramebufferFetch) {
                     GLES30.glDisable(GLES30.GL_BLEND)
                 } else {
@@ -288,7 +327,6 @@ class GlSceneRenderer {
                         isEraser = true
                     )
                 }
-                tile.unbindFbo()
                 if (dabShader.usesFramebufferFetch) {
                     GLES30.glEnable(GLES30.GL_BLEND)
                 }
@@ -332,13 +370,10 @@ class GlSceneRenderer {
                 if (dabShader.usesFramebufferFetch) {
                     GLES30.glEnable(GLES30.GL_BLEND)
                 }
-                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
 
                 // Pass 2: Composite the scratch stroke ribbon onto destination tile FBO in a single pass
-                tile.bindFbo()
-                GLES30.glViewport(0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE)
+                tile.bindFboDirect()
                 strokeCompositeShader.render(strokeTextureId = scratchTextureId)
-                tile.unbindFbo()
             }
         }
     }
@@ -542,5 +577,22 @@ class GlSceneRenderer {
             thumbnailRenderer.releaseGl()
             isGlInitialized = false
         }
+    }
+}
+
+class TileDabBucket(
+    var tx: Int = 0,
+    var ty: Int = 0,
+    var tile: RasterTile? = null
+) {
+    val eraserDabs = mutableListOf<BrushDab>()
+    val brushDabs = mutableListOf<BrushDab>()
+
+    fun reset(tx: Int, ty: Int, tile: RasterTile) {
+        this.tx = tx
+        this.ty = ty
+        this.tile = tile
+        eraserDabs.clear()
+        brushDabs.clear()
     }
 }

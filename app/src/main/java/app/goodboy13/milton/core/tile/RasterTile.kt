@@ -41,6 +41,16 @@ class RasterTile(val coord: TileCoord) {
         isDirty = true
     }
 
+    /**
+     * Binds this tile's FBO directly without querying glGetIntegerv for existing FBO/viewport state.
+     * Prevents synchronous CPU-GPU pipeline stalls during batch tile stamping.
+     */
+    fun bindFboDirect() {
+        if (!isInitialized) initGl()
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fboId)
+        GLES30.glViewport(0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE)
+    }
+
     fun bindFbo() {
         if (!isInitialized) initGl()
         GLES30.glGetIntegerv(GLES30.GL_FRAMEBUFFER_BINDING, prevFbo, 0)

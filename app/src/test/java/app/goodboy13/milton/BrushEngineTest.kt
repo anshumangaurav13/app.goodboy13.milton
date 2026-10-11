@@ -1,5 +1,6 @@
 package app.goodboy13.milton
 
+import app.goodboy13.milton.core.brush.BrushDab
 import app.goodboy13.milton.core.brush.BrushEngine
 import app.goodboy13.milton.core.brush.BrushProperties
 import app.goodboy13.milton.core.brush.BrushType
@@ -215,5 +216,21 @@ class BrushEngineTest {
         val b2Hardness = app.goodboy13.milton.ui.components.gradeToHardness(11)
         val b2Index = app.goodboy13.milton.ui.components.hardnessToGradeIndex(b2Hardness)
         assertEquals(11, b2Index)
+    }
+
+    @Test
+    fun testNonAllocatingDestinationListDabs() {
+        val engine = BrushEngine(BrushProperties(size = 20f, spacing = 0.2f))
+        val dabs = mutableListOf<BrushDab>()
+
+        engine.startStroke(0f, 0f, 1f, 0L, 0f, dabs)
+        assertEquals(1, dabs.size)
+
+        engine.addPoint(50f, 0f, 1f, 10L, 0f, dabs)
+        assertTrue(dabs.size > 1)
+
+        val beforeEnd = dabs.size
+        engine.endStroke(dabs)
+        assertTrue(dabs.size >= beforeEnd)
     }
 }

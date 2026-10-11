@@ -3,6 +3,7 @@ package app.goodboy13.milton.core.tile
 import app.goodboy13.milton.core.model.WorldRect
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.floor
 
 /**
  * Manages the sparse 2D collection of RasterTiles on the infinite plane.
@@ -46,9 +47,13 @@ class TileMap(
         return tile
     }
 
-    fun getVisibleTiles(bounds: WorldRect, maxRestores: Int = 4): List<RasterTile> {
-        val range = TileCoord.getTileRangeForBounds(bounds)
-        val result = mutableListOf<RasterTile>()
+    fun getVisibleTiles(bounds: WorldRect, outTiles: MutableList<RasterTile>, maxRestores: Int = 4): List<RasterTile> {
+        val minTx = floor(bounds.left / TileCoord.TILE_SIZE.toFloat()).toInt()
+        val maxTx = floor(bounds.right / TileCoord.TILE_SIZE.toFloat()).toInt()
+        val minTy = floor(bounds.top / TileCoord.TILE_SIZE.toFloat()).toInt()
+        val maxTy = floor(bounds.bottom / TileCoord.TILE_SIZE.toFloat()).toInt()
+
+        outTiles.clear()
         val now = System.nanoTime()
         var restoreCount = 0
         var pendingFound = false
@@ -58,7 +63,7 @@ class TileMap(
         for (tile in tiles.values) {
             val tx = tile.coord.tx
             val ty = tile.coord.ty
-            if (tx in range.minTx..range.maxTx && ty in range.minTy..range.maxTy) {
+            if (tx in minTx..maxTx && ty in minTy..maxTy) {
                 tile.lastAccessTime = now
                 if (tile.isOnDisk) {
                     if (restoreCount < maxRestores) {
@@ -68,11 +73,15 @@ class TileMap(
                         pendingFound = true
                     }
                 }
-                result.add(tile)
+                outTiles.add(tile)
             }
         }
         hasPendingRestores = pendingFound
-        return result
+        return outTiles
+    }
+
+    fun getVisibleTiles(bounds: WorldRect, maxRestores: Int = 4): List<RasterTile> {
+        return getVisibleTiles(bounds, mutableListOf(), maxRestores)
     }
 
     /**

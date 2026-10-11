@@ -42,8 +42,9 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
         worldY: Float,
         pressure: Float,
         eventTimeMillis: Long = -1L,
-        tilt: Float = 0f
-    ): List<BrushDab> {
+        tilt: Float = 0f,
+        outDabs: MutableList<BrushDab>
+    ) {
         isStrokeActive = true
         currentStrokeId = System.nanoTime()
         lastX = worldX
@@ -63,20 +64,33 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
         val radius = max(properties.minRadius, (properties.size * 0.5f) * lastSizeP * lastTiltScale)
         val dabAlpha = computeAlpha(lastNormOpacityY)
 
-        val initialDab = BrushDab(
-            x = worldX,
-            y = worldY,
-            radius = radius,
-            alpha = dabAlpha,
-            colorRgb = properties.colorRgb,
-            isEraser = properties.isEraser,
-            hardness = properties.hardness,
-            brushMode = properties.brushMode,
-            pressure = lastSizeP,
-            tilt = clampedTilt,
-            strokeId = currentStrokeId
+        outDabs.add(
+            BrushDab(
+                x = worldX,
+                y = worldY,
+                radius = radius,
+                alpha = dabAlpha,
+                colorRgb = properties.colorRgb,
+                isEraser = properties.isEraser,
+                hardness = properties.hardness,
+                brushMode = properties.brushMode,
+                pressure = lastSizeP,
+                tilt = clampedTilt,
+                strokeId = currentStrokeId
+            )
         )
-        return listOf(initialDab)
+    }
+
+    fun startStroke(
+        worldX: Float,
+        worldY: Float,
+        pressure: Float,
+        eventTimeMillis: Long = -1L,
+        tilt: Float = 0f
+    ): List<BrushDab> {
+        val dabs = mutableListOf<BrushDab>()
+        startStroke(worldX, worldY, pressure, eventTimeMillis, tilt, dabs)
+        return dabs
     }
 
     fun addPoint(
@@ -84,10 +98,12 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
         worldY: Float,
         pressure: Float,
         eventTimeMillis: Long = -1L,
-        tilt: Float = 0f
-    ): List<BrushDab> {
+        tilt: Float = 0f,
+        outDabs: MutableList<BrushDab>
+    ) {
         if (!isStrokeActive) {
-            return startStroke(worldX, worldY, pressure, eventTimeMillis, tilt)
+            startStroke(worldX, worldY, pressure, eventTimeMillis, tilt, outDabs)
+            return
         }
 
         rawLastX = worldX
@@ -143,10 +159,8 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
         val segmentDist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
 
         if (segmentDist < 0.001f) {
-            return emptyList()
+            return
         }
-
-        val dabs = mutableListOf<BrushDab>()
 
         val clampedTilt = tilt.coerceIn(0f, 1f)
         val currentTiltScale = computeTiltScale(clampedTilt)
@@ -172,7 +186,7 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
             val ir = max(properties.minRadius, (properties.size * 0.5f) * ipSize * ipTiltScale)
             val dabAlpha = computeAlpha(ipNormOpacityY)
 
-            dabs.add(
+            outDabs.add(
                 BrushDab(
                     x = ix,
                     y = iy,
@@ -199,15 +213,24 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
 
         lastX = targetX
         lastY = targetY
+    }
 
+    fun addPoint(
+        worldX: Float,
+        worldY: Float,
+        pressure: Float,
+        eventTimeMillis: Long = -1L,
+        tilt: Float = 0f
+    ): List<BrushDab> {
+        val dabs = mutableListOf<BrushDab>()
+        addPoint(worldX, worldY, pressure, eventTimeMillis, tilt, dabs)
         return dabs
     }
 
-    fun endStroke(): List<BrushDab> {
-        if (!isStrokeActive) return emptyList()
+    fun endStroke(outDabs: MutableList<BrushDab>) {
+        if (!isStrokeActive) return
         isStrokeActive = false
 
-        val dabs = mutableListOf<BrushDab>()
         if (properties.stabilizer > 0.001f) {
             val dx = rawLastX - lastX
             val dy = rawLastY - lastY
@@ -222,7 +245,7 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
                     val iy = lastY + dy * t
                     val ir = max(properties.minRadius, (properties.size * 0.5f) * lastSizeP)
                     val dabAlpha = computeAlpha(lastNormOpacityY)
-                    dabs.add(
+                    outDabs.add(
                         BrushDab(
                             x = ix,
                             y = iy,
@@ -243,6 +266,11 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
 
         distanceFromLastDab = 0f
         lastEventTimeMillis = 0L
+    }
+
+    fun endStroke(): List<BrushDab> {
+        val dabs = mutableListOf<BrushDab>()
+        endStroke(dabs)
         return dabs
     }
 }

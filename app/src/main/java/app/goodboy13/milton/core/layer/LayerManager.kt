@@ -1,10 +1,8 @@
 package app.goodboy13.milton.core.layer
 
 import android.graphics.Bitmap
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.setValue
 import app.goodboy13.milton.core.model.WorldRect
+import app.goodboy13.milton.core.tile.RasterTile
 import app.goodboy13.milton.core.tile.TileMap
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
@@ -32,10 +30,12 @@ class LayerManager(
     val hasPendingRestores: Boolean
         get() = _layers.any { it.tileMap.hasPendingRestores }
 
-    var structuralRevision by mutableLongStateOf(0L)
+    @Volatile
+    var structuralRevision: Long = 0L
         private set
 
-    var activeLayerId by mutableLongStateOf(1L)
+    @Volatile
+    var activeLayerId: Long = 1L
         private set
 
     val activeLayer: Layer
@@ -239,8 +239,9 @@ class LayerManager(
     }
 
     fun trimAllToBudget(visibleBounds: WorldRect) {
+        val visibleTiles = mutableListOf<RasterTile>()
         for (layer in _layers) {
-            val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds)
+            layer.tileMap.getVisibleTiles(visibleBounds, visibleTiles)
             layer.tileMap.trimToBudget(visibleTiles)
         }
     }

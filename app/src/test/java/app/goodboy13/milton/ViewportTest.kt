@@ -206,4 +206,33 @@ class ViewportTest {
         val exportAspect = rawWidth.toFloat() / rawHeight.toFloat()
         assertEquals(screenAspect, exportAspect, 0.001f)
     }
+
+    @Test
+    fun testNonAllocatingScreenToWorldAndBack() {
+        val viewport = Viewport().apply {
+            updateScreenSize(1920, 1080)
+            panX = 350f
+            panY = -120f
+            zoom = 2.0f
+            rotationDegrees = 45f
+            isFlippedHorizontally = true
+        }
+
+        val screenX = 800f
+        val screenY = 600f
+        val coords = FloatArray(2)
+
+        viewport.screenToWorld(screenX, screenY, coords)
+        val expectedWorld = viewport.screenToWorld(screenX, screenY)
+        assertEquals(expectedWorld.x, coords[0], 0.001f)
+        assertEquals(expectedWorld.y, coords[1], 0.001f)
+
+        val screenCoords = FloatArray(2)
+        viewport.worldToScreen(coords[0], coords[1], screenCoords)
+        val expectedScreen = viewport.worldToScreen(expectedWorld.x, expectedWorld.y)
+        assertEquals(expectedScreen.x, screenCoords[0], 0.001f)
+        assertEquals(expectedScreen.y, screenCoords[1], 0.001f)
+        assertEquals(screenX, screenCoords[0], 0.01f)
+        assertEquals(screenY, screenCoords[1], 0.01f)
+    }
 }

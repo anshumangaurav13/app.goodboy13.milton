@@ -54,6 +54,7 @@ class MiltonCanvasView @JvmOverloads constructor(
 
     private var frontBufferedRenderer: GLFrontBufferedRenderer<DabPacket>? = null
     private var lastViewportPostTime: Long = 0L
+    private val touchCoords = FloatArray(2)
 
     init {
         brushEngine.properties.applyPreset(app.goodboy13.milton.core.brush.BrushType.PENCIL)
@@ -823,7 +824,8 @@ class MiltonCanvasView @JvmOverloads constructor(
                 brushEngine.properties.isEraser = isEraserMode || isHardwareEraser
                 val isEraser = brushEngine.properties.isEraser
                 Log.i(TAG, "Stylus DOWN at screen=($sx, $sy), world=(${worldPos.x}, ${worldPos.y}), pressure=$pressure, tilt=$tilt, isEraser=$isEraser")
-                val initialDabs = brushEngine.startStroke(worldPos.x, worldPos.y, pressure, event.eventTime, tilt)
+                val initialDabs = mutableListOf<BrushDab>()
+                brushEngine.startStroke(worldPos.x, worldPos.y, pressure, event.eventTime, tilt, initialDabs)
                 if (initialDabs.isNotEmpty()) {
                     renderer.queueDabs(initialDabs)
                     if (isEraser) {
@@ -838,7 +840,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                 val isEraser = brushEngine.properties.isEraser
                 val dabs = mutableListOf<BrushDab>()
 
-                // Unpack sub-frame historical points for maximum curve smoothness
+                // Unpack sub-frame historical points for maximum curve smoothness without heap churn
                 val historySize = event.historySize
                 for (h in 0 until historySize) {
                     val hx = event.getHistoricalX(stylusIndex, h)
@@ -846,14 +848,14 @@ class MiltonCanvasView @JvmOverloads constructor(
                     val hpRaw = event.getHistoricalPressure(stylusIndex, h)
                     val hp = if (hpRaw <= 0.001f) pressure else hpRaw.coerceIn(0.01f, 1.0f)
                     val ht = event.getHistoricalEventTime(h)
-                    val hw = renderer.viewport.screenToWorld(hx, hy)
+                    renderer.viewport.screenToWorld(hx, hy, touchCoords)
                     val htiltRaw = event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, stylusIndex, h)
                     val htilt = if (htiltRaw > 0.05f) (htiltRaw / 1.5707963f).coerceIn(0f, 1f) else tilt
-                    dabs.addAll(brushEngine.addPoint(hw.x, hw.y, hp, ht, htilt))
+                    brushEngine.addPoint(touchCoords[0], touchCoords[1], hp, ht, htilt, dabs)
                 }
 
                 // Add current point
-                dabs.addAll(brushEngine.addPoint(worldPos.x, worldPos.y, pressure, event.eventTime, tilt))
+                brushEngine.addPoint(worldPos.x, worldPos.y, pressure, event.eventTime, tilt, dabs)
 
                 if (dabs.isNotEmpty()) {
                     renderer.queueDabs(dabs)
@@ -868,7 +870,8 @@ class MiltonCanvasView @JvmOverloads constructor(
             MotionEvent.ACTION_UP -> {
                 Log.i(TAG, "Stylus UP at screen=($sx, $sy)")
                 val isEraser = brushEngine.properties.isEraser
-                val endDabs = brushEngine.endStroke()
+                val endDabs = mutableListOf<BrushDab>()
+                brushEngine.endStroke(endDabs)
                 if (endDabs.isNotEmpty()) {
                     renderer.queueDabs(endDabs)
                 }

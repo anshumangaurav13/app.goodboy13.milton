@@ -1,7 +1,6 @@
 package app.goodboy13.milton.core.gl
 
 import android.graphics.Bitmap
-import android.graphics.PointF
 import android.util.Log
 import androidx.graphics.lowlatency.BufferInfo
 import app.goodboy13.milton.core.brush.BrushDab
@@ -17,7 +16,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.floor
 
 /**
  * Domain engine coordinating canvas business logic, layer management, undo history,
@@ -59,6 +57,7 @@ class CanvasEngine(
 
     private val pendingStrokeFinished = AtomicBoolean(false)
     private val pendingTrimBudget = AtomicBoolean(false)
+    private val dabsToCommit = mutableListOf<BrushDab>()
 
     fun enqueueCommand(command: GlRenderCommand) {
         commandQueue.enqueue(command)
@@ -101,9 +100,11 @@ class CanvasEngine(
 
         var hadUndo = false
         var hadRedo = false
-        val dabsToCommit = mutableListOf<BrushDab>()
+        dabsToCommit.clear()
         var isStrokeDone = false
-        var pickPoint: PointF? = null
+        var hasPickPoint = false
+        var pickX = 0f
+        var pickY = 0f
 
         // 1. Drain all pending commands in the queue
         while (!commandQueue.isEmpty()) {
@@ -130,7 +131,9 @@ class CanvasEngine(
                     }
                 }
                 is GlRenderCommand.PickColor -> {
-                    pickPoint = PointF(cmd.worldX, cmd.worldY)
+                    hasPickPoint = true
+                    pickX = cmd.worldX
+                    pickY = cmd.worldY
                 }
                 is GlRenderCommand.TrimBudget -> {
                     pendingTrimBudget.set(true)
@@ -159,26 +162,14 @@ class CanvasEngine(
         if (dabsToCommit.isNotEmpty()) {
             val activeLayer = layerManager.activeLayer
             capturedLayerId = activeLayer.id
-            val affectedTiles = mutableSetOf<RasterTile>()
-            val tileSize = TileCoord.TILE_SIZE.toFloat()
 
-            for (dab in dabsToCommit) {
-                val reach = dab.radius + 2.0f
-                val minTx = floor((dab.x - reach) / tileSize).toInt()
-                val maxTx = floor((dab.x + reach) / tileSize).toInt()
-                val minTy = floor((dab.y - reach) / tileSize).toInt()
-                val maxTy = floor((dab.y + reach) / tileSize).toInt()
-                for (ty in minTy..maxTy) {
-                    for (tx in minTx..maxTx) {
-                        val tile = activeLayer.tileMap.getOrCreateTile(tx, ty)
-                        tile.ensureResident(activeLayer.tileMap.cacheDir)
-                        affectedTiles.add(tile)
-                    }
+            sceneRenderer.stampDabsIntoTiles(
+                targetTileMap = activeLayer.tileMap,
+                dabs = dabsToCommit,
+                onTilesResolved = { affectedTiles ->
+                    undoManager.capturePreStrokeTiles(activeLayer.id, affectedTiles)
                 }
-            }
-
-            undoManager.capturePreStrokeTiles(activeLayer.id, affectedTiles)
-            sceneRenderer.stampDabsIntoTiles(activeLayer.tileMap, dabsToCommit)
+            )
 
             if (isStrokeDone) {
                 undoManager.commitStroke(activeLayer.id, activeLayer.tileMap)
@@ -226,11 +217,11 @@ class CanvasEngine(
         }
 
         // 6. Eyedropper pixel sampling
-        if (pickPoint != null) {
+        if (hasPickPoint) {
             val color = sceneRenderer.pickColorAt(
                 layers = layerManager.layers,
-                worldX = pickPoint.x,
-                worldY = pickPoint.y,
+                worldX = pickX,
+                worldY = pickY,
                 backgroundColorRgb = backgroundColorRgb
             )
             onColorPicked?.invoke(color)
