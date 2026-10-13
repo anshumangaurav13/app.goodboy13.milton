@@ -226,7 +226,7 @@ fun LiquifyOverlay(
                     valueText = "${session.brushSize.roundToInt()}px",
                     currentValue = session.brushSize,
                     minVal = 10f,
-                    maxVal = 500f,
+                    maxVal = 800f,
                     factor = 0.5f,
                     onValueChange = onSizeChange
                 )

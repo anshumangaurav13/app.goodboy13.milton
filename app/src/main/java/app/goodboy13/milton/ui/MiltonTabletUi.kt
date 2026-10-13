@@ -355,7 +355,7 @@ fun MiltonTabletUi(
             LayersFloatingWindow(
                 layers = state.layers.layers,
                 activeLayerId = state.layers.activeLayerId,
-                isTransformMode = (state.tool.brushType == BrushType.LASSO),
+                isTransformMode = (state.tool.brushType == BrushType.LASSO || state.tool.brushType == BrushType.LIQUIFY),
                 selectedTransformLayerIds = state.selectedTransformLayerIds,
                 onToggleTransformLayer = actions.layers.onToggleTransformLayer,
                 onSelectLayer = actions.layers.onSelectLayer,

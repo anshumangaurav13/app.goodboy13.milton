@@ -252,7 +252,11 @@ class SelectionTransformManager {
                         targetLayerIds = targets,
                         originalTiles = allOriginalTiles,
                         layerPatches = allPatches,
-                        mesh = mesh
+                        mesh = mesh,
+                        activeMode = canvasView.liquifyManager.currentMode,
+                        brushSize = canvasView.liquifyManager.currentBrushSize,
+                        brushStrength = canvasView.liquifyManager.currentBrushStrength,
+                        showMeshGrid = canvasView.liquifyManager.showMeshGrid
                     )
                     _state.value = SelectionState.ActiveLiquify(liquifySession)
                 } else {

@@ -16,7 +16,7 @@ data class LiquifySession(
     val layerPatches: Map<Long, LayerPatch>,
     val mesh: LiquifyMesh,
     val activeMode: LiquifyMode = LiquifyMode.PUSH,
-    val brushSize: Float = 80f,
+    val brushSize: Float = 300f,
     val brushStrength: Float = 0.50f,
     val showMeshGrid: Boolean = false,
     val revision: Long = 0L

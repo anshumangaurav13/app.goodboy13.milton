@@ -300,16 +300,13 @@ class MainActivity : ComponentActivity() {
                     ),
                     layers = LayerActions(
                         onSelectLayer = { id ->
-                            layerManager.selectLayer(id)
-                            viewModel.updateLayers(layerManager.layers.toList(), id)
+                            viewModel.selectLayer(id, canvasView)
                         },
                         onAddLayer = {
-                            canvasView.addLayer()
-                            viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId)
+                            viewModel.addNewLayer(canvasView)
                         },
                         onDeleteLayer = { id ->
-                            canvasView.deleteLayer(id)
-                            viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId)
+                            viewModel.deleteLayer(id, canvasView)
                         },
                         onClearLayer = { id ->
                             canvasView.clearLayer(id)
@@ -317,27 +314,27 @@ class MainActivity : ComponentActivity() {
                         },
                         onToggleLayerVisibility = { id, isVis ->
                             layerManager.setLayerVisibility(id, isVis)
-                            viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId)
+                            viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId, canvasView)
                         },
                         onLayerOpacityChange = { id, op ->
                             layerManager.setLayerOpacity(id, op)
-                            viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId)
+                            viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId, canvasView)
                         },
                         onMoveLayerUp = { id ->
                             layerManager.moveLayerUp(id)
-                            viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId)
+                            viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId, canvasView)
                         },
                         onMoveLayerDown = { id ->
                             layerManager.moveLayerDown(id)
-                            viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId)
+                            viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId, canvasView)
                         },
                         onReorderLayer = { from, to ->
                             layerManager.moveLayer(from, to)
-                            viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId)
+                            viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId, canvasView)
                         },
                         onReorderLayers = { newOrderIds ->
                             layerManager.reorderLayersById(newOrderIds)
-                            viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId)
+                            viewModel.updateLayers(layerManager.layers.toList(), layerManager.activeLayerId, canvasView)
                         },
                         onToggleTransformLayer = { id ->
                             viewModel.toggleTransformLayer(id, canvasView)

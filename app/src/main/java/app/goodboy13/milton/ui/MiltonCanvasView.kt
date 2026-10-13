@@ -822,10 +822,14 @@ class MiltonCanvasView @JvmOverloads constructor(
                     selectionManager.addLassoPoint(worldPos)
                 }
                 MotionEvent.ACTION_UP -> {
+                    val activeId = layerManager.activeLayerId
                     val targets = if (selectedTransformLayerIds.isNotEmpty()) {
                         selectedTransformLayerIds
+                            .filter { id -> layerManager.layers.any { it.id == id && it.isVisible } }
+                            .toSet()
+                            .ifEmpty { setOf(activeId) }
                     } else {
-                        setOf(layerManager.activeLayerId)
+                        setOf(activeId)
                     }
                     selectionManager.finishLasso(this, targets, forLiquify = false)
                 }
@@ -846,10 +850,14 @@ class MiltonCanvasView @JvmOverloads constructor(
                     selectionManager.addLassoPoint(worldPos)
                 }
                 MotionEvent.ACTION_UP -> {
+                    val activeId = layerManager.activeLayerId
                     val targets = if (selectedTransformLayerIds.isNotEmpty()) {
                         selectedTransformLayerIds
+                            .filter { id -> layerManager.layers.any { it.id == id && it.isVisible } }
+                            .toSet()
+                            .ifEmpty { setOf(activeId) }
                     } else {
-                        setOf(layerManager.activeLayerId)
+                        setOf(activeId)
                     }
                     selectionManager.finishLasso(this, targets, forLiquify = true)
                 }

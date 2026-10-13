@@ -8,6 +8,7 @@ import app.goodboy13.milton.core.brush.BrushType
 import app.goodboy13.milton.core.layer.Layer
 import app.goodboy13.milton.core.model.BezierControlPoints
 import app.goodboy13.milton.core.model.PressureCurveDefaults
+import app.goodboy13.milton.core.selection.SelectionState
 import app.goodboy13.milton.core.storage.CanvasExportEngine
 import app.goodboy13.milton.core.storage.DocumentMetadata
 import app.goodboy13.milton.core.storage.DocumentStorageManager
@@ -280,8 +281,11 @@ class CanvasViewModel : ViewModel() {
         if (canvasView.brushType == BrushType.LASSO && type != BrushType.LASSO) {
             canvasView.selectionManager.cancelTransform(canvasView)
         }
+        if (canvasView.brushType == BrushType.LIQUIFY && type != BrushType.LIQUIFY) {
+            canvasView.liquifyManager.cancel(canvasView)
+        }
         canvasView.brushType = type
-        if (type == BrushType.LASSO) {
+        if (type == BrushType.LASSO || type == BrushType.LIQUIFY) {
             val defaultTargets = setOf(_uiState.value.layers.activeLayerId)
             _uiState.update { it.copy(selectedTransformLayerIds = defaultTargets) }
             canvasView.selectedTransformLayerIds = defaultTargets
@@ -531,13 +535,30 @@ class CanvasViewModel : ViewModel() {
         setBrushColor(0xFF333333.toInt(), canvasView)
     }
 
+    fun selectLayer(id: Long, canvasView: MiltonCanvasView) {
+        if (canvasView.selectionManager.state.value is SelectionState.ActiveTransform) {
+            canvasView.selectionManager.commitTransform(canvasView)
+        }
+        if (canvasView.selectionManager.state.value is SelectionState.ActiveLiquify) {
+            canvasView.liquifyManager.commit(canvasView)
+        }
+        canvasView.layerManager.selectLayer(id)
+        val defaultTargets = setOf(id)
+        _uiState.update {
+            it.copy(
+                layers = LayersUiState(layers = canvasView.layerManager.layers.toList(), activeLayerId = id),
+                selectedTransformLayerIds = defaultTargets
+            )
+        }
+        canvasView.selectedTransformLayerIds = defaultTargets
+    }
+
     fun selectLayerAbove(canvasView: MiltonCanvasView) {
         val layers = canvasView.layerManager.layers
         val currentIdx = layers.indexOfFirst { it.id == canvasView.layerManager.activeLayerId }
         if (currentIdx in 0 until layers.size - 1) {
             val nextId = layers[currentIdx + 1].id
-            canvasView.layerManager.selectLayer(nextId)
-            updateLayers(layers, nextId)
+            selectLayer(nextId, canvasView)
         }
     }
 
@@ -546,8 +567,7 @@ class CanvasViewModel : ViewModel() {
         val currentIdx = layers.indexOfFirst { it.id == canvasView.layerManager.activeLayerId }
         if (currentIdx > 0) {
             val prevId = layers[currentIdx - 1].id
-            canvasView.layerManager.selectLayer(prevId)
-            updateLayers(layers, prevId)
+            selectLayer(prevId, canvasView)
         }
     }
 
@@ -559,7 +579,12 @@ class CanvasViewModel : ViewModel() {
 
     fun addNewLayer(canvasView: MiltonCanvasView) {
         canvasView.addLayer()
-        updateLayers(canvasView.layerManager.layers.toList(), canvasView.layerManager.activeLayerId)
+        selectLayer(canvasView.layerManager.activeLayerId, canvasView)
+    }
+
+    fun deleteLayer(id: Long, canvasView: MiltonCanvasView) {
+        canvasView.deleteLayer(id)
+        selectLayer(canvasView.layerManager.activeLayerId, canvasView)
     }
 
     // -------------------------------------------------------------
@@ -609,10 +634,17 @@ class CanvasViewModel : ViewModel() {
     // Layers Operations
     // -------------------------------------------------------------
 
-    fun updateLayers(layers: List<Layer>, activeLayerId: Long) {
+    fun updateLayers(layers: List<Layer>, activeLayerId: Long, canvasView: MiltonCanvasView? = null) {
+        val validIds = layers.map { it.id }.toSet()
+        val currentTargets = _uiState.value.selectedTransformLayerIds.filter { it in validIds }.toSet()
+        val finalTargets = if (currentTargets.isEmpty()) setOf(activeLayerId) else currentTargets
         _uiState.update {
-            it.copy(layers = LayersUiState(layers = layers, activeLayerId = activeLayerId))
+            it.copy(
+                layers = LayersUiState(layers = layers, activeLayerId = activeLayerId),
+                selectedTransformLayerIds = finalTargets
+            )
         }
+        canvasView?.selectedTransformLayerIds = finalTargets
     }
 
     // -------------------------------------------------------------

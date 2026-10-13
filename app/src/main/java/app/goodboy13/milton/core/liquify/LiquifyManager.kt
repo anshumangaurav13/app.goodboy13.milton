@@ -24,6 +24,15 @@ class LiquifyManager(
         private const val TAG = "LiquifyManager"
     }
 
+    var currentBrushSize: Float = 300f
+        private set
+    var currentBrushStrength: Float = 0.50f
+        private set
+    var currentMode: LiquifyMode = LiquifyMode.PUSH
+        private set
+    var showMeshGrid: Boolean = false
+        private set
+
     private var lastStylusPos: Vec2? = null
 
     fun startLiquifyFromTransform(transformSession: TransformSession) {
@@ -34,7 +43,11 @@ class LiquifyManager(
             targetLayerIds = transformSession.targetLayerIds,
             originalTiles = transformSession.originalTiles,
             layerPatches = transformSession.layerPatches,
-            mesh = mesh
+            mesh = mesh,
+            activeMode = currentMode,
+            brushSize = currentBrushSize,
+            brushStrength = currentBrushStrength,
+            showMeshGrid = showMeshGrid
         )
         selectionManager.setLiquifyState(liquifySession)
     }
@@ -73,6 +86,7 @@ class LiquifyManager(
     }
 
     fun setMode(mode: LiquifyMode) {
+        currentMode = mode
         val current = selectionManager.state.value
         if (current is SelectionState.ActiveLiquify) {
             selectionManager.updateLiquifySession(current.session.copy(activeMode = mode))
@@ -80,20 +94,23 @@ class LiquifyManager(
     }
 
     fun setBrushSize(size: Float) {
+        currentBrushSize = size.coerceIn(10f, 800f)
         val current = selectionManager.state.value
         if (current is SelectionState.ActiveLiquify) {
-            selectionManager.updateLiquifySession(current.session.copy(brushSize = size.coerceIn(10f, 500f)))
+            selectionManager.updateLiquifySession(current.session.copy(brushSize = currentBrushSize))
         }
     }
 
     fun setBrushStrength(strength: Float) {
+        currentBrushStrength = strength.coerceIn(0.05f, 1.0f)
         val current = selectionManager.state.value
         if (current is SelectionState.ActiveLiquify) {
-            selectionManager.updateLiquifySession(current.session.copy(brushStrength = strength.coerceIn(0.05f, 1.0f)))
+            selectionManager.updateLiquifySession(current.session.copy(brushStrength = currentBrushStrength))
         }
     }
 
     fun toggleMeshGrid(show: Boolean) {
+        showMeshGrid = show
         val current = selectionManager.state.value
         if (current is SelectionState.ActiveLiquify) {
             selectionManager.updateLiquifySession(current.session.copy(showMeshGrid = show))
