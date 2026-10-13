@@ -16,8 +16,8 @@ import kotlin.math.sin
 class LiquifyMesh(
     val srcBounds: WorldRect,
     val polygon: List<Vec2>,
-    val gridCols: Int = 64,
-    val gridRows: Int = 64
+    val gridCols: Int = 128,
+    val gridRows: Int = 128
 ) {
     val vertexCount = (gridCols + 1) * (gridRows + 1)
     val width = srcBounds.width
@@ -37,6 +37,7 @@ class LiquifyMesh(
     init {
         val dx = width / gridCols.toFloat()
         val dy = height / gridRows.toFloat()
+        val featherRadius = (maxOf(width, height) * 0.05f).coerceIn(32f, 96f)
 
         var idx = 0
         for (r in 0..gridRows) {
@@ -54,8 +55,9 @@ class LiquifyMesh(
                 val pt = Vec2(wx, wy)
                 if (isPointInPolygon(pt, polygon)) {
                     val edgeDist = minDistanceToPolygon(pt, polygon)
-                    // Feather smoothly over 16 world units near polygon edge to prevent tearing
-                    maskWeights[idx] = (edgeDist / 16f).coerceIn(0f, 1f)
+                    val t = (edgeDist / featherRadius).coerceIn(0f, 1f)
+                    // Smooth cubic Hermite C^1 curve: 3t^2 - 2t^3
+                    maskWeights[idx] = t * t * (3f - 2f * t)
                 } else {
                     maskWeights[idx] = 0f
                 }

@@ -112,6 +112,9 @@ class LiquifyManager(
         val current = selectionManager.state.value
         if (current !is SelectionState.ActiveLiquify) return
 
+        // Dismiss overlay immediately on UI thread for instant responsiveness
+        selectionManager.clearState()
+
         canvasView.renderer.runOnGlThread {
             try {
                 for ((layerId, snapshots) in current.session.originalTiles) {
@@ -127,10 +130,10 @@ class LiquifyManager(
                 if (MiltonNative.isLoaded) {
                     MiltonNative.selectionSessionEnd()
                 }
-                selectionManager.clearState()
                 canvasView.post { canvasView.requestRedraw() }
             }
         }
+        canvasView.requestRedraw()
     }
 
     fun commit(canvasView: MiltonCanvasView) {
@@ -138,6 +141,9 @@ class LiquifyManager(
         if (current !is SelectionState.ActiveLiquify) return
 
         val session = current.session
+        // Dismiss overlay immediately on UI thread
+        selectionManager.clearState()
+
         canvasView.renderer.runOnGlThread {
             try {
                 val affectedLayers = mutableListOf<Pair<Long, app.goodboy13.milton.core.tile.TileMap>>()
@@ -163,7 +169,10 @@ class LiquifyManager(
                         Bitmap.Config.ARGB_8888
                     )
                     val canvas = Canvas(bakedBitmap)
-                    val paint = Paint().apply { isFilterBitmap = true }
+                    val paint = Paint().apply {
+                        isFilterBitmap = true
+                        isAntiAlias = true
+                    }
 
                     val localWarpedVerts = FloatArray(session.mesh.vertexCount * 2)
                     val scaleX = patch.previewBitmap.width.toFloat() / session.mesh.width
@@ -189,14 +198,15 @@ class LiquifyManager(
                         paint
                     )
 
-                    // 3. Blit baked bitmap back into intersecting tiles
+                    // 3. Fast native blit into intersecting tiles using Rust SIMD
+                    val bakedBuffer = java.nio.ByteBuffer.allocate(bakedBitmap.byteCount)
+                    bakedBitmap.copyPixelsToBuffer(bakedBuffer)
+                    val bakedBytes = bakedBuffer.array()
+
                     val minTx = floor(session.srcBounds.left / TileCoord.TILE_SIZE).toInt()
                     val maxTx = floor((session.srcBounds.right - 1f) / TileCoord.TILE_SIZE).toInt()
                     val minTy = floor(session.srcBounds.top / TileCoord.TILE_SIZE).toInt()
                     val maxTy = floor((session.srcBounds.bottom - 1f) / TileCoord.TILE_SIZE).toInt()
-
-                    val bakedPixels = IntArray(bakedBitmap.width * bakedBitmap.height)
-                    bakedBitmap.getPixels(bakedPixels, 0, bakedBitmap.width, 0, 0, bakedBitmap.width, bakedBitmap.height)
 
                     for (ty in minTy..maxTy) {
                         for (tx in minTx..maxTx) {
@@ -204,39 +214,22 @@ class LiquifyManager(
                             tile.ensureResident(layer.tileMap.cacheDir)
                             val curBytes = tile.readPixels()
 
-                            val tileWorldLeft = tx * TileCoord.TILE_SIZE.toFloat()
-                            val tileWorldTop = ty * TileCoord.TILE_SIZE.toFloat()
-                            var tileModified = false
-
-                            for (py in 0 until TileCoord.TILE_SIZE) {
-                                val wy = tileWorldTop + py
-                                if (wy < session.srcBounds.top || wy >= session.srcBounds.bottom) continue
-                                val patchY = ((wy - session.srcBounds.top) * scaleY).toInt().coerceIn(0, bakedBitmap.height - 1)
-
-                                for (px in 0 until TileCoord.TILE_SIZE) {
-                                    val wx = tileWorldLeft + px
-                                    if (wx < session.srcBounds.left || wx >= session.srcBounds.right) continue
-                                    val patchX = ((wx - session.srcBounds.left) * scaleX).toInt().coerceIn(0, bakedBitmap.width - 1)
-
-                                    val bakedColor = bakedPixels[patchY * bakedBitmap.width + patchX]
-                                    val bakedAlpha = (bakedColor ushr 24) and 0xFF
-
-                                    if (bakedAlpha > 0) {
-                                        val byteIdx = (py * TileCoord.TILE_SIZE + px) * 4
-                                        val bR = (bakedColor ushr 16) and 0xFF
-                                        val bG = (bakedColor ushr 8) and 0xFF
-                                        val bB = bakedColor and 0xFF
-
-                                        curBytes[byteIdx] = bR.toByte()
-                                        curBytes[byteIdx + 1] = bG.toByte()
-                                        curBytes[byteIdx + 2] = bB.toByte()
-                                        curBytes[byteIdx + 3] = bakedAlpha.toByte()
-                                        tileModified = true
-                                    }
-                                }
+                            val modified = if (MiltonNative.isLoaded) {
+                                MiltonNative.selectionSessionLiquifyBlitPatch(
+                                    tx,
+                                    ty,
+                                    curBytes,
+                                    session.srcBounds.left,
+                                    session.srcBounds.top,
+                                    bakedBitmap.width,
+                                    bakedBitmap.height,
+                                    bakedBytes
+                                )
+                            } else {
+                                false
                             }
 
-                            if (tileModified) {
+                            if (modified) {
                                 tile.writePixels(curBytes)
                             }
                         }
@@ -253,9 +246,9 @@ class LiquifyManager(
                 if (MiltonNative.isLoaded) {
                     MiltonNative.selectionSessionEnd()
                 }
-                selectionManager.clearState()
                 canvasView.post { canvasView.requestRedraw() }
             }
         }
+        canvasView.requestRedraw()
     }
 }

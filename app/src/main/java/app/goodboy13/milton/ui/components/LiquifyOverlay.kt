@@ -62,6 +62,7 @@ import kotlin.math.roundToInt
 @Composable
 fun LiquifyOverlay(
     session: LiquifySession,
+    revision: Long = 0L,
     viewport: Viewport,
     onModeChange: (LiquifyMode) -> Unit,
     onSizeChange: (Float) -> Unit,
@@ -78,8 +79,15 @@ fun LiquifyOverlay(
     Box(modifier = modifier.fillMaxSize()) {
         // 1. Deformation Mesh Canvas
         Canvas(modifier = Modifier.fillMaxSize()) {
+            // Read revision to explicitly register dependency for continuous 120 FPS re-render during stylus strokes
+            @Suppress("UNUSED_VARIABLE")
+            val currentRevision = revision
+
             val nativeCanvas = drawContext.canvas.nativeCanvas
-            val paint = Paint().apply { isFilterBitmap = true }
+            val paint = Paint().apply {
+                isFilterBitmap = true
+                isAntiAlias = true
+            }
 
             session.mesh.computeScreenVerts(viewport, screenVerts)
 
@@ -259,14 +267,13 @@ fun LiquifyOverlay(
                 }
 
                 // Cancel (✕)
-                Box(
+                IconButton(
+                    onClick = onCancel,
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(36.dp)
                         .clip(CircleShape)
                         .background(Color(0x33EF5350))
                         .border(1.dp, Color(0x66EF5350), CircleShape)
-                        .clickable { onCancel() },
-                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
@@ -277,14 +284,13 @@ fun LiquifyOverlay(
                 }
 
                 // Commit (✓)
-                Box(
+                IconButton(
+                    onClick = onCommit,
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(36.dp)
                         .clip(CircleShape)
                         .background(Color(0xFF2E7D32))
                         .border(1.dp, Color(0xFF81C784), CircleShape)
-                        .clickable { onCommit() },
-                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Check,

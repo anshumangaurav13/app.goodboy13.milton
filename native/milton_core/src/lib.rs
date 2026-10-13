@@ -741,6 +741,52 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_select
 }
 
 #[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_selectionSessionLiquifyBlitPatch<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    tx: jint,
+    ty: jint,
+    tile_rgba: JByteArray<'local>,
+    patch_left: jfloat,
+    patch_top: jfloat,
+    patch_w: jint,
+    patch_h: jint,
+    patch_rgba: JByteArray<'local>,
+) -> jboolean {
+    let mut tile = match env.convert_byte_array(&tile_rgba) {
+        Ok(b) => b,
+        Err(_) => return JNI_FALSE,
+    };
+    let patch = match env.convert_byte_array(&patch_rgba) {
+        Ok(b) => b,
+        Err(_) => return JNI_FALSE,
+    };
+
+    let modified = selection::session_liquify_blit_patch(
+        tx as i32,
+        ty as i32,
+        &mut tile,
+        patch_left as f32,
+        patch_top as f32,
+        patch_w as usize,
+        patch_h as usize,
+        &patch,
+    );
+
+    if modified {
+        let tile_slice: &[i8] =
+            unsafe { std::slice::from_raw_parts(tile.as_ptr() as *const i8, tile.len()) };
+        if env.set_byte_array_region(&tile_rgba, 0, tile_slice).is_ok() {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    } else {
+        JNI_FALSE
+    }
+}
+
+#[no_mangle]
 pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_selectionSessionEnd<'local>(
     _env: JNIEnv<'local>,
     _class: JClass<'local>,

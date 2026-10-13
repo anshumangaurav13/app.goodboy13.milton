@@ -212,9 +212,10 @@ class SelectionTransformManager {
                         }
                     }
 
-                    // Create lightweight downsampled preview bitmap (capped at max 1024)
+                    // For Liquify, request full native resolution (up to 4096px) to eliminate blurriness and pixelation
+                    val maxDim = if (forLiquify) 4096 else 1024
                     val packed = if (MiltonNative.isLoaded) {
-                        MiltonNative.selectionSessionGetPreview(layerId, 1024)
+                        MiltonNative.selectionSessionGetPreview(layerId, maxDim)
                     } else null
 
                     if (packed != null && packed.size >= 8) {

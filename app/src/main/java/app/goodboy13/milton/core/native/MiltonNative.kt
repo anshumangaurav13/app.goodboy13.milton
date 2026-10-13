@@ -207,5 +207,17 @@ object MiltonNative {
     ): Boolean
 
     @JvmStatic
+    external fun selectionSessionLiquifyBlitPatch(
+        tx: Int,
+        ty: Int,
+        tileRgba: ByteArray,
+        patchLeft: Float,
+        patchTop: Float,
+        patchW: Int,
+        patchH: Int,
+        patchRgba: ByteArray
+    ): Boolean
+
+    @JvmStatic
     external fun selectionSessionEnd()
 }

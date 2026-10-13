@@ -183,6 +183,7 @@ fun MiltonTabletUi(
             if (state.selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify) {
                 app.goodboy13.milton.ui.components.LiquifyOverlay(
                     session = state.selectionState.session,
+                    revision = state.selectionState.revision,
                     viewport = viewport,
                     onModeChange = actions.liquify.onModeChange,
                     onSizeChange = actions.liquify.onSizeChange,

@@ -856,6 +856,86 @@ pub fn session_blit_to_tile(
     any_modified
 }
 
+/// Blits an offscreen baked liquify patch into an intersecting destination tile.
+/// Accounts for Milton's OpenGL bottom-up tile storage format.
+pub fn session_liquify_blit_patch(
+    tx: i32,
+    ty: i32,
+    tile_rgba: &mut [u8],
+    patch_left: f32,
+    patch_top: f32,
+    patch_w: usize,
+    patch_h: usize,
+    patch_rgba: &[u8],
+) -> bool {
+    if tile_rgba.len() < TILE_SIZE * TILE_SIZE * 4 || patch_w == 0 || patch_h == 0 {
+        return false;
+    }
+
+    let tile_world_x = tx as f32 * TILE_SIZE as f32;
+    let tile_world_y = ty as f32 * TILE_SIZE as f32;
+
+    let start_py = ((patch_top - tile_world_y).max(0.0) as usize).min(TILE_SIZE);
+    let end_py = (((patch_top + patch_h as f32) - tile_world_y).ceil().max(0.0) as usize).min(TILE_SIZE);
+
+    let start_px = ((patch_left - tile_world_x).max(0.0) as usize).min(TILE_SIZE);
+    let end_px = (((patch_left + patch_w as f32) - tile_world_x).ceil().max(0.0) as usize).min(TILE_SIZE);
+
+    if start_py >= end_py || start_px >= end_px {
+        return false;
+    }
+
+    let mut any_modified = false;
+
+    for py in start_py..end_py {
+        let wy = tile_world_y + py as f32;
+        let patch_y = (wy - patch_top) as usize;
+        if patch_y >= patch_h {
+            continue;
+        }
+
+        let gl_ty = (TILE_SIZE - 1) - py;
+        let tile_row = gl_ty * TILE_SIZE * 4;
+        let patch_row = patch_y * patch_w * 4;
+
+        for px in start_px..end_px {
+            let wx = tile_world_x + px as f32;
+            let patch_x = (wx - patch_left) as usize;
+            if patch_x >= patch_w {
+                continue;
+            }
+
+            let p_idx = patch_row + patch_x * 4;
+            let sa = patch_rgba[p_idx + 3] as u32;
+            if sa == 0 {
+                continue;
+            }
+
+            let t_idx = tile_row + px * 4;
+            if sa == 255 {
+                tile_rgba[t_idx..t_idx + 4].copy_from_slice(&patch_rgba[p_idx..p_idx + 4]);
+                any_modified = true;
+            } else {
+                let da = tile_rgba[t_idx + 3] as u32;
+                let inv_sa = 255 - sa;
+                let out_a = sa + (da * inv_sa + 127) / 255;
+                if out_a > 0 {
+                    for c in 0..3 {
+                        let sc = patch_rgba[p_idx + c] as u32;
+                        let dc = tile_rgba[t_idx + c] as u32;
+                        let out_c = sc + (dc * inv_sa + 127) / 255;
+                        tile_rgba[t_idx + c] = out_c.min(255) as u8;
+                    }
+                    tile_rgba[t_idx + 3] = out_a.min(255) as u8;
+                    any_modified = true;
+                }
+            }
+        }
+    }
+
+    any_modified
+}
+
 /// Frees all sparse tile cutouts and session data from native memory.
 pub fn session_end() {
     let mut guard = match SELECTION_SESSION.lock() {
