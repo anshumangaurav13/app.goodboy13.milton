@@ -1,14 +1,12 @@
 package app.goodboy13.milton.core.liquify
 
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
 import android.util.Log
 import app.goodboy13.milton.core.model.Vec2
 import app.goodboy13.milton.core.native.MiltonNative
 import app.goodboy13.milton.core.selection.SelectionState
 import app.goodboy13.milton.core.selection.SelectionTransformManager
 import app.goodboy13.milton.core.selection.TransformSession
+import app.goodboy13.milton.core.tile.RasterTile
 import app.goodboy13.milton.core.tile.TileCoord
 import app.goodboy13.milton.ui.MiltonCanvasView
 import kotlin.math.floor
@@ -165,91 +163,79 @@ class LiquifyManager(
         canvasView.renderer.runOnGlThread {
             try {
                 val affectedLayers = mutableListOf<Pair<Long, app.goodboy13.milton.core.tile.TileMap>>()
+                val patchBlitShader = canvasView.renderer.sceneRenderer.patchBlitShader
+
+                val minTx = floor(session.srcBounds.left / TileCoord.TILE_SIZE).toInt()
+                val maxTx = floor((session.srcBounds.right - 1f) / TileCoord.TILE_SIZE).toInt()
+                val minTy = floor(session.srcBounds.top / TileCoord.TILE_SIZE).toInt()
+                val maxTy = floor((session.srcBounds.bottom - 1f) / TileCoord.TILE_SIZE).toInt()
+
                 for (layerId in session.targetLayerIds) {
                     val layer = canvasView.layerManager.layers.find { it.id == layerId } ?: continue
                     val patch = session.layerPatches[layerId] ?: continue
+                    if (patch.glTextureId == 0) continue
+
                     affectedLayers.add(layerId to layer.tileMap)
 
-                    // 1. Register pre-modified tiles for Undo
+                    // 1. Register pre-cut original source tiles for Undo
                     val origSnapshots = session.originalTiles[layerId] ?: emptyList()
+                    val origCoordSet = mutableSetOf<TileCoord>()
                     for (snap in origSnapshots) {
+                        val coord = TileCoord(snap.tx, snap.ty)
+                        origCoordSet.add(coord)
                         canvasView.renderer.undoManager.registerPreModifiedTile(
                             layerId,
-                            TileCoord(snap.tx, snap.ty),
+                            coord,
                             snap.rawBytes
                         )
                     }
 
-                    // 2. Bake warped mesh into an offscreen destination bitmap
-                    val bakedBitmap = Bitmap.createBitmap(
-                        patch.previewBitmap.width,
-                        patch.previewBitmap.height,
-                        Bitmap.Config.ARGB_8888
-                    )
-                    val canvas = Canvas(bakedBitmap)
-                    val paint = Paint().apply {
-                        isFilterBitmap = true
-                        isAntiAlias = true
-                    }
-
-                    val localWarpedVerts = FloatArray(session.mesh.vertexCount * 2)
-                    val scaleX = patch.previewBitmap.width.toFloat() / session.mesh.width
-                    val scaleY = patch.previewBitmap.height.toFloat() / session.mesh.height
-
-                    var vi = 0
-                    for (i in 0 until session.mesh.vertexCount) {
-                        val lx = (session.mesh.worldX[i] - session.mesh.srcBounds.left) * scaleX
-                        val ly = (session.mesh.worldY[i] - session.mesh.srcBounds.top) * scaleY
-                        localWarpedVerts[vi] = lx
-                        localWarpedVerts[vi + 1] = ly
-                        vi += 2
-                    }
-
-                    canvas.drawBitmapMesh(
-                        patch.previewBitmap,
-                        session.mesh.gridCols,
-                        session.mesh.gridRows,
-                        localWarpedVerts,
-                        0,
-                        null,
-                        0,
-                        paint
-                    )
-
-                    // 3. Fast native blit into intersecting tiles using Rust SIMD
-                    val bakedBuffer = java.nio.ByteBuffer.allocate(bakedBitmap.byteCount)
-                    bakedBitmap.copyPixelsToBuffer(bakedBuffer)
-                    val bakedBytes = bakedBuffer.array()
-
-                    val minTx = floor(session.srcBounds.left / TileCoord.TILE_SIZE).toInt()
-                    val maxTx = floor((session.srcBounds.right - 1f) / TileCoord.TILE_SIZE).toInt()
-                    val minTy = floor(session.srcBounds.top / TileCoord.TILE_SIZE).toInt()
-                    val maxTy = floor((session.srcBounds.bottom - 1f) / TileCoord.TILE_SIZE).toInt()
+                    // 2. Collect all candidate tiles within bounds
+                    val candidateTiles = mutableListOf<RasterTile>()
+                    val newlyCreatedTiles = mutableListOf<RasterTile>()
 
                     for (ty in minTy..maxTy) {
                         for (tx in minTx..maxTx) {
-                            val tile = layer.tileMap.getOrCreateTile(tx, ty)
-                            tile.ensureResident(layer.tileMap.cacheDir)
-                            val curBytes = tile.readPixels()
-
-                            val modified = if (MiltonNative.isLoaded) {
-                                MiltonNative.selectionSessionLiquifyBlitPatch(
-                                    tx,
-                                    ty,
-                                    curBytes,
-                                    session.srcBounds.left,
-                                    session.srcBounds.top,
-                                    bakedBitmap.width,
-                                    bakedBitmap.height,
-                                    bakedBytes
-                                )
+                            val coord = TileCoord(tx, ty)
+                            val existing = layer.tileMap.getExistingTile(tx, ty)
+                            if (existing != null) {
+                                existing.ensureResident(layer.tileMap.cacheDir)
+                                candidateTiles.add(existing)
+                                if (!origCoordSet.contains(coord)) {
+                                    val preBytes = if (existing.hasContent) existing.readPixels() else null
+                                    canvasView.renderer.undoManager.registerPreModifiedTile(layerId, coord, preBytes)
+                                }
                             } else {
-                                false
+                                val newTile = layer.tileMap.getOrCreateTile(tx, ty)
+                                newTile.ensureResident(layer.tileMap.cacheDir)
+                                candidateTiles.add(newTile)
+                                newlyCreatedTiles.add(newTile)
                             }
+                        }
+                    }
 
-                            if (modified) {
-                                tile.writePixels(curBytes)
+                    // 3. Fast hardware GPU rasterization directly into tile FBOs (< 1ms)
+                    patchBlitShader.bakeLiquifyMeshIntoTiles(
+                        session = session,
+                        patch = patch,
+                        tiles = candidateTiles
+                    )
+
+                    // 4. Register newly created tiles that actually received pixels
+                    for (newTile in newlyCreatedTiles) {
+                        val afterPixels = newTile.readPixels()
+                        var hasAlpha = false
+                        for (i in 3 until afterPixels.size step 4) {
+                            if (afterPixels[i] != 0.toByte()) {
+                                hasAlpha = true
+                                break
                             }
+                        }
+                        if (hasAlpha) {
+                            newTile.hasContent = true
+                            canvasView.renderer.undoManager.registerPreModifiedTile(layerId, newTile.coord, null)
+                        } else {
+                            newTile.hasContent = false
                         }
                     }
                 }

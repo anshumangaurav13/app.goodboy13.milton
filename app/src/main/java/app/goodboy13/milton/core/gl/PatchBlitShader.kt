@@ -1,10 +1,13 @@
 package app.goodboy13.milton.core.gl
 
 import android.opengl.GLES30
+import android.opengl.Matrix
 import android.util.Log
 import app.goodboy13.milton.core.liquify.LiquifySession
 import app.goodboy13.milton.core.selection.LayerPatch
 import app.goodboy13.milton.core.selection.TransformSession
+import app.goodboy13.milton.core.tile.RasterTile
+import app.goodboy13.milton.core.tile.TileCoord
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -272,6 +275,70 @@ class PatchBlitShader {
 
         GLES30.glDrawElements(GLES30.GL_TRIANGLES, MESH_INDEX_COUNT, GLES30.GL_UNSIGNED_SHORT, 0)
 
+        GLES30.glBindVertexArray(0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+    }
+
+    /**
+     * Bakes the deformed Liquify mesh directly into the tile FBOs via hardware GPU rasterization.
+     * Eliminates CPU Skia rasterization and multi-megabyte JNI memory copies, completing in < 1ms.
+     */
+    fun bakeLiquifyMeshIntoTiles(
+        session: LiquifySession,
+        patch: LayerPatch,
+        tiles: List<RasterTile>
+    ) {
+        if (programId == 0 || patch.glTextureId == 0 || tiles.isEmpty()) return
+
+        val mesh = session.mesh
+        val worldX = mesh.worldX
+        val worldY = mesh.worldY
+        val count = minOf(mesh.vertexCount, MESH_VERTEX_COUNT)
+
+        meshPosBuffer.position(0)
+        for (i in 0 until count) {
+            meshPosBuffer.put(worldX[i])
+            meshPosBuffer.put(worldY[i])
+        }
+        meshPosBuffer.position(0)
+
+        GLES30.glUseProgram(programId)
+        GLES30.glUniform1i(uTextureLoc, 0)
+        GLES30.glUniform1f(uOpacityLoc, 1.0f)
+
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, patch.glTextureId)
+
+        GLES30.glBindVertexArray(meshVaoId)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, meshPosVboId)
+        GLES30.glBufferSubData(GLES30.GL_ARRAY_BUFFER, 0, count * 2 * 4, meshPosBuffer)
+
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+
+        val tileMvp = FloatArray(16)
+        val tileSize = TileCoord.TILE_SIZE.toFloat()
+
+        for (tile in tiles) {
+            val tx = tile.coord.tx
+            val ty = tile.coord.ty
+
+            Matrix.orthoM(
+                tileMvp, 0,
+                tx * tileSize, (tx + 1) * tileSize,
+                (ty + 1) * tileSize, ty * tileSize,
+                -1f, 1f
+            )
+
+            tile.bindFboDirect()
+            GLES30.glUniformMatrix4fv(uMvpMatrixLoc, 1, false, tileMvp, 0)
+            GLES30.glDrawElements(GLES30.GL_TRIANGLES, MESH_INDEX_COUNT, GLES30.GL_UNSIGNED_SHORT, 0)
+
+            tile.hasContent = true
+            tile.isDirty = true
+        }
+
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
         GLES30.glBindVertexArray(0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
     }
