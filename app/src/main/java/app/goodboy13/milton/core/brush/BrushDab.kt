@@ -25,7 +25,8 @@ enum class BrushType(val displayName: String) {
     PENCIL("Pencil"),
     PAINTBRUSH("Paintbrush"),
     ERASER("Eraser"),
-    LASSO("Lasso")
+    LASSO("Lasso"),
+    LIQUIFY("Liquify")
 }
 
 data class BrushProperties(
@@ -154,6 +155,9 @@ data class BrushProperties(
                 brushMode = 0
             }
             BrushType.LASSO -> {
+                isEraser = false
+            }
+            BrushType.LIQUIFY -> {
                 isEraser = false
             }
         }

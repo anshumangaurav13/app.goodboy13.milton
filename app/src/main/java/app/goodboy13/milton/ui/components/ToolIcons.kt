@@ -8,6 +8,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.unit.dp
 
 /**
@@ -406,5 +407,175 @@ fun ClearLayerIcon(tint: Color, modifier: Modifier = Modifier) {
         )
     }
 }
+
+/**
+ * Custom vector icon for Liquify Tool (sinusoidal water ripple / fluid wave).
+ */
+@Composable
+fun LiquifyIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(24.dp)) {
+        val w = size.width
+        val scale = w / 24f
+        val path1 = Path().apply {
+            moveTo(3f * scale, 9f * scale)
+            cubicTo(8f * scale, 4f * scale, 12f * scale, 14f * scale, 21f * scale, 9f * scale)
+        }
+        val path2 = Path().apply {
+            moveTo(3f * scale, 15f * scale)
+            cubicTo(8f * scale, 10f * scale, 12f * scale, 20f * scale, 21f * scale, 15f * scale)
+        }
+        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
+            width = 2.2f * scale,
+            cap = StrokeCap.Round
+        )
+        drawPath(path1, color = tint, style = stroke)
+        drawPath(path2, color = tint, style = stroke)
+    }
+}
+
+/**
+ * Custom vector icon for Bloat (expanding arrows pointing outwards from circle).
+ */
+@Composable
+fun BloatIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(20.dp)) {
+        val w = size.width
+        val scale = w / 20f
+        drawCircle(
+            color = tint,
+            radius = 3.5f * scale,
+            center = Offset(10f * scale, 10f * scale)
+        )
+        drawLine(tint, Offset(10f * scale, 4.5f * scale), Offset(10f * scale, 1.5f * scale), strokeWidth = 1.6f * scale, cap = StrokeCap.Round)
+        drawLine(tint, Offset(10f * scale, 15.5f * scale), Offset(10f * scale, 18.5f * scale), strokeWidth = 1.6f * scale, cap = StrokeCap.Round)
+        drawLine(tint, Offset(4.5f * scale, 10f * scale), Offset(1.5f * scale, 10f * scale), strokeWidth = 1.6f * scale, cap = StrokeCap.Round)
+        drawLine(tint, Offset(15.5f * scale, 10f * scale), Offset(18.5f * scale, 10f * scale), strokeWidth = 1.6f * scale, cap = StrokeCap.Round)
+    }
+}
+
+/**
+ * Custom vector icon for Pinch (contracting arrows pointing inwards toward circle).
+ */
+@Composable
+fun PinchIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(20.dp)) {
+        val w = size.width
+        val scale = w / 20f
+        drawCircle(
+            color = tint,
+            radius = 2.0f * scale,
+            center = Offset(10f * scale, 10f * scale)
+        )
+        drawLine(tint, Offset(10f * scale, 1.5f * scale), Offset(10f * scale, 5.5f * scale), strokeWidth = 1.6f * scale, cap = StrokeCap.Round)
+        drawLine(tint, Offset(10f * scale, 18.5f * scale), Offset(10f * scale, 14.5f * scale), strokeWidth = 1.6f * scale, cap = StrokeCap.Round)
+        drawLine(tint, Offset(1.5f * scale, 10f * scale), Offset(5.5f * scale, 10f * scale), strokeWidth = 1.6f * scale, cap = StrokeCap.Round)
+        drawLine(tint, Offset(18.5f * scale, 10f * scale), Offset(14.5f * scale, 10f * scale), strokeWidth = 1.6f * scale, cap = StrokeCap.Round)
+    }
+}
+
+/**
+ * Custom vector icon for Twirl Clockwise.
+ */
+@Composable
+fun TwirlCwIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(20.dp)) {
+        val w = size.width
+        val scale = w / 20f
+        val path = Path().apply {
+            moveTo(10f * scale, 3f * scale)
+            cubicTo(16f * scale, 3f * scale, 17f * scale, 10f * scale, 15f * scale, 14f * scale)
+            cubicTo(13f * scale, 18f * scale, 6f * scale, 17f * scale, 6f * scale, 12f * scale)
+            cubicTo(6f * scale, 8f * scale, 11f * scale, 8f * scale, 12f * scale, 11f * scale)
+        }
+        drawPath(
+            path = path,
+            color = tint,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.8f * scale, cap = StrokeCap.Round)
+        )
+    }
+}
+
+/**
+ * Custom vector icon for Twirl Counter-Clockwise.
+ */
+@Composable
+fun TwirlCcwIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(20.dp)) {
+        val w = size.width
+        val scale = w / 20f
+        val path = Path().apply {
+            moveTo(10f * scale, 3f * scale)
+            cubicTo(4f * scale, 3f * scale, 3f * scale, 10f * scale, 5f * scale, 14f * scale)
+            cubicTo(7f * scale, 18f * scale, 14f * scale, 17f * scale, 14f * scale, 12f * scale)
+            cubicTo(14f * scale, 8f * scale, 9f * scale, 8f * scale, 8f * scale, 11f * scale)
+        }
+        drawPath(
+            path = path,
+            color = tint,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.8f * scale, cap = StrokeCap.Round)
+        )
+    }
+}
+
+/**
+ * Custom vector icon for Wireframe Mesh Grid toggle.
+ */
+@Composable
+fun MeshGridIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(20.dp)) {
+        val w = size.width
+        val scale = w / 20f
+        val stroke = 1.3f * scale
+        drawLine(tint, Offset(3f * scale, 3f * scale), Offset(17f * scale, 3f * scale), strokeWidth = stroke)
+        drawLine(tint, Offset(17f * scale, 3f * scale), Offset(17f * scale, 17f * scale), strokeWidth = stroke)
+        drawLine(tint, Offset(17f * scale, 17f * scale), Offset(3f * scale, 17f * scale), strokeWidth = stroke)
+        drawLine(tint, Offset(3f * scale, 17f * scale), Offset(3f * scale, 3f * scale), strokeWidth = stroke)
+        drawLine(tint, Offset(3f * scale, 10f * scale), Offset(17f * scale, 10f * scale), strokeWidth = stroke)
+        drawLine(tint, Offset(10f * scale, 3f * scale), Offset(10f * scale, 17f * scale), strokeWidth = stroke)
+    }
+}
+
+/**
+ * Custom vector icon for Push deformation mode.
+ */
+@Composable
+fun PushIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(20.dp)) {
+        val w = size.width
+        val scale = w / 20f
+        val path = Path().apply {
+            moveTo(4f * scale, 10f * scale)
+            lineTo(15f * scale, 10f * scale)
+        }
+        drawPath(path, color = tint, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.9f * scale, cap = StrokeCap.Round))
+        val arrow = Path().apply {
+            moveTo(11.5f * scale, 6.5f * scale)
+            lineTo(15.5f * scale, 10f * scale)
+            lineTo(11.5f * scale, 13.5f * scale)
+        }
+        drawPath(arrow, color = tint, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.9f * scale, cap = StrokeCap.Round, join = StrokeJoin.Round))
+    }
+}
+
+/**
+ * Custom vector icon for Smooth / Relax deformation mode.
+ */
+@Composable
+fun SmoothIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(20.dp)) {
+        val w = size.width
+        val scale = w / 20f
+        val path = Path().apply {
+            moveTo(10f * scale, 3.5f * scale)
+            cubicTo(14.5f * scale, 9f * scale, 16.5f * scale, 12.5f * scale, 16.5f * scale, 15f * scale)
+            cubicTo(16.5f * scale, 18.5f * scale, 13.5f * scale, 20.5f * scale, 10f * scale, 20.5f * scale)
+            cubicTo(6.5f * scale, 20.5f * scale, 3.5f * scale, 18.5f * scale, 3.5f * scale, 15f * scale)
+            cubicTo(3.5f * scale, 12.5f * scale, 5.5f * scale, 9f * scale, 10f * scale, 3.5f * scale)
+            close()
+        }
+        drawPath(path, color = tint.copy(alpha = 0.85f))
+    }
+}
+
 
 

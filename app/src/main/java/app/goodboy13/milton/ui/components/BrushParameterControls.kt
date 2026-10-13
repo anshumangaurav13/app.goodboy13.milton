@@ -487,6 +487,7 @@ fun ToolParametersFloatingWindow(
                 BrushType.PAINTBRUSH -> PaintbrushIcon(tint = Color(0xFFA5D6A7), modifier = Modifier.size(16.dp))
                 BrushType.ERASER -> EraserIcon(tint = Color(0xFFEF9A9A), modifier = Modifier.size(16.dp))
                 BrushType.LASSO -> LassoIcon(tint = Color(0xFFCE93D8), modifier = Modifier.size(16.dp))
+                BrushType.LIQUIFY -> LiquifyIcon(tint = Color(0xFF80DEEA), modifier = Modifier.size(16.dp))
             }
         }
     ) {
@@ -505,6 +506,22 @@ fun ToolParametersFloatingWindow(
                 ) {
                     Text(
                         text = "Draw around elements with stylus to select & transform.\n\nOpen Layers menu to select multiple layers.",
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                        color = Color.White.copy(alpha = 0.8f)
+                    )
+                }
+            } else if (brushType == BrushType.LIQUIFY) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF22262E))
+                        .border(1.dp, Color(0x30FFFFFF), RoundedCornerShape(8.dp))
+                        .padding(10.dp)
+                ) {
+                    Text(
+                        text = "Draw around elements to begin Liquify deformation.\n\nModes: Push, Bloat, Pinch, Twirl CW/CCW, and Smooth.",
                         fontSize = 11.sp,
                         lineHeight = 15.sp,
                         color = Color.White.copy(alpha = 0.8f)

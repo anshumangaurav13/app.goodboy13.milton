@@ -350,6 +350,16 @@ class MainActivity : ComponentActivity() {
                         onCommitTransform = { viewModel.commitTransform(canvasView) },
                         onCancelTransform = { viewModel.cancelTransform(canvasView) },
                         onResetTransform = { viewModel.resetTransform(canvasView) }
+                    ),
+                    liquify = app.goodboy13.milton.ui.state.LiquifyActions(
+                        onEnterLiquify = { viewModel.enterLiquify(canvasView) },
+                        onCommitLiquify = { viewModel.commitLiquify(canvasView) },
+                        onCancelLiquify = { viewModel.cancelLiquify(canvasView) },
+                        onResetLiquify = { viewModel.resetLiquify(canvasView) },
+                        onModeChange = { mode -> viewModel.setLiquifyMode(mode, canvasView) },
+                        onSizeChange = { size -> viewModel.setLiquifyBrushSize(size, canvasView) },
+                        onStrengthChange = { strength -> viewModel.setLiquifyBrushStrength(strength, canvasView) },
+                        onToggleMeshGrid = { show -> viewModel.toggleLiquifyMeshGrid(show, canvasView) }
                     )
                 )
 

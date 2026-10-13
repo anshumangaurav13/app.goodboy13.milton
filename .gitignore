@@ -22,3 +22,6 @@ keystore.properties
 # Rust build artifacts
 target/
 **/target/
+
+# Reverse engineering pulls and scratch dumps
+infinite_painter_apk/

@@ -178,19 +178,35 @@ fun MiltonTabletUi(
             )
         }
 
-        // 0c. Selection & Free Transform Gizmo Overlay (rendered directly above canvas, beneath tool rails and floating dialogs)
+        // 0c. Selection & Free Transform / Liquify Overlay (rendered directly above canvas, beneath tool rails and floating dialogs)
         if (viewport != null && state.selectionState !is app.goodboy13.milton.core.selection.SelectionState.Idle) {
-            app.goodboy13.milton.ui.components.TransformGizmoOverlay(
-                selectionState = state.selectionState,
-                viewport = viewport,
-                onUpdateTransform = actions.transform.onUpdateTransform,
-                onCommit = actions.transform.onCommitTransform,
-                onCancel = actions.transform.onCancelTransform,
-                onReset = actions.transform.onResetTransform,
-                isCanvasFlipped = state.viewport.isCanvasFlipped,
-                onToggleFlipCanvas = actions.viewport.onToggleFlipCanvas,
-                isModifierHeld = state.viewport.isModifierHeld
-            )
+            if (state.selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify) {
+                app.goodboy13.milton.ui.components.LiquifyOverlay(
+                    session = state.selectionState.session,
+                    viewport = viewport,
+                    onModeChange = actions.liquify.onModeChange,
+                    onSizeChange = actions.liquify.onSizeChange,
+                    onStrengthChange = actions.liquify.onStrengthChange,
+                    onToggleMeshGrid = actions.liquify.onToggleMeshGrid,
+                    onReset = actions.liquify.onResetLiquify,
+                    onCancel = actions.liquify.onCancelLiquify,
+                    onCommit = actions.liquify.onCommitLiquify,
+                    isCanvasFlipped = state.viewport.isCanvasFlipped
+                )
+            } else {
+                app.goodboy13.milton.ui.components.TransformGizmoOverlay(
+                    selectionState = state.selectionState,
+                    viewport = viewport,
+                    onUpdateTransform = actions.transform.onUpdateTransform,
+                    onCommit = actions.transform.onCommitTransform,
+                    onCancel = actions.transform.onCancelTransform,
+                    onReset = actions.transform.onResetTransform,
+                    onEnterLiquify = actions.liquify.onEnterLiquify,
+                    isCanvasFlipped = state.viewport.isCanvasFlipped,
+                    onToggleFlipCanvas = actions.viewport.onToggleFlipCanvas,
+                    isModifierHeld = state.viewport.isModifierHeld
+                )
+            }
         }
 
         // 1. Left Vertical Tool Rail (docked to left screen edge)

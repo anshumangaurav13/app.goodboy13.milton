@@ -80,6 +80,7 @@ sealed interface SelectionState {
     object Idle : SelectionState
     data class DrawingLasso(val points: List<Vec2>) : SelectionState
     data class ActiveTransform(val session: TransformSession, val revision: Long = 0L) : SelectionState
+    data class ActiveLiquify(val session: app.goodboy13.milton.core.liquify.LiquifySession, val revision: Long = 0L) : SelectionState
 }
 
 class SelectionTransformManager {
@@ -91,6 +92,22 @@ class SelectionTransformManager {
     val state: StateFlow<SelectionState> = _state.asStateFlow()
 
     private val lassoPoints = mutableListOf<Vec2>()
+
+    fun setLiquifyState(session: app.goodboy13.milton.core.liquify.LiquifySession) {
+        _state.value = SelectionState.ActiveLiquify(session)
+    }
+
+    fun updateLiquifySession(session: app.goodboy13.milton.core.liquify.LiquifySession) {
+        _state.value = SelectionState.ActiveLiquify(session, System.nanoTime())
+    }
+
+    fun updateLiquifyRevision(session: app.goodboy13.milton.core.liquify.LiquifySession) {
+        _state.value = SelectionState.ActiveLiquify(session, System.nanoTime())
+    }
+
+    fun clearState() {
+        _state.value = SelectionState.Idle
+    }
 
     fun startLasso(point: Vec2) {
         lassoPoints.clear()
@@ -106,7 +123,7 @@ class SelectionTransformManager {
         }
     }
 
-    fun finishLasso(canvasView: MiltonCanvasView, targetLayerIds: Set<Long>) {
+    fun finishLasso(canvasView: MiltonCanvasView, targetLayerIds: Set<Long>, forLiquify: Boolean = false) {
         if (lassoPoints.size < 3) {
             cancelLasso()
             return
@@ -226,15 +243,27 @@ class SelectionTransformManager {
                     return@runOnGlThread
                 }
 
-                val session = TransformSession(
-                    polygon = polygon,
-                    srcBounds = srcBounds,
-                    targetLayerIds = targets,
-                    originalTiles = allOriginalTiles,
-                    layerPatches = allPatches
-                )
-
-                _state.value = SelectionState.ActiveTransform(session)
+                if (forLiquify) {
+                    val mesh = app.goodboy13.milton.core.liquify.LiquifyMesh(srcBounds, polygon)
+                    val liquifySession = app.goodboy13.milton.core.liquify.LiquifySession(
+                        polygon = polygon,
+                        srcBounds = srcBounds,
+                        targetLayerIds = targets,
+                        originalTiles = allOriginalTiles,
+                        layerPatches = allPatches,
+                        mesh = mesh
+                    )
+                    _state.value = SelectionState.ActiveLiquify(liquifySession)
+                } else {
+                    val session = TransformSession(
+                        polygon = polygon,
+                        srcBounds = srcBounds,
+                        targetLayerIds = targets,
+                        originalTiles = allOriginalTiles,
+                        layerPatches = allPatches
+                    )
+                    _state.value = SelectionState.ActiveTransform(session)
+                }
                 canvasView.post { canvasView.requestRedraw() }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start transform session", e)

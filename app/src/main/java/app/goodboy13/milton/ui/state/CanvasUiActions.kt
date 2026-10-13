@@ -87,6 +87,20 @@ data class TransformActions(
 )
 
 /**
+ * Callbacks for Liquify deformation sessions.
+ */
+data class LiquifyActions(
+    val onEnterLiquify: () -> Unit = {},
+    val onCommitLiquify: () -> Unit = {},
+    val onCancelLiquify: () -> Unit = {},
+    val onResetLiquify: () -> Unit = {},
+    val onModeChange: (app.goodboy13.milton.core.liquify.LiquifyMode) -> Unit = {},
+    val onSizeChange: (Float) -> Unit = {},
+    val onStrengthChange: (Float) -> Unit = {},
+    val onToggleMeshGrid: (Boolean) -> Unit = {}
+)
+
+/**
  * Consolidated action bundle passed to MiltonTabletUi.
  */
 data class CanvasUiActions(
@@ -94,5 +108,7 @@ data class CanvasUiActions(
     val viewport: ViewportActions = ViewportActions(),
     val document: DocumentActions = DocumentActions(),
     val layers: LayerActions = LayerActions(),
-    val transform: TransformActions = TransformActions()
+    val transform: TransformActions = TransformActions(),
+    val liquify: LiquifyActions = LiquifyActions()
 )
+

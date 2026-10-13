@@ -350,6 +350,44 @@ class CanvasViewModel : ViewModel() {
         canvasView.selectionManager.resetSessionTransform()
     }
 
+    fun enterLiquify(canvasView: MiltonCanvasView) {
+        val current = canvasView.selectionManager.state.value
+        if (current is app.goodboy13.milton.core.selection.SelectionState.ActiveTransform) {
+            canvasView.liquifyManager.startLiquifyFromTransform(current.session)
+            canvasView.requestRedraw()
+        }
+    }
+
+    fun commitLiquify(canvasView: MiltonCanvasView) {
+        canvasView.liquifyManager.commit(canvasView)
+    }
+
+    fun cancelLiquify(canvasView: MiltonCanvasView) {
+        canvasView.liquifyManager.cancel(canvasView)
+    }
+
+    fun resetLiquify(canvasView: MiltonCanvasView) {
+        canvasView.liquifyManager.reset()
+        canvasView.requestRedraw()
+    }
+
+    fun setLiquifyMode(mode: app.goodboy13.milton.core.liquify.LiquifyMode, canvasView: MiltonCanvasView) {
+        canvasView.liquifyManager.setMode(mode)
+    }
+
+    fun setLiquifyBrushSize(size: Float, canvasView: MiltonCanvasView) {
+        canvasView.liquifyManager.setBrushSize(size)
+    }
+
+    fun setLiquifyBrushStrength(strength: Float, canvasView: MiltonCanvasView) {
+        canvasView.liquifyManager.setBrushStrength(strength)
+    }
+
+    fun toggleLiquifyMeshGrid(show: Boolean, canvasView: MiltonCanvasView) {
+        canvasView.liquifyManager.toggleMeshGrid(show)
+        canvasView.requestRedraw()
+    }
+
     fun setBrushSize(size: Float, canvasView: MiltonCanvasView) {
         canvasView.brushSize = size
         appContext?.let { ctx ->

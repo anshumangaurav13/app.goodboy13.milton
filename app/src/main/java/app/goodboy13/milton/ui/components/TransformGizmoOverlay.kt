@@ -76,6 +76,7 @@ fun TransformGizmoOverlay(
     onCommit: () -> Unit,
     onCancel: () -> Unit,
     onReset: () -> Unit,
+    onEnterLiquify: () -> Unit = {},
     isCanvasFlipped: Boolean = false,
     onToggleFlipCanvas: () -> Unit = {},
     isModifierHeld: Boolean = false,
@@ -98,12 +99,14 @@ fun TransformGizmoOverlay(
                 onCommit = onCommit,
                 onCancel = onCancel,
                 onReset = onReset,
+                onEnterLiquify = onEnterLiquify,
                 isCanvasFlipped = isCanvasFlipped,
                 onToggleFlipCanvas = onToggleFlipCanvas,
                 isModifierHeld = isModifierHeld,
                 modifier = modifier
             )
         }
+        is SelectionState.ActiveLiquify -> {}
         SelectionState.Idle -> {}
     }
 }
@@ -171,6 +174,7 @@ private fun TransformSessionOverlay(
     onCommit: () -> Unit,
     onCancel: () -> Unit,
     onReset: () -> Unit,
+    onEnterLiquify: () -> Unit = {},
     isCanvasFlipped: Boolean = false,
     onToggleFlipCanvas: () -> Unit = {},
     isModifierHeld: Boolean = false,
@@ -469,6 +473,17 @@ private fun TransformSessionOverlay(
                 ) {
                     FlipCanvasIcon(
                         tint = if (currentIsCanvasFlipped) Color(0xFF64B5F6) else Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                // Enter Liquify Mode
+                IconButton(
+                    onClick = onEnterLiquify,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    LiquifyIcon(
+                        tint = Color(0xFF64B5F6),
                         modifier = Modifier.size(18.dp)
                     )
                 }
