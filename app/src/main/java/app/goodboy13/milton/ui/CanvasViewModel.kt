@@ -340,6 +340,7 @@ class CanvasViewModel : ViewModel() {
         canvasView: MiltonCanvasView
     ) {
         canvasView.selectionManager.updateTransform(dx, dy, sx, sy, rot, flipH, flipV)
+        canvasView.requestRedraw()
     }
 
     fun commitTransform(canvasView: MiltonCanvasView) {
@@ -352,6 +353,7 @@ class CanvasViewModel : ViewModel() {
 
     fun resetTransform(canvasView: MiltonCanvasView) {
         canvasView.selectionManager.resetSessionTransform()
+        canvasView.requestRedraw()
     }
 
     fun enterLiquify(canvasView: MiltonCanvasView) {

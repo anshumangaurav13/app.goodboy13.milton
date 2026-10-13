@@ -54,6 +54,7 @@ class CanvasEngine(
     var onColorPicked: ((Int) -> Unit)? = null
     var isThumbnailCaptureEnabled: Boolean = true
     var onRequestProgressiveRedraw: (() -> Unit)? = null
+    var selectionManager: app.goodboy13.milton.core.selection.SelectionTransformManager? = null
 
     private val pendingStrokeFinished = AtomicBoolean(false)
     private val pendingTrimBudget = AtomicBoolean(false)
@@ -186,13 +187,15 @@ class CanvasEngine(
 
         // 4. Blit layers
         val visibleBounds = viewport.getVisibleWorldBounds()
+        val selState = selectionManager?.state?.value
         sceneRenderer.blitLayers(
             layers = layerManager.layers,
             visibleBounds = visibleBounds,
             backgroundColorRgb = backgroundColorRgb,
             bufferInfo = bufferInfo,
             transform = transform,
-            viewport = viewport
+            viewport = viewport,
+            selectionState = selState
         )
 
         // Progressive streaming: if visible tiles on disk are pending restoration,

@@ -62,6 +62,7 @@ class MiltonCanvasView @JvmOverloads constructor(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             isAutoHandwritingEnabled = false
         }
+        renderer.engine.selectionManager = selectionManager
         renderer.onRequestRedraw = {
             post { requestRedraw() }
         }

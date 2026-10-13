@@ -347,32 +347,7 @@ private fun TransformSessionOverlay(
         // 1. Gesture detector & Gizmo Rendering Canvas
         Box(modifier = gestureModifier) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val nativeCanvas = drawContext.canvas.nativeCanvas
-                val paint = Paint().apply { isFilterBitmap = true }
-
-                val dstPoly = floatArrayOf(
-                    p0.x, p0.y,
-                    p1.x, p1.y,
-                    p2.x, p2.y,
-                    p3.x, p3.y
-                )
-
-                for ((_, patch) in session.layerPatches) {
-                    val pw = patch.previewBitmap.width.toFloat()
-                    val ph = patch.previewBitmap.height.toFloat()
-                    val srcPoly = floatArrayOf(
-                        0f, 0f,
-                        pw, 0f,
-                        pw, ph,
-                        0f, ph
-                    )
-                    val matrix = Matrix()
-                    if (matrix.setPolyToPoly(srcPoly, 0, dstPoly, 0, 4)) {
-                        nativeCanvas.drawBitmap(patch.previewBitmap, matrix, paint)
-                    }
-                }
-
-                // 2. Gizmo Bounding Box Outline
+                // Gizmo Bounding Box Outline
                 val boxPath = Path().apply {
                     moveTo(p0.x, p0.y)
                     lineTo(p1.x, p1.y)

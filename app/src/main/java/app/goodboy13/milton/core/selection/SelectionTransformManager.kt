@@ -15,6 +15,9 @@ import java.nio.ByteBuffer
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
+import android.opengl.GLES30
+import android.opengl.GLUtils
+
 data class TileSnapshot(
     val tx: Int,
     val ty: Int,
@@ -25,7 +28,8 @@ data class LayerPatch(
     val width: Int,
     val height: Int,
     val previewBitmap: Bitmap,
-    val rgbaBytes: ByteArray? = null
+    val rgbaBytes: ByteArray? = null,
+    var glTextureId: Int = 0
 )
 
 data class TransformSession(
@@ -86,6 +90,15 @@ sealed interface SelectionState {
 class SelectionTransformManager {
     companion object {
         private const val TAG = "SelectionTransform"
+
+        fun deletePatchTextures(patches: Collection<LayerPatch>) {
+            for (patch in patches) {
+                if (patch.glTextureId != 0) {
+                    GLES30.glDeleteTextures(1, intArrayOf(patch.glTextureId), 0)
+                    patch.glTextureId = 0
+                }
+            }
+        }
     }
 
     private val _state = MutableStateFlow<SelectionState>(SelectionState.Idle)
@@ -227,7 +240,20 @@ class SelectionTransformManager {
                             val previewBitmap = Bitmap.createBitmap(previewW, previewH, Bitmap.Config.ARGB_8888)
                             buf.position(8)
                             previewBitmap.copyPixelsFromBuffer(buf)
-                            allPatches[layerId] = LayerPatch(previewW, previewH, previewBitmap)
+
+                            // Upload to OpenGL texture directly on GL thread
+                            val texIds = IntArray(1)
+                            GLES30.glGenTextures(1, texIds, 0)
+                            val texId = texIds[0]
+                            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texId)
+                            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
+                            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+                            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+                            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+                            GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, previewBitmap, 0)
+                            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+
+                            allPatches[layerId] = LayerPatch(previewW, previewH, previewBitmap, glTextureId = texId)
                         }
                     }
 
@@ -237,6 +263,7 @@ class SelectionTransformManager {
                 }
 
                 if (allOriginalTiles.isEmpty()) {
+                    deletePatchTextures(allPatches.values)
                     if (MiltonNative.isLoaded) {
                         MiltonNative.selectionSessionEnd()
                     }
@@ -306,6 +333,7 @@ class SelectionTransformManager {
             } catch (e: Exception) {
                 Log.e(TAG, "Error restoring tiles on cancel", e)
             } finally {
+                deletePatchTextures(current.session.layerPatches.values)
                 if (MiltonNative.isLoaded) {
                     MiltonNative.selectionSessionEnd()
                 }
@@ -399,6 +427,7 @@ class SelectionTransformManager {
             } catch (e: Exception) {
                 Log.e(TAG, "Error committing transform", e)
             } finally {
+                deletePatchTextures(session.layerPatches.values)
                 if (MiltonNative.isLoaded) {
                     MiltonNative.selectionSessionEnd()
                 }

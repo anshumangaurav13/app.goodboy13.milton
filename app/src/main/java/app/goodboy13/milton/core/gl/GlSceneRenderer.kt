@@ -34,6 +34,7 @@ class GlSceneRenderer {
     val tileBlitShader = TileBlitShader()
     val thumbnailRenderer = LayerThumbnailRenderer()
     val strokeCompositeShader = StrokeCompositeShader()
+    val patchBlitShader = PatchBlitShader()
 
     private var scratchFboId: Int = 0
     private var scratchTextureId: Int = 0
@@ -73,6 +74,7 @@ class GlSceneRenderer {
             tileBlitShader.initGl()
             thumbnailRenderer.initGl()
             strokeCompositeShader.initGl()
+            patchBlitShader.initGl()
             initScratchTileGl()
             isGlInitialized = true
             Log.d(TAG, "OpenGL ES shaders, FBOs, and VAOs initialized successfully")
@@ -205,6 +207,8 @@ class GlSceneRenderer {
 
     /**
      * Renders all visible layers and their initialized tiles into the backbuffer.
+     * Integrates Free Transform and Liquify patches directly at each layer's z-depth,
+     * maintaining strict document layer stacking order during interactive editing.
      */
     fun blitLayers(
         layers: List<Layer>,
@@ -212,7 +216,8 @@ class GlSceneRenderer {
         backgroundColorRgb: Int,
         bufferInfo: BufferInfo,
         transform: FloatArray,
-        viewport: Viewport
+        viewport: Viewport,
+        selectionState: app.goodboy13.milton.core.selection.SelectionState? = null
     ) {
         val mvp = computeFinalMvpMatrix(viewport, bufferInfo, transform)
         tileBlitShader.begin(mvp, true, backgroundColorRgb)
@@ -220,16 +225,47 @@ class GlSceneRenderer {
         for (layer in layers) {
             if (!layer.isVisible || layer.opacity <= 0.001f) continue
             val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds, reusableVisibleTiles)
-            if (visibleTiles.isEmpty()) continue
+            if (visibleTiles.isNotEmpty()) {
+                tileBlitShader.setOpacity(layer.opacity)
+                for (tile in visibleTiles) {
+                    if (!tile.isInitialized || !tile.hasContent) continue
+                    tileBlitShader.renderTile(
+                        worldLeft = tile.coord.worldLeft,
+                        worldTop = tile.coord.worldTop,
+                        textureId = tile.textureId
+                    )
+                }
+            }
 
-            tileBlitShader.setOpacity(layer.opacity)
-            for (tile in visibleTiles) {
-                if (!tile.isInitialized || !tile.hasContent) continue
-                tileBlitShader.renderTile(
-                    worldLeft = tile.coord.worldLeft,
-                    worldTop = tile.coord.worldTop,
-                    textureId = tile.textureId
-                )
+            // Render patch for this layer if active in transform or liquify session
+            if (selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveTransform &&
+                selectionState.session.targetLayerIds.contains(layer.id)
+            ) {
+                val patch = selectionState.session.layerPatches[layer.id]
+                if (patch != null && patch.glTextureId != 0) {
+                    tileBlitShader.end()
+                    patchBlitShader.renderTransformPatch(
+                        session = selectionState.session,
+                        patch = patch,
+                        layerOpacity = layer.opacity,
+                        mvpMatrix = mvp
+                    )
+                    tileBlitShader.begin(mvp, true, backgroundColorRgb)
+                }
+            } else if (selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify &&
+                selectionState.session.targetLayerIds.contains(layer.id)
+            ) {
+                val patch = selectionState.session.layerPatches[layer.id]
+                if (patch != null && patch.glTextureId != 0) {
+                    tileBlitShader.end()
+                    patchBlitShader.renderLiquifyMesh(
+                        session = selectionState.session,
+                        patch = patch,
+                        layerOpacity = layer.opacity,
+                        mvpMatrix = mvp
+                    )
+                    tileBlitShader.begin(mvp, true, backgroundColorRgb)
+                }
             }
         }
         tileBlitShader.end()
@@ -575,6 +611,7 @@ class GlSceneRenderer {
             dabShader.releaseGl()
             tileBlitShader.releaseGl()
             thumbnailRenderer.releaseGl()
+            patchBlitShader.releaseGl()
             isGlInitialized = false
         }
     }

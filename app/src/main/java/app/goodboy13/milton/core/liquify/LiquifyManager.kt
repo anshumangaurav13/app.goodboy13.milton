@@ -144,6 +144,7 @@ class LiquifyManager(
             } catch (e: Exception) {
                 Log.e(TAG, "Error restoring tiles on cancel liquify", e)
             } finally {
+                SelectionTransformManager.deletePatchTextures(current.session.layerPatches.values)
                 if (MiltonNative.isLoaded) {
                     MiltonNative.selectionSessionEnd()
                 }
@@ -260,6 +261,7 @@ class LiquifyManager(
             } catch (e: Exception) {
                 Log.e(TAG, "Error committing liquify to tiles", e)
             } finally {
+                SelectionTransformManager.deletePatchTextures(session.layerPatches.values)
                 if (MiltonNative.isLoaded) {
                     MiltonNative.selectionSessionEnd()
                 }

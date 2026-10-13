@@ -83,30 +83,10 @@ fun LiquifyOverlay(
             @Suppress("UNUSED_VARIABLE")
             val currentRevision = revision
 
-            val nativeCanvas = drawContext.canvas.nativeCanvas
-            val paint = Paint().apply {
-                isFilterBitmap = true
-                isAntiAlias = true
-            }
-
-            session.mesh.computeScreenVerts(viewport, screenVerts)
-
-            // Render deformed layer patches
-            for ((_, patch) in session.layerPatches) {
-                nativeCanvas.drawBitmapMesh(
-                    patch.previewBitmap,
-                    session.mesh.gridCols,
-                    session.mesh.gridRows,
-                    screenVerts,
-                    0,
-                    null,
-                    0,
-                    paint
-                )
-            }
-
-            // 2. Wireframe Strain Grid
+            // 1. Wireframe Strain Grid
             if (session.showMeshGrid) {
+                val nativeCanvas = drawContext.canvas.nativeCanvas
+                session.mesh.computeScreenVerts(viewport, screenVerts)
                 val gridPaint = Paint().apply {
                     color = 0x5500E5FF.toInt()
                     strokeWidth = 1f
