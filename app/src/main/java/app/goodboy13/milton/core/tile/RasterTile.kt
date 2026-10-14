@@ -76,6 +76,30 @@ class RasterTile(val coord: TileCoord) {
     }
 
     /**
+     * Clones this tile's texture directly into a target FBO on the GPU using glBlitFramebuffer.
+     * Operates completely in VRAM with zero CPU stalls or pipeline readback overhead.
+     */
+    fun cloneToFbo(targetFboId: Int) {
+        if (!isInitialized) return
+        val prevReadFbo = IntArray(1)
+        val prevDrawFbo = IntArray(1)
+        GLES30.glGetIntegerv(GLES30.GL_READ_FRAMEBUFFER_BINDING, prevReadFbo, 0)
+        GLES30.glGetIntegerv(GLES30.GL_DRAW_FRAMEBUFFER_BINDING, prevDrawFbo, 0)
+
+        GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, fboId)
+        GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, targetFboId)
+        GLES30.glBlitFramebuffer(
+            0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+            0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+            GLES30.GL_COLOR_BUFFER_BIT,
+            GLES30.GL_NEAREST
+        )
+
+        GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, prevReadFbo[0])
+        GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, prevDrawFbo[0])
+    }
+
+    /**
      * Reads the current RGBA pixel buffer of this tile from its FBO.
      */
     fun readPixels(): ByteArray {
@@ -93,6 +117,40 @@ class RasterTile(val coord: TileCoord) {
         }
         unbindFbo()
         return rawBytes
+    }
+
+    /**
+     * Reads this tile's current RGBA pixel buffer directly into an off-heap direct ByteBuffer.
+     */
+    fun readPixelsDirect(outDirectBuf: ByteBuffer) {
+        if (!isInitialized) initGl()
+        bindFbo()
+        outDirectBuf.clear()
+        GLES30.glReadPixels(
+            0, 0,
+            TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+            GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, outDirectBuf
+        )
+        outDirectBuf.rewind()
+        unbindFbo()
+    }
+
+    /**
+     * Writes RGBA pixels directly from an off-heap direct ByteBuffer into this tile's texture.
+     */
+    fun writePixelsDirect(directBuf: ByteBuffer) {
+        if (!isInitialized) initGl()
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+        directBuf.position(0)
+        GLES30.glTexSubImage2D(
+            GLES30.GL_TEXTURE_2D, 0,
+            0, 0,
+            TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+            GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, directBuf
+        )
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+        isDirty = true
+        hasContent = true
     }
 
     /**

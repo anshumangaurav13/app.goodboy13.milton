@@ -36,7 +36,13 @@ object MiltonNative {
     external fun compressTile(rawBytes: ByteArray): ByteArray
 
     @JvmStatic
+    external fun compressTileDirect(directBuf: java.nio.ByteBuffer): ByteArray
+
+    @JvmStatic
     external fun decompressTile(compressedBytes: ByteArray): ByteArray
+
+    @JvmStatic
+    external fun decompressTileDirect(compressedBytes: ByteArray, directBuf: java.nio.ByteBuffer): Boolean
 
     @JvmStatic
     external fun exportArchive(manifestJson: String, tilesDir: String, destinationZip: String): Boolean

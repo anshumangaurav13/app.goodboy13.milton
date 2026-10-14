@@ -49,6 +49,59 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_decomp
 }
 
 #[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_compressTileDirect<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    direct_buf: JByteBuffer<'local>,
+) -> JByteArray<'local> {
+    let ptr = match env.get_direct_buffer_address(&direct_buf) {
+        Ok(p) => p,
+        Err(_) => return JByteArray::default(),
+    };
+    let cap = match env.get_direct_buffer_capacity(&direct_buf) {
+        Ok(c) => c,
+        Err(_) => return JByteArray::default(),
+    };
+    if ptr.is_null() || cap < constants::TILE_BYTES {
+        return JByteArray::default();
+    }
+    let slice = unsafe { std::slice::from_raw_parts(ptr, constants::TILE_BYTES) };
+    match compression::compress_tile(slice) {
+        Ok(compressed) => env.byte_array_from_slice(&compressed).unwrap_or_default(),
+        Err(_) => JByteArray::default(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_decompressTileDirect<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    compressed_bytes: JByteArray<'local>,
+    out_direct_buf: JByteBuffer<'local>,
+) -> jboolean {
+    let compressed = match env.convert_byte_array(&compressed_bytes) {
+        Ok(b) => b,
+        Err(_) => return JNI_FALSE,
+    };
+    let ptr = match env.get_direct_buffer_address(&out_direct_buf) {
+        Ok(p) => p,
+        Err(_) => return JNI_FALSE,
+    };
+    let cap = match env.get_direct_buffer_capacity(&out_direct_buf) {
+        Ok(c) => c,
+        Err(_) => return JNI_FALSE,
+    };
+    if ptr.is_null() || cap < constants::TILE_BYTES {
+        return JNI_FALSE;
+    }
+    let out_slice = unsafe { std::slice::from_raw_parts_mut(ptr, constants::TILE_BYTES) };
+    match compression::decompress_tile_to_slice(&compressed, out_slice) {
+        Ok(_) => JNI_TRUE,
+        Err(_) => JNI_FALSE,
+    }
+}
+
+#[no_mangle]
 pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_exportArchive<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,

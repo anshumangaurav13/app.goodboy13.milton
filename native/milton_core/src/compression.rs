@@ -41,6 +41,37 @@ pub fn decompress_tile(compressed_bytes: &[u8]) -> Result<Vec<u8>, String> {
     zstd::decode_all(compressed_bytes).map_err(|e| format!("Decompression failed across all codecs: {e}"))
 }
 
+/// Decompresses tile bytes directly into a pre-allocated slice.
+pub fn decompress_tile_to_slice(compressed_bytes: &[u8], out_slice: &mut [u8]) -> Result<(), String> {
+    if compressed_bytes.is_empty() {
+        return Ok(());
+    }
+
+    if compressed_bytes.len() >= 4 && compressed_bytes[0..4] == ZSTD_MAGIC {
+        let mut decoder = zstd::Decoder::new(compressed_bytes)
+            .map_err(|e| format!("Zstd decoder init failed: {e}"))?;
+        decoder.read_exact(out_slice)
+            .map_err(|e| format!("Zstd read_exact failed: {e}"))?;
+        return Ok(());
+    }
+
+    let mut zlib_decoder = ZlibDecoder::new(compressed_bytes);
+    if zlib_decoder.read_exact(out_slice).is_ok() {
+        return Ok(());
+    }
+
+    let mut raw_decoder = DeflateDecoder::new(compressed_bytes);
+    if raw_decoder.read_exact(out_slice).is_ok() {
+        return Ok(());
+    }
+
+    let mut fallback_decoder = zstd::Decoder::new(compressed_bytes)
+        .map_err(|e| format!("Fallback zstd init failed: {e}"))?;
+    fallback_decoder.read_exact(out_slice)
+        .map_err(|e| format!("Fallback read_exact failed: {e}"))?;
+    Ok(())
+}
+
 /// Compresses multiple raw tiles in parallel using Rayon thread pool.
 pub fn compress_batch(tiles: &[&[u8]]) -> Vec<Result<Vec<u8>, String>> {
     tiles.par_iter().map(|raw| compress_tile(raw)).collect()
@@ -79,5 +110,14 @@ mod tests {
 
         let decompressed = decompress_tile(&zlib_compressed).expect("should decompress legacy zlib");
         assert_eq!(decompressed, dummy);
+    }
+
+    #[test]
+    fn test_decompress_to_slice_roundtrip() {
+        let dummy = vec![128u8; 512 * 512 * 4];
+        let compressed = compress_tile(&dummy).expect("compression should succeed");
+        let mut out = vec![0u8; 512 * 512 * 4];
+        decompress_tile_to_slice(&compressed, &mut out).expect("decompression to slice should succeed");
+        assert_eq!(out, dummy);
     }
 }

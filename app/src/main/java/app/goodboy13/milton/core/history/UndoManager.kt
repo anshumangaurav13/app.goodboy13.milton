@@ -1,14 +1,18 @@
 package app.goodboy13.milton.core.history
 
+import android.opengl.GLES30
+import app.goodboy13.milton.core.gl.GlTexturePool
+import app.goodboy13.milton.core.layer.LayerManager
+import app.goodboy13.milton.core.memory.DirectBufferPool
+import app.goodboy13.milton.core.native.MiltonNative
 import app.goodboy13.milton.core.tile.RasterTile
 import app.goodboy13.milton.core.tile.TileCoord
 import app.goodboy13.milton.core.tile.TileMap
 import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
 import java.util.ArrayDeque
 import java.util.zip.Deflater
 import java.util.zip.Inflater
-
-import app.goodboy13.milton.core.layer.LayerManager
 
 /**
  * Tile delta entry containing compressed RGBA pixel snapshots.
@@ -78,8 +82,13 @@ class UndoManager(val maxHistorySize: Int = 30) {
     private val undoStack = ArrayDeque<UndoCommand>()
     private val redoStack = ArrayDeque<UndoCommand>()
 
-    // Tiles touched in the currently active stroke before stamping: (layerId to coord) -> raw RGBA bytes
+    // Tiles touched in the currently active stroke before stamping:
+    // 1. Direct raw byte snapshots (e.g. from Liquify or Selection transformations)
     private val pendingPreStrokeRaw = mutableMapOf<Pair<Long, TileCoord>, ByteArray?>()
+
+    // 2. GPU snapshots acquired during active stroke: (layerId to coord) -> PooledEntry?
+    // A null value indicates the tile was empty/uninitialized before the stroke.
+    private val pendingPreStrokeGpu = mutableMapOf<Pair<Long, TileCoord>, GlTexturePool.PooledEntry?>()
 
     var onStateChangedListener: (() -> Unit)? = null
     var onTilesCommittedListener: ((List<TileDelta>) -> Unit)? = null
@@ -89,18 +98,42 @@ class UndoManager(val maxHistorySize: Int = 30) {
 
     /**
      * Call before stamping stroke dabs to snapshot pre-stroke state of affected tiles.
+     * Operates completely in GPU VRAM via glBlitFramebuffer, eliminating in-stroke CPU stalls.
      */
     fun capturePreStrokeTiles(layerId: Long, tiles: Collection<RasterTile>) {
+        var hasSavedFbo = false
+        val prevReadFbo = IntArray(1)
+        val prevDrawFbo = IntArray(1)
+
         for (tile in tiles) {
             val key = layerId to tile.coord
-            if (!pendingPreStrokeRaw.containsKey(key)) {
-                val data = if (tile.isInitialized && tile.hasContent) {
-                    tile.readPixels()
-                } else {
-                    null // Tile was empty before this stroke
-                }
-                pendingPreStrokeRaw[key] = data
+            if (pendingPreStrokeRaw.containsKey(key) || pendingPreStrokeGpu.containsKey(key)) {
+                continue
             }
+            if (tile.isInitialized && tile.hasContent) {
+                if (!hasSavedFbo) {
+                    GLES30.glGetIntegerv(GLES30.GL_READ_FRAMEBUFFER_BINDING, prevReadFbo, 0)
+                    GLES30.glGetIntegerv(GLES30.GL_DRAW_FRAMEBUFFER_BINDING, prevDrawFbo, 0)
+                    hasSavedFbo = true
+                }
+                val snapshotEntry = GlTexturePool.acquire()
+                GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, tile.fboId)
+                GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, snapshotEntry.fboId)
+                GLES30.glBlitFramebuffer(
+                    0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+                    0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+                    GLES30.GL_COLOR_BUFFER_BIT,
+                    GLES30.GL_NEAREST
+                )
+                pendingPreStrokeGpu[key] = snapshotEntry
+            } else {
+                pendingPreStrokeGpu[key] = null
+            }
+        }
+
+        if (hasSavedFbo) {
+            GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, prevReadFbo[0])
+            GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, prevDrawFbo[0])
         }
     }
 
@@ -113,103 +146,266 @@ class UndoManager(val maxHistorySize: Int = 30) {
      */
     fun registerPreModifiedTile(layerId: Long, coord: TileCoord, rawBytes: ByteArray?) {
         val key = layerId to coord
-        if (!pendingPreStrokeRaw.containsKey(key)) {
+        if (!pendingPreStrokeRaw.containsKey(key) && !pendingPreStrokeGpu.containsKey(key)) {
             pendingPreStrokeRaw[key] = rawBytes
         }
+    }
+
+    /**
+     * Clears and recycles all pending pre-stroke snapshots without pushing to undo stack.
+     */
+    fun clearPending() {
+        for ((_, entry) in pendingPreStrokeGpu) {
+            if (entry != null) {
+                GlTexturePool.release(entry.textureId, entry.fboId)
+            }
+        }
+        pendingPreStrokeGpu.clear()
+        pendingPreStrokeRaw.clear()
     }
 
     /**
      * Call after stamping stroke dabs or committing a multi-layer action to finalize the stroke command into the undo stack.
      */
     fun commitMultiLayerStroke(layers: Collection<Pair<Long, TileMap>>) {
-        if (pendingPreStrokeRaw.isEmpty()) return
+        if (pendingPreStrokeRaw.isEmpty() && pendingPreStrokeGpu.isEmpty()) return
 
         val layerMap = layers.associate { it.first to it.second }
         val deltas = mutableListOf<TileDelta>()
-        val iter = pendingPreStrokeRaw.iterator()
-        while (iter.hasNext()) {
-            val entry = iter.next()
-            val (entryLayerId, coord) = entry.key
-            val tileMap = layerMap[entryLayerId] ?: continue
 
-            val beforeRaw = entry.value
-            val tile = tileMap.getExistingTile(coord.tx, coord.ty)
-            val afterRaw = if (tile != null && tile.isInitialized && tile.hasContent) {
-                tile.readPixels()
-            } else {
-                null
+        val prevFbo = IntArray(1)
+        var fboSaved = false
+
+        try {
+            // 1. Process GPU snapshots acquired during brush drawing
+            if (pendingPreStrokeGpu.isNotEmpty()) {
+                val hasGpuSnapshots = pendingPreStrokeGpu.values.any { it != null }
+                if (hasGpuSnapshots) {
+                    GLES30.glGetIntegerv(GLES30.GL_FRAMEBUFFER_BINDING, prevFbo, 0)
+                    fboSaved = true
+                }
+
+                val gpuIter = pendingPreStrokeGpu.iterator()
+                while (gpuIter.hasNext()) {
+                    val entry = gpuIter.next()
+                    val (entryLayerId, coord) = entry.key
+                    val snapshotEntry = entry.value
+                    val tileMap = layerMap[entryLayerId]
+                    val tile = tileMap?.getExistingTile(coord.tx, coord.ty)
+
+                    val hasBefore = snapshotEntry != null
+                    val hasAfter = tile != null && tile.isInitialized && tile.hasContent
+
+                    if (hasBefore && hasAfter) {
+                        DirectBufferPool.useBuffer { beforeBuf ->
+                            DirectBufferPool.useBuffer { afterBuf ->
+                                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, snapshotEntry!!.fboId)
+                                GLES30.glReadPixels(
+                                    0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+                                    GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, beforeBuf
+                                )
+                                beforeBuf.rewind()
+
+                                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, tile!!.fboId)
+                                GLES30.glReadPixels(
+                                    0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+                                    GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, afterBuf
+                                )
+                                afterBuf.rewind()
+
+                                GlTexturePool.release(snapshotEntry.textureId, snapshotEntry.fboId)
+
+                                val dirtyRect = if (MiltonNative.isLoaded) {
+                                    MiltonNative.computeDirtyRectDirect(beforeBuf, afterBuf)
+                                } else null
+
+                                if (dirtyRect != null && dirtyRect.size == 4) {
+                                    val minX = dirtyRect[0]
+                                    val minY = dirtyRect[1]
+                                    val width = dirtyRect[2]
+                                    val height = dirtyRect[3]
+
+                                    if (width > 0 && height > 0) {
+                                        val beforePatch = MiltonNative.createSubTilePatchDirect(
+                                            beforeBuf, minX, minY, width, height
+                                        )
+                                        val afterPatch = MiltonNative.createSubTilePatchDirect(
+                                            afterBuf, minX, minY, width, height
+                                        )
+                                        val fullAfter = compress(afterBuf)
+                                        deltas.add(
+                                            TileDelta(
+                                                layerId = entryLayerId,
+                                                coord = coord,
+                                                beforeCompressed = beforePatch,
+                                                afterCompressed = afterPatch,
+                                                minX = minX,
+                                                minY = minY,
+                                                patchWidth = width,
+                                                patchHeight = height,
+                                                fullAfterForAutosave = fullAfter
+                                            )
+                                        )
+                                    }
+                                } else {
+                                    val beforeFull = compress(beforeBuf)
+                                    val afterFull = compress(afterBuf)
+                                    deltas.add(
+                                        TileDelta(
+                                            layerId = entryLayerId,
+                                            coord = coord,
+                                            beforeCompressed = beforeFull,
+                                            afterCompressed = afterFull,
+                                            fullAfterForAutosave = afterFull
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    } else if (!hasBefore && hasAfter) {
+                        DirectBufferPool.useBuffer { afterBuf ->
+                            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, tile!!.fboId)
+                            GLES30.glReadPixels(
+                                0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+                                GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, afterBuf
+                            )
+                            afterBuf.rewind()
+                            val fullAfter = compress(afterBuf)
+                            deltas.add(
+                                TileDelta(
+                                    layerId = entryLayerId,
+                                    coord = coord,
+                                    beforeCompressed = null,
+                                    afterCompressed = fullAfter,
+                                    fullAfterForAutosave = fullAfter
+                                )
+                            )
+                        }
+                    } else if (hasBefore && !hasAfter) {
+                        DirectBufferPool.useBuffer { beforeBuf ->
+                            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, snapshotEntry!!.fboId)
+                            GLES30.glReadPixels(
+                                0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+                                GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, beforeBuf
+                            )
+                            beforeBuf.rewind()
+                            val fullBefore = compress(beforeBuf)
+                            deltas.add(
+                                TileDelta(
+                                    layerId = entryLayerId,
+                                    coord = coord,
+                                    beforeCompressed = fullBefore,
+                                    afterCompressed = null,
+                                    fullAfterForAutosave = null
+                                )
+                            )
+                        }
+                        GlTexturePool.release(snapshotEntry!!.textureId, snapshotEntry.fboId)
+                    }
+                    gpuIter.remove()
+                }
             }
 
-            if (beforeRaw != null && afterRaw != null) {
-                val dirtyRect = if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
-                    app.goodboy13.milton.core.native.MiltonNative.computeDirtyRect(beforeRaw, afterRaw)
-                } else null
+            // 2. Process direct byte snapshots (from Liquify / SelectionTransform)
+            if (pendingPreStrokeRaw.isNotEmpty()) {
+                val rawIter = pendingPreStrokeRaw.iterator()
+                while (rawIter.hasNext()) {
+                    val entry = rawIter.next()
+                    val (entryLayerId, coord) = entry.key
+                    val tileMap = layerMap[entryLayerId] ?: continue
 
-                if (dirtyRect != null && dirtyRect.size == 4) {
-                    val minX = dirtyRect[0]
-                    val minY = dirtyRect[1]
-                    val width = dirtyRect[2]
-                    val height = dirtyRect[3]
+                    val beforeRaw = entry.value
+                    val tile = tileMap.getExistingTile(coord.tx, coord.ty)
+                    val afterRaw = if (tile != null && tile.isInitialized && tile.hasContent) {
+                        tile.readPixels()
+                    } else {
+                        null
+                    }
 
-                    if (width > 0 && height > 0) {
-                        val beforePatch = app.goodboy13.milton.core.native.MiltonNative.createSubTilePatch(
-                            beforeRaw, minX, minY, width, height
-                        )
-                        val afterPatch = app.goodboy13.milton.core.native.MiltonNative.createSubTilePatch(
-                            afterRaw, minX, minY, width, height
-                        )
+                    if (beforeRaw != null && afterRaw != null) {
+                        val dirtyRect = if (MiltonNative.isLoaded) {
+                            MiltonNative.computeDirtyRect(beforeRaw, afterRaw)
+                        } else null
+
+                        if (dirtyRect != null && dirtyRect.size == 4) {
+                            val minX = dirtyRect[0]
+                            val minY = dirtyRect[1]
+                            val width = dirtyRect[2]
+                            val height = dirtyRect[3]
+
+                            if (width > 0 && height > 0) {
+                                val beforePatch = MiltonNative.createSubTilePatch(
+                                    beforeRaw, minX, minY, width, height
+                                )
+                                val afterPatch = MiltonNative.createSubTilePatch(
+                                    afterRaw, minX, minY, width, height
+                                )
+                                val fullAfter = compress(afterRaw)
+                                deltas.add(
+                                    TileDelta(
+                                        layerId = entryLayerId,
+                                        coord = coord,
+                                        beforeCompressed = beforePatch,
+                                        afterCompressed = afterPatch,
+                                        minX = minX,
+                                        minY = minY,
+                                        patchWidth = width,
+                                        patchHeight = height,
+                                        fullAfterForAutosave = fullAfter
+                                    )
+                                )
+                            }
+                        } else {
+                            val beforeFull = compress(beforeRaw)
+                            val afterFull = compress(afterRaw)
+                            deltas.add(
+                                TileDelta(
+                                    layerId = entryLayerId,
+                                    coord = coord,
+                                    beforeCompressed = beforeFull,
+                                    afterCompressed = afterFull,
+                                    fullAfterForAutosave = afterFull
+                                )
+                            )
+                        }
+                    } else if (beforeRaw == null && afterRaw != null) {
                         val fullAfter = compress(afterRaw)
                         deltas.add(
                             TileDelta(
                                 layerId = entryLayerId,
                                 coord = coord,
-                                beforeCompressed = beforePatch,
-                                afterCompressed = afterPatch,
-                                minX = minX,
-                                minY = minY,
-                                patchWidth = width,
-                                patchHeight = height,
+                                beforeCompressed = null,
+                                afterCompressed = fullAfter,
                                 fullAfterForAutosave = fullAfter
                             )
                         )
-                    }
-                } else {
-                    val beforeFull = compress(beforeRaw)
-                    val afterFull = compress(afterRaw)
-                    deltas.add(
-                        TileDelta(
-                            layerId = entryLayerId,
-                            coord = coord,
-                            beforeCompressed = beforeFull,
-                            afterCompressed = afterFull,
-                            fullAfterForAutosave = afterFull
+                    } else if (beforeRaw != null && afterRaw == null) {
+                        val fullBefore = compress(beforeRaw)
+                        deltas.add(
+                            TileDelta(
+                                layerId = entryLayerId,
+                                coord = coord,
+                                beforeCompressed = fullBefore,
+                                afterCompressed = null,
+                                fullAfterForAutosave = null
+                            )
                         )
-                    )
+                    }
+                    rawIter.remove()
                 }
-            } else if (beforeRaw == null && afterRaw != null) {
-                val fullAfter = compress(afterRaw)
-                deltas.add(
-                    TileDelta(
-                        layerId = entryLayerId,
-                        coord = coord,
-                        beforeCompressed = null,
-                        afterCompressed = fullAfter,
-                        fullAfterForAutosave = fullAfter
-                    )
-                )
-            } else if (beforeRaw != null && afterRaw == null) {
-                val fullBefore = compress(beforeRaw)
-                deltas.add(
-                    TileDelta(
-                        layerId = entryLayerId,
-                        coord = coord,
-                        beforeCompressed = fullBefore,
-                        afterCompressed = null,
-                        fullAfterForAutosave = null
-                    )
-                )
             }
-            iter.remove()
+        } finally {
+            if (fboSaved) {
+                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, prevFbo[0])
+            }
+            // Safely release any lingering GPU entries if an exception occurred
+            for ((_, entry) in pendingPreStrokeGpu) {
+                if (entry != null) {
+                    GlTexturePool.release(entry.textureId, entry.fboId)
+                }
+            }
+            pendingPreStrokeGpu.clear()
+            pendingPreStrokeRaw.clear()
         }
 
         if (deltas.isEmpty()) return
@@ -253,6 +449,77 @@ class UndoManager(val maxHistorySize: Int = 30) {
         onStateChangedListener?.invoke()
     }
 
+    private fun applyDelta(
+        tile: RasterTile,
+        cacheDir: java.io.File?,
+        targetCompressed: ByteArray?,
+        oppositeCompressed: ByteArray?,
+        delta: TileDelta,
+        isUndo: Boolean
+    ): TileDelta {
+        tile.ensureResident(cacheDir)
+        if (targetCompressed != null) {
+            if (delta.isSubTile && MiltonNative.isLoaded) {
+                var applied = false
+                var fullAutosaveTile: ByteArray? = null
+                DirectBufferPool.useBuffer { directBuf ->
+                    tile.readPixelsDirect(directBuf)
+                    val ok = MiltonNative.applySubTilePatchDirect(
+                        directBuf, targetCompressed,
+                        delta.minX, delta.minY, delta.patchWidth, delta.patchHeight
+                    )
+                    if (ok) {
+                        tile.writePixelsDirect(directBuf)
+                        tile.hasContent = true
+                        fullAutosaveTile = compress(directBuf)
+                        applied = true
+                    }
+                }
+                if (applied) {
+                    return TileDelta(
+                        layerId = delta.layerId,
+                        coord = delta.coord,
+                        beforeCompressed = if (isUndo) delta.afterCompressed else delta.beforeCompressed,
+                        afterCompressed = targetCompressed,
+                        minX = delta.minX,
+                        minY = delta.minY,
+                        patchWidth = delta.patchWidth,
+                        patchHeight = delta.patchHeight,
+                        fullAfterForAutosave = fullAutosaveTile
+                    )
+                }
+            }
+            // Full tile decompression
+            DirectBufferPool.useBuffer { decompressedBuf ->
+                if (decompressDirect(targetCompressed, decompressedBuf)) {
+                    tile.writePixelsDirect(decompressedBuf)
+                    tile.hasContent = true
+                } else {
+                    val decompressed = decompress(targetCompressed)
+                    tile.writePixels(decompressed)
+                    tile.hasContent = true
+                }
+            }
+            return TileDelta(
+                layerId = delta.layerId,
+                coord = delta.coord,
+                beforeCompressed = if (isUndo) delta.afterCompressed else delta.beforeCompressed,
+                afterCompressed = targetCompressed,
+                fullAfterForAutosave = targetCompressed
+            )
+        } else {
+            tile.clear()
+            tile.deleteDiskSwap(cacheDir)
+            return TileDelta(
+                layerId = delta.layerId,
+                coord = delta.coord,
+                beforeCompressed = oppositeCompressed,
+                afterCompressed = null,
+                fullAfterForAutosave = null
+            )
+        }
+    }
+
     /**
      * Reverts the most recent stroke or layer operation across layers. Must be executed on the GL thread.
      */
@@ -267,73 +534,15 @@ class UndoManager(val maxHistorySize: Int = 30) {
                 for (delta in command.deltas) {
                     val layer = layerManager.getLayer(delta.layerId) ?: continue
                     val tile = layer.tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
-                    tile.ensureResident(layer.tileMap.cacheDir)
-                    val before = delta.beforeCompressed
-                    if (before != null) {
-                        if (delta.isSubTile && app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
-                            val currentPixels = tile.readPixels()
-                            val ok = app.goodboy13.milton.core.native.MiltonNative.applySubTilePatch(
-                                currentPixels, before,
-                                delta.minX, delta.minY, delta.patchWidth, delta.patchHeight
-                            )
-                            if (ok) {
-                                tile.writePixels(currentPixels)
-                                tile.hasContent = true
-                                val fullTile = compress(currentPixels)
-                                deltasForAutosave.add(
-                                    TileDelta(
-                                        layerId = delta.layerId,
-                                        coord = delta.coord,
-                                        beforeCompressed = delta.afterCompressed,
-                                        afterCompressed = delta.beforeCompressed,
-                                        minX = delta.minX,
-                                        minY = delta.minY,
-                                        patchWidth = delta.patchWidth,
-                                        patchHeight = delta.patchHeight,
-                                        fullAfterForAutosave = fullTile
-                                    )
-                                )
-                            } else {
-                                val decompressed = decompress(before)
-                                tile.writePixels(decompressed)
-                                tile.hasContent = true
-                                deltasForAutosave.add(
-                                    TileDelta(
-                                        layerId = delta.layerId,
-                                        coord = delta.coord,
-                                        beforeCompressed = delta.afterCompressed,
-                                        afterCompressed = before,
-                                        fullAfterForAutosave = before
-                                    )
-                                )
-                            }
-                        } else {
-                            val decompressed = decompress(before)
-                            tile.writePixels(decompressed)
-                            tile.hasContent = true
-                            deltasForAutosave.add(
-                                TileDelta(
-                                    layerId = delta.layerId,
-                                    coord = delta.coord,
-                                    beforeCompressed = delta.afterCompressed,
-                                    afterCompressed = before,
-                                    fullAfterForAutosave = before
-                                )
-                            )
-                        }
-                    } else {
-                        tile.clear()
-                        tile.deleteDiskSwap(layer.tileMap.cacheDir)
-                        deltasForAutosave.add(
-                            TileDelta(
-                                layerId = delta.layerId,
-                                coord = delta.coord,
-                                beforeCompressed = delta.afterCompressed,
-                                afterCompressed = null,
-                                fullAfterForAutosave = null
-                            )
-                        )
-                    }
+                    val committedDelta = applyDelta(
+                        tile = tile,
+                        cacheDir = layer.tileMap.cacheDir,
+                        targetCompressed = delta.beforeCompressed,
+                        oppositeCompressed = delta.afterCompressed,
+                        delta = delta,
+                        isUndo = true
+                    )
+                    deltasForAutosave.add(committedDelta)
                 }
                 synchronized(lock) { redoStack.push(command) }
                 onStateChangedListener?.invoke()
@@ -363,8 +572,14 @@ class UndoManager(val maxHistorySize: Int = 30) {
                 )
                 for ((coord, compressed) in command.tilesSnapshot) {
                     val tile = restoredLayer.tileMap.getOrCreateTile(coord.tx, coord.ty)
-                    val raw = decompress(compressed)
-                    tile.writePixels(raw)
+                    DirectBufferPool.useBuffer { decompressedBuf ->
+                        if (decompressDirect(compressed, decompressedBuf)) {
+                            tile.writePixelsDirect(decompressedBuf)
+                        } else {
+                            val raw = decompress(compressed)
+                            tile.writePixels(raw)
+                        }
+                    }
                     tile.hasContent = true
                 }
                 layerManager.selectLayer(command.activeLayerIdBefore)
@@ -390,75 +605,16 @@ class UndoManager(val maxHistorySize: Int = 30) {
         val deltasForAutosave = mutableListOf<TileDelta>()
         for (delta in command.deltas) {
             val tile = tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
-            tile.ensureResident(tileMap.cacheDir)
-            val before = delta.beforeCompressed
-            if (before != null) {
-                if (delta.isSubTile && app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
-                    val currentPixels = tile.readPixels()
-                    val ok = app.goodboy13.milton.core.native.MiltonNative.applySubTilePatch(
-                        currentPixels, before,
-                        delta.minX, delta.minY, delta.patchWidth, delta.patchHeight
-                    )
-                    if (ok) {
-                        tile.writePixels(currentPixels)
-                        tile.hasContent = true
-                        val fullTile = compress(currentPixels)
-                        deltasForAutosave.add(
-                            TileDelta(
-                                layerId = delta.layerId,
-                                coord = delta.coord,
-                                beforeCompressed = delta.afterCompressed,
-                                afterCompressed = delta.beforeCompressed,
-                                minX = delta.minX,
-                                minY = delta.minY,
-                                patchWidth = delta.patchWidth,
-                                patchHeight = delta.patchHeight,
-                                fullAfterForAutosave = fullTile
-                            )
-                        )
-                    } else {
-                        val decompressed = decompress(before)
-                        tile.writePixels(decompressed)
-                        tile.hasContent = true
-                        deltasForAutosave.add(
-                            TileDelta(
-                                layerId = delta.layerId,
-                                coord = delta.coord,
-                                beforeCompressed = delta.afterCompressed,
-                                afterCompressed = before,
-                                fullAfterForAutosave = before
-                            )
-                        )
-                    }
-                } else {
-                    val decompressed = decompress(before)
-                    tile.writePixels(decompressed)
-                    tile.hasContent = true
-                    deltasForAutosave.add(
-                        TileDelta(
-                            layerId = delta.layerId,
-                            coord = delta.coord,
-                            beforeCompressed = delta.afterCompressed,
-                            afterCompressed = before,
-                            fullAfterForAutosave = before
-                        )
-                    )
-                }
-            } else {
-                tile.clear()
-                tile.deleteDiskSwap(tileMap.cacheDir)
-                deltasForAutosave.add(
-                    TileDelta(
-                        layerId = delta.layerId,
-                        coord = delta.coord,
-                        beforeCompressed = delta.afterCompressed,
-                        afterCompressed = null,
-                        fullAfterForAutosave = null
-                    )
-                )
-            }
+            val committedDelta = applyDelta(
+                tile = tile,
+                cacheDir = tileMap.cacheDir,
+                targetCompressed = delta.beforeCompressed,
+                oppositeCompressed = delta.afterCompressed,
+                delta = delta,
+                isUndo = true
+            )
+            deltasForAutosave.add(committedDelta)
         }
-
         synchronized(lock) { redoStack.push(command) }
         onStateChangedListener?.invoke()
         onTilesCommittedListener?.invoke(deltasForAutosave)
@@ -482,73 +638,15 @@ class UndoManager(val maxHistorySize: Int = 30) {
                 for (delta in command.deltas) {
                     val layer = layerManager.getLayer(delta.layerId) ?: continue
                     val tile = layer.tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
-                    tile.ensureResident(layer.tileMap.cacheDir)
-                    val after = delta.afterCompressed
-                    if (after != null) {
-                        if (delta.isSubTile && app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
-                            val currentPixels = tile.readPixels()
-                            val ok = app.goodboy13.milton.core.native.MiltonNative.applySubTilePatch(
-                                currentPixels, after,
-                                delta.minX, delta.minY, delta.patchWidth, delta.patchHeight
-                            )
-                            if (ok) {
-                                tile.writePixels(currentPixels)
-                                tile.hasContent = true
-                                val fullTile = compress(currentPixels)
-                                deltasForAutosave.add(
-                                    TileDelta(
-                                        layerId = delta.layerId,
-                                        coord = delta.coord,
-                                        beforeCompressed = delta.beforeCompressed,
-                                        afterCompressed = delta.afterCompressed,
-                                        minX = delta.minX,
-                                        minY = delta.minY,
-                                        patchWidth = delta.patchWidth,
-                                        patchHeight = delta.patchHeight,
-                                        fullAfterForAutosave = fullTile
-                                    )
-                                )
-                            } else {
-                                val decompressed = decompress(after)
-                                tile.writePixels(decompressed)
-                                tile.hasContent = true
-                                deltasForAutosave.add(
-                                    TileDelta(
-                                        layerId = delta.layerId,
-                                        coord = delta.coord,
-                                        beforeCompressed = delta.beforeCompressed,
-                                        afterCompressed = after,
-                                        fullAfterForAutosave = after
-                                    )
-                                )
-                            }
-                        } else {
-                            val decompressed = decompress(after)
-                            tile.writePixels(decompressed)
-                            tile.hasContent = true
-                            deltasForAutosave.add(
-                                TileDelta(
-                                    layerId = delta.layerId,
-                                    coord = delta.coord,
-                                    beforeCompressed = delta.beforeCompressed,
-                                    afterCompressed = after,
-                                    fullAfterForAutosave = after
-                                )
-                            )
-                        }
-                    } else {
-                        tile.clear()
-                        tile.deleteDiskSwap(layer.tileMap.cacheDir)
-                        deltasForAutosave.add(
-                            TileDelta(
-                                layerId = delta.layerId,
-                                coord = delta.coord,
-                                beforeCompressed = delta.beforeCompressed,
-                                afterCompressed = null,
-                                fullAfterForAutosave = null
-                            )
-                        )
-                    }
+                    val committedDelta = applyDelta(
+                        tile = tile,
+                        cacheDir = layer.tileMap.cacheDir,
+                        targetCompressed = delta.afterCompressed,
+                        oppositeCompressed = delta.beforeCompressed,
+                        delta = delta,
+                        isUndo = false
+                    )
+                    deltasForAutosave.add(committedDelta)
                 }
                 synchronized(lock) { undoStack.push(command) }
                 onStateChangedListener?.invoke()
@@ -598,75 +696,16 @@ class UndoManager(val maxHistorySize: Int = 30) {
         val deltasForAutosave = mutableListOf<TileDelta>()
         for (delta in command.deltas) {
             val tile = tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
-            tile.ensureResident(tileMap.cacheDir)
-            val after = delta.afterCompressed
-            if (after != null) {
-                if (delta.isSubTile && app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
-                    val currentPixels = tile.readPixels()
-                    val ok = app.goodboy13.milton.core.native.MiltonNative.applySubTilePatch(
-                        currentPixels, after,
-                        delta.minX, delta.minY, delta.patchWidth, delta.patchHeight
-                    )
-                    if (ok) {
-                        tile.writePixels(currentPixels)
-                        tile.hasContent = true
-                        val fullTile = compress(currentPixels)
-                        deltasForAutosave.add(
-                            TileDelta(
-                                layerId = delta.layerId,
-                                coord = delta.coord,
-                                beforeCompressed = delta.beforeCompressed,
-                                afterCompressed = delta.afterCompressed,
-                                minX = delta.minX,
-                                minY = delta.minY,
-                                patchWidth = delta.patchWidth,
-                                patchHeight = delta.patchHeight,
-                                fullAfterForAutosave = fullTile
-                            )
-                        )
-                    } else {
-                        val decompressed = decompress(after)
-                        tile.writePixels(decompressed)
-                        tile.hasContent = true
-                        deltasForAutosave.add(
-                            TileDelta(
-                                layerId = delta.layerId,
-                                coord = delta.coord,
-                                beforeCompressed = delta.beforeCompressed,
-                                afterCompressed = after,
-                                fullAfterForAutosave = after
-                            )
-                        )
-                    }
-                } else {
-                    val decompressed = decompress(after)
-                    tile.writePixels(decompressed)
-                    tile.hasContent = true
-                    deltasForAutosave.add(
-                        TileDelta(
-                            layerId = delta.layerId,
-                            coord = delta.coord,
-                            beforeCompressed = delta.beforeCompressed,
-                            afterCompressed = after,
-                            fullAfterForAutosave = after
-                        )
-                    )
-                }
-            } else {
-                tile.clear()
-                tile.deleteDiskSwap(tileMap.cacheDir)
-                deltasForAutosave.add(
-                    TileDelta(
-                        layerId = delta.layerId,
-                        coord = delta.coord,
-                        beforeCompressed = delta.beforeCompressed,
-                        afterCompressed = null,
-                        fullAfterForAutosave = null
-                    )
-                )
-            }
+            val committedDelta = applyDelta(
+                tile = tile,
+                cacheDir = tileMap.cacheDir,
+                targetCompressed = delta.afterCompressed,
+                oppositeCompressed = delta.beforeCompressed,
+                delta = delta,
+                isUndo = false
+            )
+            deltasForAutosave.add(committedDelta)
         }
-
         synchronized(lock) { undoStack.push(command) }
         onStateChangedListener?.invoke()
         onTilesCommittedListener?.invoke(deltasForAutosave)
@@ -680,16 +719,16 @@ class UndoManager(val maxHistorySize: Int = 30) {
         synchronized(lock) {
             undoStack.clear()
             redoStack.clear()
-            pendingPreStrokeRaw.clear()
+            clearPending()
         }
         onStateChangedListener?.invoke()
     }
 
     companion object {
         fun compress(input: ByteArray): ByteArray {
-            if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
+            if (MiltonNative.isLoaded) {
                 try {
-                    val result = app.goodboy13.milton.core.native.MiltonNative.compressTile(input)
+                    val result = MiltonNative.compressTile(input)
                     if (result.isNotEmpty()) return result
                 } catch (e: Throwable) {
                     // Fall back to Java Deflater
@@ -709,10 +748,26 @@ class UndoManager(val maxHistorySize: Int = 30) {
             return bos.toByteArray()
         }
 
-        fun decompress(input: ByteArray): ByteArray {
-            if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
+        fun compress(directBuf: ByteBuffer): ByteArray {
+            if (MiltonNative.isLoaded) {
                 try {
-                    val result = app.goodboy13.milton.core.native.MiltonNative.decompressTile(input)
+                    val result = MiltonNative.compressTileDirect(directBuf)
+                    if (result.isNotEmpty()) return result
+                } catch (e: Throwable) {
+                    // Fall back to heap array
+                }
+            }
+            val arr = ByteArray(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4)
+            directBuf.position(0)
+            directBuf.get(arr)
+            directBuf.rewind()
+            return compress(arr)
+        }
+
+        fun decompress(input: ByteArray): ByteArray {
+            if (MiltonNative.isLoaded) {
+                try {
+                    val result = MiltonNative.decompressTile(input)
                     if (result.isNotEmpty()) return result
                 } catch (e: Throwable) {
                     // Fall back to Java Inflater
@@ -735,6 +790,23 @@ class UndoManager(val maxHistorySize: Int = 30) {
                 inflater.end()
             }
             return bos.toByteArray()
+        }
+
+        fun decompressDirect(input: ByteArray, outDirectBuf: ByteBuffer): Boolean {
+            if (MiltonNative.isLoaded) {
+                try {
+                    if (MiltonNative.decompressTileDirect(input, outDirectBuf)) {
+                        return true
+                    }
+                } catch (e: Throwable) {
+                    // Fall back
+                }
+            }
+            val raw = decompress(input)
+            outDirectBuf.clear()
+            outDirectBuf.put(raw)
+            outDirectBuf.rewind()
+            return true
         }
     }
 }

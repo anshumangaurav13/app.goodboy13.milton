@@ -52,4 +52,31 @@ class UndoManagerTest {
         // Empty tile with no content changes must not push a command to the undo stack
         org.junit.Assert.assertFalse(undoManager.canUndo)
     }
+
+    @Test
+    fun testDirectBufferCompressionDecompressionRoundTrip() {
+        val size = 512 * 512 * 4
+        val directIn = java.nio.ByteBuffer.allocateDirect(size)
+        val directOut = java.nio.ByteBuffer.allocateDirect(size)
+        val testData = ByteArray(size)
+        for (i in 0 until 5000) {
+            testData[i * 4] = 200.toByte()
+            testData[i * 4 + 1] = 150.toByte()
+            testData[i * 4 + 2] = 100.toByte()
+            testData[i * 4 + 3] = 255.toByte()
+        }
+        directIn.put(testData)
+        directIn.rewind()
+
+        val compressed = UndoManager.compress(directIn)
+        assertTrue(compressed.isNotEmpty())
+        assertTrue(compressed.size < 50_000)
+
+        val ok = UndoManager.decompressDirect(compressed, directOut)
+        assertTrue(ok)
+        val outBytes = ByteArray(size)
+        directOut.position(0)
+        directOut.get(outBytes)
+        assertArrayEquals(testData, outBytes)
+    }
 }
