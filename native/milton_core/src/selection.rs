@@ -451,13 +451,16 @@ pub struct SelectionSession {
 
 static SELECTION_SESSION: Mutex<Option<SelectionSession>> = Mutex::new(None);
 
-pub fn session_begin(points: Vec<Point2D>) {
+pub fn session_begin(points: Vec<Point2D>, custom_bounds: Option<RectF>) {
     let mut guard = match SELECTION_SESSION.lock() {
         Ok(g) => g,
         Err(poisoned) => poisoned.into_inner(),
     };
     let poly = Polygon::new(points);
-    let bounds = poly.bounds;
+    let bounds = match custom_bounds {
+        Some(b) if b.max_x > b.min_x && b.max_y > b.min_y => b,
+        _ => poly.bounds,
+    };
     *guard = Some(SelectionSession {
         polygon: poly,
         src_bounds: bounds,
@@ -465,10 +468,19 @@ pub fn session_begin(points: Vec<Point2D>) {
     });
 }
 
-/// Cuts out pixels inside the lasso polygon from tile_rgba (mutated in-place: cut pixels cleared to 0).
+/// Cuts out pixels inside the lasso polygon from tile_rgba (mutated in-place: cut pixels cleared to 0)
+/// when for_liquify is false.
+/// When for_liquify is true, performs non-destructive capture: preserves tile_rgba in-place and copies
+/// full tile contents into cutout_rgba (accounting for OpenGL bottom-up storage), eliminating edge seams.
 /// Stores the cutout tile in the native session outside Java heap.
-/// Returns true if any painted (non-transparent) pixel was cut.
-pub fn session_cut_tile(layer_id: i64, tx: i32, ty: i32, tile_rgba: &mut [u8]) -> bool {
+/// Returns true if any painted (non-transparent) pixel was present.
+pub fn session_cut_tile(
+    layer_id: i64,
+    tx: i32,
+    ty: i32,
+    tile_rgba: &mut [u8],
+    for_liquify: bool,
+) -> bool {
     if tile_rgba.len() < TILE_BYTES {
         return false;
     }
@@ -488,53 +500,65 @@ pub fn session_cut_tile(layer_id: i64, tx: i32, ty: i32, tile_rgba: &mut [u8]) -
         None => return false,
     };
 
-    // 2. Rasterize polygon mask for this tile
-    let tile_world_x = tx as f32 * TILE_SIZE as f32;
-    let tile_world_y = ty as f32 * TILE_SIZE as f32;
-    let mask = match session.polygon.rasterize_tile_mask(tile_world_x, tile_world_y) {
-        Some(m) => m,
-        None => return false,
-    };
-
-    // 3. Check if any non-transparent pixel in tile_rgba falls inside the mask
-    let mut has_selected_pixel = false;
-    for py in 0..TILE_SIZE {
-        let gl_ty = (TILE_SIZE - 1) - py;
-        let tile_row = gl_ty * TILE_SIZE * 4;
-        let mask_row = py * TILE_SIZE;
-        for px in 0..TILE_SIZE {
-            if mask[mask_row + px] > 0 {
-                let t_idx = tile_row + px * 4;
-                if tile_rgba[t_idx + 3] > 0 {
-                    has_selected_pixel = true;
-                    break;
-                }
-            }
-        }
-        if has_selected_pixel {
-            break;
-        }
-    }
-
-    if !has_selected_pixel {
-        return false;
-    }
-
-    // 4. Extract cutouts and clear pixels in tile_rgba
     let orig_rgba = tile_rgba.to_vec();
     let mut cutout_rgba = vec![0u8; TILE_BYTES];
 
-    for py in 0..TILE_SIZE {
-        let gl_ty = (TILE_SIZE - 1) - py;
-        let tile_row = gl_ty * TILE_SIZE * 4;
-        let mask_row = py * TILE_SIZE;
-        let cutout_row = py * TILE_SIZE * 4;
-        for px in 0..TILE_SIZE {
-            if mask[mask_row + px] > 0 {
-                let t_idx = tile_row + px * 4;
-                let c_idx = cutout_row + px * 4;
-                cutout_rgba[c_idx..c_idx + 4].copy_from_slice(&tile_rgba[t_idx..t_idx + 4]);
-                tile_rgba[t_idx..t_idx + 4].fill(0);
+    if for_liquify {
+        // Non-destructive capture for Liquify:
+        // Do NOT mutate tile_rgba, copy entire tile contents (with OpenGL bottom-up to top-down flip)
+        for py in 0..TILE_SIZE {
+            let gl_ty = (TILE_SIZE - 1) - py;
+            let tile_row = gl_ty * TILE_SIZE * 4;
+            let cutout_row = py * TILE_SIZE * 4;
+            cutout_rgba[cutout_row..cutout_row + TILE_SIZE * 4]
+                .copy_from_slice(&tile_rgba[tile_row..tile_row + TILE_SIZE * 4]);
+        }
+    } else {
+        // 2. Rasterize polygon mask for this tile
+        let tile_world_x = tx as f32 * TILE_SIZE as f32;
+        let tile_world_y = ty as f32 * TILE_SIZE as f32;
+        let mask = match session.polygon.rasterize_tile_mask(tile_world_x, tile_world_y) {
+            Some(m) => m,
+            None => return false,
+        };
+
+        // 3. Check if any non-transparent pixel in tile_rgba falls inside the mask
+        let mut has_selected_pixel = false;
+        for py in 0..TILE_SIZE {
+            let gl_ty = (TILE_SIZE - 1) - py;
+            let tile_row = gl_ty * TILE_SIZE * 4;
+            let mask_row = py * TILE_SIZE;
+            for px in 0..TILE_SIZE {
+                if mask[mask_row + px] > 0 {
+                    let t_idx = tile_row + px * 4;
+                    if tile_rgba[t_idx + 3] > 0 {
+                        has_selected_pixel = true;
+                        break;
+                    }
+                }
+            }
+            if has_selected_pixel {
+                break;
+            }
+        }
+
+        if !has_selected_pixel {
+            return false;
+        }
+
+        // 4. Extract cutouts and clear pixels in tile_rgba
+        for py in 0..TILE_SIZE {
+            let gl_ty = (TILE_SIZE - 1) - py;
+            let tile_row = gl_ty * TILE_SIZE * 4;
+            let mask_row = py * TILE_SIZE;
+            let cutout_row = py * TILE_SIZE * 4;
+            for px in 0..TILE_SIZE {
+                if mask[mask_row + px] > 0 {
+                    let t_idx = tile_row + px * 4;
+                    let c_idx = cutout_row + px * 4;
+                    cutout_rgba[c_idx..c_idx + 4].copy_from_slice(&tile_rgba[t_idx..t_idx + 4]);
+                    tile_rgba[t_idx..t_idx + 4].fill(0);
+                }
             }
         }
     }
@@ -1109,7 +1133,7 @@ mod tests {
             Point2D { x: 10.0, y: 10.0 },
             Point2D { x: 100.0, y: 10.0 },
             Point2D { x: 50.0, y: 100.0 },
-        ]);
+        ], None);
 
         // Tile (0, 0) has a red pixel at (50, 50)
         // OpenGL bottom-up: gl_ty = 511 - 50 = 461
@@ -1118,7 +1142,7 @@ mod tests {
         tile[t_idx] = 255;
         tile[t_idx + 3] = 255;
 
-        let cut = session_cut_tile(1i64, 0, 0, &mut tile);
+        let cut = session_cut_tile(1i64, 0, 0, &mut tile, false);
         assert!(cut);
 
         // Pixel in tile must now be cleared
@@ -1142,6 +1166,47 @@ mod tests {
     }
 
     #[test]
+    fn test_selection_session_liquify_full_tile_capture() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        // Create lasso selection at (10, 10) to (50, 50), with custom tile-aligned bounds (0, 0) to (512, 512)
+        session_begin(
+            vec![
+                Point2D { x: 10.0, y: 10.0 },
+                Point2D { x: 50.0, y: 10.0 },
+                Point2D { x: 50.0, y: 50.0 },
+                Point2D { x: 10.0, y: 50.0 },
+            ],
+            Some(RectF { min_x: 0.0, min_y: 0.0, max_x: 512.0, max_y: 512.0 }),
+        );
+
+        // Tile (0, 0) has a blue pixel at (200, 200), which is OUTSIDE the lasso polygon
+        // OpenGL bottom-up: gl_ty = 511 - 200 = 311
+        let mut tile = vec![0u8; 512 * 512 * 4];
+        let t_idx = (311 * 512 + 200) * 4;
+        tile[t_idx + 2] = 255; // Blue
+        tile[t_idx + 3] = 255; // Alpha
+
+        let captured = session_cut_tile(1i64, 0, 0, &mut tile, true);
+        assert!(captured, "Tile must be captured non-destructively for Liquify");
+
+        // Pixel in tile must NOT be cleared!
+        assert_eq!(tile[t_idx + 2], 255, "Liquify capture must preserve original tile in-place");
+        assert_eq!(tile[t_idx + 3], 255);
+
+        // Preview should have the full tile resolution and include the pixel outside lasso
+        let (pw, ph, preview) = session_get_preview(1i64, 4096).expect("Preview expected");
+        assert_eq!(pw, 512);
+        assert_eq!(ph, 512);
+
+        // In top-down preview, pixel at (200, 200):
+        let p_idx = (200 * 512 + 200) * 4;
+        assert_eq!(preview[p_idx + 2], 255, "Preview must contain continuous un-cut pixels outside lasso");
+        assert_eq!(preview[p_idx + 3], 255);
+
+        session_end();
+    }
+
+    #[test]
     fn test_selection_session_transform_blit() {
         let _lock = TEST_LOCK.lock().unwrap();
         // Select square (10, 10) to (50, 50)
@@ -1150,7 +1215,7 @@ mod tests {
             Point2D { x: 50.0, y: 10.0 },
             Point2D { x: 50.0, y: 50.0 },
             Point2D { x: 10.0, y: 50.0 },
-        ]);
+        ], None);
 
         // Tile (0, 0) with green pixel at (20, 20)
         // gl_ty = 511 - 20 = 491
@@ -1159,7 +1224,7 @@ mod tests {
         tile[t_idx + 1] = 255;
         tile[t_idx + 3] = 255;
 
-        assert!(session_cut_tile(1, 0, 0, &mut tile));
+        assert!(session_cut_tile(1, 0, 0, &mut tile, false));
 
         // Affected dest tiles with translation (100, 100)
         let dest_tiles = session_get_affected_dest_tiles(

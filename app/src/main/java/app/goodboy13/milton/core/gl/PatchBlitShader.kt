@@ -331,6 +331,8 @@ class PatchBlitShader {
             )
 
             tile.bindFboDirect()
+            GLES30.glClearColor(0f, 0f, 0f, 0f)
+            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
             GLES30.glUniformMatrix4fv(uMvpMatrixLoc, 1, false, tileMvp, 0)
             GLES30.glDrawElements(GLES30.GL_TRIANGLES, MESH_INDEX_COUNT, GLES30.GL_UNSIGNED_SHORT, 0)
 

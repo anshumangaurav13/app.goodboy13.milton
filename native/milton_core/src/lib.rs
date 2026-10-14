@@ -809,6 +809,10 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_select
     _class: JClass<'local>,
     points_x: JFloatArray<'local>,
     points_y: JFloatArray<'local>,
+    bounds_left: jfloat,
+    bounds_top: jfloat,
+    bounds_right: jfloat,
+    bounds_bottom: jfloat,
 ) -> jboolean {
     let len_x = match env.get_array_length(&points_x) {
         Ok(l) => l as usize,
@@ -837,7 +841,18 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_select
         .map(|(x, y)| selection::Point2D { x, y })
         .collect();
 
-    selection::session_begin(points);
+    let custom_bounds = if bounds_right > bounds_left && bounds_bottom > bounds_top {
+        Some(selection::RectF {
+            min_x: bounds_left as f32,
+            min_y: bounds_top as f32,
+            max_x: bounds_right as f32,
+            max_y: bounds_bottom as f32,
+        })
+    } else {
+        None
+    };
+
+    selection::session_begin(points, custom_bounds);
     JNI_TRUE
 }
 
@@ -849,20 +864,23 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_select
     tx: jint,
     ty: jint,
     tile_rgba: JByteArray<'local>,
+    for_liquify: jboolean,
 ) -> jboolean {
     let mut tile = match env.convert_byte_array(&tile_rgba) {
         Ok(b) => b,
         Err(_) => return JNI_FALSE,
     };
 
-    if selection::session_cut_tile(layer_id as i64, tx as i32, ty as i32, &mut tile) {
-        let tile_slice: &[i8] =
-            unsafe { std::slice::from_raw_parts(tile.as_ptr() as *const i8, tile.len()) };
-        if env.set_byte_array_region(&tile_rgba, 0, tile_slice).is_ok() {
-            JNI_TRUE
-        } else {
-            JNI_FALSE
+    let is_liquify = for_liquify == JNI_TRUE;
+    if selection::session_cut_tile(layer_id as i64, tx as i32, ty as i32, &mut tile, is_liquify) {
+        if !is_liquify {
+            let tile_slice: &[i8] =
+                unsafe { std::slice::from_raw_parts(tile.as_ptr() as *const i8, tile.len()) };
+            if env.set_byte_array_region(&tile_rgba, 0, tile_slice).is_err() {
+                return JNI_FALSE;
+            }
         }
+        JNI_TRUE
     } else {
         JNI_FALSE
     }

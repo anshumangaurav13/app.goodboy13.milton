@@ -188,10 +188,23 @@ object MiltonNative {
 
     // Native Sparse Selection Session API ("Rust Magic")
     @JvmStatic
-    external fun selectionSessionBegin(pointsX: FloatArray, pointsY: FloatArray): Boolean
+    external fun selectionSessionBegin(
+        pointsX: FloatArray,
+        pointsY: FloatArray,
+        boundsLeft: Float = 0f,
+        boundsTop: Float = 0f,
+        boundsRight: Float = 0f,
+        boundsBottom: Float = 0f
+    ): Boolean
 
     @JvmStatic
-    external fun selectionSessionCutTile(layerId: Long, tx: Int, ty: Int, tileRgba: ByteArray): Boolean
+    external fun selectionSessionCutTile(
+        layerId: Long,
+        tx: Int,
+        ty: Int,
+        tileRgba: ByteArray,
+        forLiquify: Boolean = false
+    ): Boolean
 
     @JvmStatic
     external fun selectionSessionGetPreview(layerId: Long, maxDim: Int): ByteArray?

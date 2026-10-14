@@ -227,8 +227,29 @@ class GlSceneRenderer {
             val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds, reusableVisibleTiles)
             if (visibleTiles.isNotEmpty()) {
                 tileBlitShader.setOpacity(layer.opacity)
+                val isLayerLiquifying = selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify &&
+                    selectionState.session.targetLayerIds.contains(layer.id)
+                val liquifyMinTx = if (isLayerLiquifying) {
+                    floor(selectionState.session.srcBounds.left / TileCoord.TILE_SIZE).toInt()
+                } else Int.MAX_VALUE
+                val liquifyMaxTx = if (isLayerLiquifying) {
+                    floor((selectionState.session.srcBounds.right - 1f) / TileCoord.TILE_SIZE).toInt()
+                } else Int.MIN_VALUE
+                val liquifyMinTy = if (isLayerLiquifying) {
+                    floor(selectionState.session.srcBounds.top / TileCoord.TILE_SIZE).toInt()
+                } else Int.MAX_VALUE
+                val liquifyMaxTy = if (isLayerLiquifying) {
+                    floor((selectionState.session.srcBounds.bottom - 1f) / TileCoord.TILE_SIZE).toInt()
+                } else Int.MIN_VALUE
+
                 for (tile in visibleTiles) {
                     if (!tile.isInitialized || !tile.hasContent) continue
+                    if (isLayerLiquifying &&
+                        tile.coord.tx in liquifyMinTx..liquifyMaxTx &&
+                        tile.coord.ty in liquifyMinTy..liquifyMaxTy
+                    ) {
+                        continue
+                    }
                     tileBlitShader.renderTile(
                         worldLeft = tile.coord.worldLeft,
                         worldTop = tile.coord.worldTop,

@@ -163,11 +163,25 @@ class SelectionTransformManager {
         }
 
         val polygon = lassoPoints.toList()
-        val bLeft = kotlin.math.floor(minX)
-        val bTop = kotlin.math.floor(minY)
-        val bRight = kotlin.math.ceil(maxX)
-        val bBottom = kotlin.math.ceil(maxY)
-        val srcBounds = WorldRect(bLeft, bTop, bRight, bBottom)
+        val srcBounds = if (forLiquify) {
+            val pad = 64f
+            val minTx = floor((minX - pad) / TileCoord.TILE_SIZE).toInt()
+            val maxTx = floor((maxX + pad - 1f) / TileCoord.TILE_SIZE).toInt()
+            val minTy = floor((minY - pad) / TileCoord.TILE_SIZE).toInt()
+            val maxTy = floor((maxY + pad - 1f) / TileCoord.TILE_SIZE).toInt()
+            WorldRect(
+                minTx * TileCoord.TILE_SIZE.toFloat(),
+                minTy * TileCoord.TILE_SIZE.toFloat(),
+                (maxTx + 1) * TileCoord.TILE_SIZE.toFloat(),
+                (maxTy + 1) * TileCoord.TILE_SIZE.toFloat()
+            )
+        } else {
+            val bLeft = kotlin.math.floor(minX)
+            val bTop = kotlin.math.floor(minY)
+            val bRight = kotlin.math.ceil(maxX)
+            val bBottom = kotlin.math.ceil(maxY)
+            WorldRect(bLeft, bTop, bRight, bBottom)
+        }
 
         // Capture patches and clear cutouts on GL thread
         canvasView.renderer.runOnGlThread {
@@ -185,7 +199,14 @@ class SelectionTransformManager {
                 val pointsY = FloatArray(polygon.size) { polygon[it].y }
 
                 if (MiltonNative.isLoaded) {
-                    MiltonNative.selectionSessionBegin(pointsX, pointsY)
+                    MiltonNative.selectionSessionBegin(
+                        pointsX,
+                        pointsY,
+                        srcBounds.left,
+                        srcBounds.top,
+                        srcBounds.right,
+                        srcBounds.bottom
+                    )
                 }
 
                 val minTx = floor(srcBounds.left / TileCoord.TILE_SIZE).toInt()
@@ -214,14 +235,17 @@ class SelectionTransformManager {
                                 layerId,
                                 tile.coord.tx,
                                 tile.coord.ty,
-                                workingTile
+                                workingTile,
+                                forLiquify
                             )
                         } else {
                             false
                         }
 
                         if (cut) {
-                            tile.writePixels(workingTile)
+                            if (!forLiquify) {
+                                tile.writePixels(workingTile)
+                            }
                             snapshots.add(TileSnapshot(tile.coord.tx, tile.coord.ty, originalBytes))
                         }
                     }
