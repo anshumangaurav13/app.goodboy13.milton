@@ -52,7 +52,13 @@ object MiltonNative {
     external fun swapWriteTile(swapDir: String, layerId: Long, tx: Int, ty: Int, rawBytes: ByteArray): Boolean
 
     @JvmStatic
+    external fun swapWriteTileDirect(swapDir: String, layerId: Long, tx: Int, ty: Int, directBuf: java.nio.ByteBuffer): Boolean
+
+    @JvmStatic
     external fun swapReadTile(swapDir: String, layerId: Long, tx: Int, ty: Int, outBytes: ByteArray): Boolean
+
+    @JvmStatic
+    external fun swapReadTileDirect(swapDir: String, layerId: Long, tx: Int, ty: Int, directBuf: java.nio.ByteBuffer): Boolean
 
     @JvmStatic
     external fun swapDeleteTile(swapDir: String, layerId: Long, tx: Int, ty: Int): Boolean
@@ -78,10 +84,19 @@ object MiltonNative {
     external fun computeDirtyRect(oldBytes: ByteArray, newBytes: ByteArray): IntArray?
 
     @JvmStatic
+    external fun computeDirtyRectDirect(oldDirectBuf: java.nio.ByteBuffer, newDirectBuf: java.nio.ByteBuffer): IntArray?
+
+    @JvmStatic
     external fun createSubTilePatch(tileBuf: ByteArray, minX: Int, minY: Int, width: Int, height: Int): ByteArray
 
     @JvmStatic
+    external fun createSubTilePatchDirect(tileBufDirect: java.nio.ByteBuffer, minX: Int, minY: Int, width: Int, height: Int): ByteArray
+
+    @JvmStatic
     external fun applySubTilePatch(tileBuf: ByteArray, patchCompressed: ByteArray, minX: Int, minY: Int, width: Int, height: Int): Boolean
+
+    @JvmStatic
+    external fun applySubTilePatchDirect(tileBufDirect: java.nio.ByteBuffer, patchCompressed: ByteArray, minX: Int, minY: Int, width: Int, height: Int): Boolean
 
     // ========================================================================
     // #4 LASSO SELECTION & FREE TRANSFORM

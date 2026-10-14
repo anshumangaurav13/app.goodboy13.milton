@@ -7,7 +7,7 @@ pub mod selection;
 pub mod constants;
 
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JClass, JFloatArray, JIntArray, JString};
+use jni::objects::{JByteArray, JByteBuffer, JClass, JFloatArray, JIntArray, JString};
 use jni::sys::{jboolean, jfloat, jint, jlong, JNI_FALSE, JNI_TRUE};
 
 // ============================================================================
@@ -156,6 +156,70 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_swapRe
                 JNI_FALSE
             }
         }
+        _ => JNI_FALSE,
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_swapWriteTileDirect<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    swap_dir: JString<'local>,
+    layer_id: jlong,
+    tx: jint,
+    ty: jint,
+    direct_buf: JByteBuffer<'local>,
+) -> jboolean {
+    let dir: String = match env.get_string(&swap_dir) {
+        Ok(s) => s.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    let ptr = match env.get_direct_buffer_address(&direct_buf) {
+        Ok(p) => p,
+        Err(_) => return JNI_FALSE,
+    };
+    let cap = match env.get_direct_buffer_capacity(&direct_buf) {
+        Ok(c) => c,
+        Err(_) => return JNI_FALSE,
+    };
+    if ptr.is_null() || cap < constants::TILE_BYTES {
+        return JNI_FALSE;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(ptr, constants::TILE_BYTES) };
+    match tile_swap::swap_write(&dir, layer_id, tx, ty, slice) {
+        Ok(_) => JNI_TRUE,
+        Err(_) => JNI_FALSE,
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_swapReadTileDirect<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    swap_dir: JString<'local>,
+    layer_id: jlong,
+    tx: jint,
+    ty: jint,
+    direct_buf: JByteBuffer<'local>,
+) -> jboolean {
+    let dir: String = match env.get_string(&swap_dir) {
+        Ok(s) => s.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    let ptr = match env.get_direct_buffer_address(&direct_buf) {
+        Ok(p) => p,
+        Err(_) => return JNI_FALSE,
+    };
+    let cap = match env.get_direct_buffer_capacity(&direct_buf) {
+        Ok(c) => c,
+        Err(_) => return JNI_FALSE,
+    };
+    if ptr.is_null() || cap < constants::TILE_BYTES {
+        return JNI_FALSE;
+    }
+    let slice = unsafe { std::slice::from_raw_parts_mut(ptr, constants::TILE_BYTES) };
+    match tile_swap::swap_read(&dir, layer_id, tx, ty, slice) {
+        Ok(true) => JNI_TRUE,
         _ => JNI_FALSE,
     }
 }
@@ -356,6 +420,133 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_applyS
                 JNI_FALSE
             }
         }
+        Err(_) => JNI_FALSE,
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_computeDirtyRectDirect<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    old_buf_direct: JByteBuffer<'local>,
+    new_buf_direct: JByteBuffer<'local>,
+) -> JIntArray<'local> {
+    let old_ptr = match env.get_direct_buffer_address(&old_buf_direct) {
+        Ok(p) => p,
+        Err(_) => return JIntArray::default(),
+    };
+    let old_cap = match env.get_direct_buffer_capacity(&old_buf_direct) {
+        Ok(c) => c,
+        Err(_) => return JIntArray::default(),
+    };
+    let new_ptr = match env.get_direct_buffer_address(&new_buf_direct) {
+        Ok(p) => p,
+        Err(_) => return JIntArray::default(),
+    };
+    let new_cap = match env.get_direct_buffer_capacity(&new_buf_direct) {
+        Ok(c) => c,
+        Err(_) => return JIntArray::default(),
+    };
+    if old_ptr.is_null() || old_cap < constants::TILE_BYTES || new_ptr.is_null() || new_cap < constants::TILE_BYTES {
+        return JIntArray::default();
+    }
+    let old_slice = unsafe { std::slice::from_raw_parts(old_ptr, constants::TILE_BYTES) };
+    let new_slice = unsafe { std::slice::from_raw_parts(new_ptr, constants::TILE_BYTES) };
+
+    let rect = match sub_tile::compute_dirty_rect(old_slice, new_slice) {
+        Some(r) => r,
+        None => return JIntArray::default(),
+    };
+
+    let int_array = match env.new_int_array(4) {
+        Ok(a) => a,
+        Err(_) => return JIntArray::default(),
+    };
+
+    let rect_slice = [
+        rect.min_x as jint,
+        rect.min_y as jint,
+        rect.width as jint,
+        rect.height as jint,
+    ];
+    let _ = env.set_int_array_region(&int_array, 0, &rect_slice);
+    int_array
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_createSubTilePatchDirect<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    tile_buf_direct: JByteBuffer<'local>,
+    min_x: jint,
+    min_y: jint,
+    width: jint,
+    height: jint,
+) -> JByteArray<'local> {
+    let ptr = match env.get_direct_buffer_address(&tile_buf_direct) {
+        Ok(p) => p,
+        Err(_) => return JByteArray::default(),
+    };
+    let cap = match env.get_direct_buffer_capacity(&tile_buf_direct) {
+        Ok(c) => c,
+        Err(_) => return JByteArray::default(),
+    };
+    if ptr.is_null() || cap < constants::TILE_BYTES {
+        return JByteArray::default();
+    }
+    let slice = unsafe { std::slice::from_raw_parts(ptr, constants::TILE_BYTES) };
+
+    let rect = sub_tile::Rect {
+        min_x: min_x as usize,
+        min_y: min_y as usize,
+        width: width as usize,
+        height: height as usize,
+    };
+
+    match sub_tile::create_sub_tile_patch(slice, rect) {
+        Ok(compressed) => env.byte_array_from_slice(&compressed).unwrap_or_default(),
+        Err(_) => JByteArray::default(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_applySubTilePatchDirect<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    tile_buf_direct: JByteBuffer<'local>,
+    patch_compressed: JByteArray<'local>,
+    min_x: jint,
+    min_y: jint,
+    width: jint,
+    height: jint,
+) -> jboolean {
+    let ptr = match env.get_direct_buffer_address(&tile_buf_direct) {
+        Ok(p) => p,
+        Err(_) => return JNI_FALSE,
+    };
+    let cap = match env.get_direct_buffer_capacity(&tile_buf_direct) {
+        Ok(c) => c,
+        Err(_) => return JNI_FALSE,
+    };
+    if ptr.is_null() || cap < constants::TILE_BYTES {
+        return JNI_FALSE;
+    }
+    let slice = unsafe { std::slice::from_raw_parts_mut(ptr, constants::TILE_BYTES) };
+
+    let patch = match env.convert_byte_array(&patch_compressed) {
+        Ok(p) => p,
+        Err(_) => return JNI_FALSE,
+    };
+
+    let rect = sub_tile::Rect {
+        min_x: min_x as usize,
+        min_y: min_y as usize,
+        width: width as usize,
+        height: height as usize,
+    };
+
+    match sub_tile::apply_sub_tile_patch(slice, &patch, rect) {
+        Ok(_) => JNI_TRUE,
         Err(_) => JNI_FALSE,
     }
 }

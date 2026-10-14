@@ -139,16 +139,27 @@ class RasterTile(val coord: TileCoord) {
         }
 
         try {
-            val raw = readPixels()
             if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
-                val ok = app.goodboy13.milton.core.native.MiltonNative.swapWriteTile(
-                    cacheDir.absolutePath, 0L, coord.tx, coord.ty, raw
-                )
+                var ok = false
+                bindFbo()
+                DirectBufferPool.useBuffer { byteBuf ->
+                    GLES30.glReadPixels(
+                        0, 0,
+                        TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+                        GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, byteBuf
+                    )
+                    byteBuf.rewind()
+                    ok = app.goodboy13.milton.core.native.MiltonNative.swapWriteTileDirect(
+                        cacheDir.absolutePath, 0L, coord.tx, coord.ty, byteBuf
+                    )
+                }
+                unbindFbo()
                 if (ok) {
                     isOnDisk = true
                     return
                 }
             }
+            val raw = readPixels()
             val swapFile = getSwapFile(cacheDir)
             swapFile.parentFile?.mkdirs()
             swapFile.writeBytes(raw)
@@ -168,16 +179,27 @@ class RasterTile(val coord: TileCoord) {
 
         try {
             if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
-                val raw = ByteArray(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4)
-                val ok = app.goodboy13.milton.core.native.MiltonNative.swapReadTile(
-                    cacheDir.absolutePath, 0L, coord.tx, coord.ty, raw
-                )
-                if (ok) {
-                    initGl()
-                    writePixels(raw)
-                    hasContent = true
-                    return
+                var ok = false
+                DirectBufferPool.useBuffer { byteBuf ->
+                    ok = app.goodboy13.milton.core.native.MiltonNative.swapReadTileDirect(
+                        cacheDir.absolutePath, 0L, coord.tx, coord.ty, byteBuf
+                    )
+                    if (ok) {
+                        initGl()
+                        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+                        byteBuf.position(0)
+                        GLES30.glTexSubImage2D(
+                            GLES30.GL_TEXTURE_2D, 0,
+                            0, 0,
+                            TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+                            GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, byteBuf
+                        )
+                        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+                        isDirty = true
+                        hasContent = true
+                    }
                 }
+                if (ok) return
             }
             val swapFile = getSwapFile(cacheDir)
             val raw = readSwapBytes(swapFile)
