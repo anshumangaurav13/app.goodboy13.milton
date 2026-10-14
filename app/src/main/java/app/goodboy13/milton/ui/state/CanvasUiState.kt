@@ -1,30 +1,31 @@
 package app.goodboy13.milton.ui.state
 
 import app.goodboy13.milton.core.brush.BrushType
+import app.goodboy13.milton.core.constants.BrushDefaults
+import app.goodboy13.milton.core.constants.PaletteDefaults
 import app.goodboy13.milton.core.layer.Layer
 import app.goodboy13.milton.core.model.BezierControlPoints
 import app.goodboy13.milton.core.model.PressureCurveDefaults
 import app.goodboy13.milton.core.storage.SavedProjectSummary
 import app.goodboy13.milton.ui.EyedropperReticleState
-import app.goodboy13.milton.ui.QUICK_PALETTE_COLORS
 
 /**
  * State representing the active stylus brush, color, and stroke dynamics.
  */
 data class ToolUiState(
     val brushType: BrushType = BrushType.PENCIL,
-    val brushSize: Float = 24f,
-    val brushOpacity: Float = 0.85f,
-    val brushStabilizer: Float = 0.10f,
-    val brushHardness: Float = 0.70f,
-    val brushTilt: Float = 0.50f,
-    val brushColorRgb: Int = 0xFF141518.toInt(),
-    val sizeBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.50f),
-    val opacityBezierConfig: BezierControlPoints = PressureCurveDefaults.SOFT.copy(minPercent = 0.20f),
-    val tiltBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f),
-    val isEraserMode: Boolean = false,
+    val brushSize: Float = BrushDefaults.getDefaultSize(BrushType.PENCIL),
+    val brushOpacity: Float = BrushDefaults.getDefaultOpacity(BrushType.PENCIL),
+    val brushStabilizer: Float = BrushDefaults.getDefaultStabilizer(BrushType.PENCIL),
+    val brushHardness: Float = BrushDefaults.getDefaultHardness(BrushType.PENCIL),
+    val brushTilt: Float = BrushDefaults.getDefaultTilt(BrushType.PENCIL),
+    val brushColorRgb: Int = PaletteDefaults.DEFAULT_BRUSH_COLOR,
+    val sizeBezierConfig: BezierControlPoints = BrushDefaults.getDefaultSizeBezier(BrushType.PENCIL),
+    val opacityBezierConfig: BezierControlPoints = BrushDefaults.getDefaultOpacityBezier(BrushType.PENCIL),
+    val tiltBezierConfig: BezierControlPoints = BrushDefaults.getDefaultTiltBezier(BrushType.PENCIL),
+    val isEraserMode: Boolean = BrushDefaults.getDefaultIsEraser(BrushType.PENCIL),
     val isEyedropperActive: Boolean = false,
-    val recentColors: List<Int> = QUICK_PALETTE_COLORS,
+    val recentColors: List<Int> = PaletteDefaults.DEFAULT_RECENT_COLORS,
     val eyedropperReticleState: EyedropperReticleState = EyedropperReticleState()
 )
 
@@ -49,7 +50,7 @@ data class ViewportUiState(
 data class DocumentUiState(
     val documentTitle: String = "Untitled Artwork",
     val activeProjectId: String? = null,
-    val canvasBackgroundColor: Int = 0xFFF6F4ED.toInt(),
+    val canvasBackgroundColor: Int = PaletteDefaults.CANVAS_BACKGROUND_DEFAULT,
     val savedProjects: List<SavedProjectSummary> = emptyList(),
     val totalSavedProjectsSize: String = "0 KB",
     val currentProjectDiskSize: String = "0 KB",

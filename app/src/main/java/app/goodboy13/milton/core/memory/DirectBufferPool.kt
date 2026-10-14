@@ -1,5 +1,6 @@
 package app.goodboy13.milton.core.memory
 
+import app.goodboy13.milton.core.constants.CanvasConstants
 import app.goodboy13.milton.core.tile.TileCoord
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -11,8 +12,8 @@ import java.util.ArrayDeque
  * and export operations to eliminate GC heap churn and native allocation spikes.
  */
 object DirectBufferPool {
-    const val BUFFER_SIZE: Int = TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4 // 1,048,576 bytes (1 MB)
-    const val DEFAULT_MAX_POOL_SIZE: Int = 6
+    const val BUFFER_SIZE: Int = CanvasConstants.TILE_BYTE_SIZE
+    const val DEFAULT_MAX_POOL_SIZE: Int = CanvasConstants.DEFAULT_DIRECT_BUFFER_POOL_SIZE
 
     var maxPoolSize: Int = DEFAULT_MAX_POOL_SIZE
 

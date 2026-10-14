@@ -1,5 +1,6 @@
 package app.goodboy13.milton.core.liquify
 
+import app.goodboy13.milton.core.constants.CanvasConstants
 import app.goodboy13.milton.core.model.Vec2
 import app.goodboy13.milton.core.model.WorldRect
 import app.goodboy13.milton.core.viewport.Viewport
@@ -16,8 +17,8 @@ import kotlin.math.sin
 class LiquifyMesh(
     val srcBounds: WorldRect,
     val polygon: List<Vec2>,
-    val gridCols: Int = 128,
-    val gridRows: Int = 128
+    val gridCols: Int = CanvasConstants.LIQUIFY_GRID_SIZE,
+    val gridRows: Int = CanvasConstants.LIQUIFY_GRID_SIZE
 ) {
     val vertexCount = (gridCols + 1) * (gridRows + 1)
     val width = srcBounds.width

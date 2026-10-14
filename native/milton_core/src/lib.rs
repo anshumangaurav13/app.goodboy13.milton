@@ -4,6 +4,7 @@ pub mod tile_swap;
 pub mod export;
 pub mod sub_tile;
 pub mod selection;
+pub mod constants;
 
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JFloatArray, JIntArray, JString};
@@ -478,8 +479,8 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_extrac
         Err(_) => return JNI_FALSE,
     };
 
-    if tile.len() < 512 * 512 * 4
-        || mask.len() < 512 * 512
+    if tile.len() < constants::TILE_BYTES
+        || mask.len() < constants::TILE_MASK_BYTES
         || patch.len() < (patch_w as usize) * (patch_h as usize) * 4
     {
         return JNI_FALSE;
@@ -533,7 +534,7 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_blitPa
         Err(_) => return JNI_FALSE,
     };
 
-    if tile.len() < 512 * 512 * 4 || patch.len() < (patch_w as usize) * (patch_h as usize) * 4 {
+    if tile.len() < constants::TILE_BYTES || patch.len() < (patch_w as usize) * (patch_h as usize) * 4 {
         return JNI_FALSE;
     }
 

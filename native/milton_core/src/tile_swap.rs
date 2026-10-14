@@ -2,8 +2,7 @@ use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use crate::compression;
-
-const TILE_BYTE_SIZE: usize = 512 * 512 * 4;
+use crate::constants::TILE_BYTES as TILE_BYTE_SIZE;
 
 fn get_swap_path(swap_dir: &str, layer_id: i64, tx: i32, ty: i32) -> PathBuf {
     let dir = Path::new(swap_dir);

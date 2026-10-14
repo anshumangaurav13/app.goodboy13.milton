@@ -1,5 +1,6 @@
 package app.goodboy13.milton.core.tile
 
+import app.goodboy13.milton.core.constants.CanvasConstants
 import app.goodboy13.milton.core.model.WorldRect
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -7,12 +8,12 @@ import kotlin.math.floor
 
 /**
  * Manages the sparse 2D collection of RasterTiles on the infinite plane.
- * Enforces an LRU VRAM memory budget (default 96 tiles = ~96MB) by paging
+ * Enforces an LRU VRAM memory budget (default 256 tiles = ~256MB) by paging
  * cold, non-visible tiles to compressed disk swap storage.
  */
 class TileMap(
     val cacheDir: File? = null,
-    val maxResidentTiles: Int = 256
+    val maxResidentTiles: Int = CanvasConstants.DEFAULT_MAX_RESIDENT_TILES
 ) {
     private val tiles = ConcurrentHashMap<TileCoord, RasterTile>()
 
@@ -47,7 +48,7 @@ class TileMap(
         return tile
     }
 
-    fun getVisibleTiles(bounds: WorldRect, outTiles: MutableList<RasterTile>, maxRestores: Int = 4): List<RasterTile> {
+    fun getVisibleTiles(bounds: WorldRect, outTiles: MutableList<RasterTile>, maxRestores: Int = CanvasConstants.MAX_TILE_RESTORES_PER_FRAME): List<RasterTile> {
         val minTx = floor(bounds.left / TileCoord.TILE_SIZE.toFloat()).toInt()
         val maxTx = floor(bounds.right / TileCoord.TILE_SIZE.toFloat()).toInt()
         val minTy = floor(bounds.top / TileCoord.TILE_SIZE.toFloat()).toInt()
@@ -91,13 +92,13 @@ class TileMap(
      * Must be called on the GL thread.
      */
     fun trimToBudget(visibleTiles: Collection<RasterTile>) {
-        val slack = maxResidentTiles / 8
+        val slack = maxResidentTiles / CanvasConstants.TILE_EVICTION_SLACK_DIVISOR
         val excess = residentCount - (maxResidentTiles + slack)
         if (excess <= 0) return
 
         val visibleSet = visibleTiles.toSet()
         val now = System.nanoTime()
-        val gracePeriodNs = 3_000_000_000L // 3 seconds grace period to prevent thrashing on edge pans
+        val gracePeriodNs = CanvasConstants.TILE_EVICTION_GRACE_PERIOD_NS // Prevent thrashing on edge pans
         val enforceGracePeriod = residentCount <= maxResidentTiles * 2
 
         val residentNonVisible = tiles.values
@@ -107,7 +108,7 @@ class TileMap(
 
         // Sort by lastAccessTime ascending (oldest first)
         val sorted = residentNonVisible.sortedBy { it.lastAccessTime }
-        val toEvict = sorted.take(minOf(excess, 4))
+        val toEvict = sorted.take(minOf(excess, CanvasConstants.MAX_TILE_EVICTIONS_PER_FRAME))
         for (tile in toEvict) {
             tile.evictToDisk(cacheDir)
         }

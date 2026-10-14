@@ -2,6 +2,7 @@ package app.goodboy13.milton.core.selection
 
 import android.graphics.Bitmap
 import android.util.Log
+import app.goodboy13.milton.core.constants.CanvasConstants
 import app.goodboy13.milton.core.model.Vec2
 import app.goodboy13.milton.core.model.WorldRect
 import app.goodboy13.milton.core.native.MiltonNative
@@ -130,7 +131,7 @@ class SelectionTransformManager {
 
     fun addLassoPoint(point: Vec2) {
         val last = lassoPoints.lastOrNull()
-        if (last == null || kotlin.math.hypot(point.x - last.x, point.y - last.y) >= 4f) {
+        if (last == null || kotlin.math.hypot(point.x - last.x, point.y - last.y) >= CanvasConstants.LASSO_MIN_SAMPLE_DISTANCE) {
             lassoPoints.add(point)
             _state.value = SelectionState.DrawingLasso(lassoPoints.toList())
         }
@@ -155,7 +156,7 @@ class SelectionTransformManager {
 
         val w = maxX - minX
         val h = maxY - minY
-        if (w < 8f || h < 8f) {
+        if (w < CanvasConstants.MIN_SELECTION_DIMENSION || h < CanvasConstants.MIN_SELECTION_DIMENSION) {
             // Accidental small tap
             cancelLasso()
             return
@@ -226,7 +227,7 @@ class SelectionTransformManager {
                     }
 
                     // For Liquify, request full native resolution (up to 4096px) to eliminate blurriness and pixelation
-                    val maxDim = if (forLiquify) 4096 else 1024
+                    val maxDim = if (forLiquify) CanvasConstants.MAX_PREVIEW_DIMENSION_LIQUIFY else CanvasConstants.MAX_PREVIEW_DIMENSION
                     val packed = if (MiltonNative.isLoaded) {
                         MiltonNative.selectionSessionGetPreview(layerId, maxDim)
                     } else null

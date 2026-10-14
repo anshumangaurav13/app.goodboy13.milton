@@ -3,6 +3,8 @@ package app.goodboy13.milton.core.preferences
 import android.content.Context
 import android.content.SharedPreferences
 import app.goodboy13.milton.core.brush.BrushType
+import app.goodboy13.milton.core.constants.BrushDefaults
+import app.goodboy13.milton.core.constants.PaletteDefaults
 import app.goodboy13.milton.core.model.BezierControlPoints
 import app.goodboy13.milton.core.model.PressureCurveDefaults
 
@@ -18,17 +20,8 @@ object ToolPreferences {
     private const val KEY_BRUSH_COLOR = "brush_color"
     private const val KEY_RECENT_COLORS = "recent_colors"
 
-    // Default values
-    val DEFAULT_RECENT_COLORS = listOf(
-        0xFF141518.toInt(), // Deep Carbon Graphite Default
-        0xFF111111.toInt(), // Ink Black
-        0xFFFFFFFF.toInt(), // Paper White
-        0xFFD32F2F.toInt(), // Crimson Red
-        0xFF1976D2.toInt(), // Cobalt Blue
-        0xFF388E3C.toInt(), // Forest Green
-        0xFFF57C00.toInt(), // Amber Orange
-        0xFF78909C.toInt()  // Slate Gray
-    )
+    // Default values from single source of truth
+    val DEFAULT_RECENT_COLORS = PaletteDefaults.DEFAULT_RECENT_COLORS
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -52,7 +45,7 @@ object ToolPreferences {
         getPrefs(context).edit().putFloat("size_${type.name}", size).apply()
     }
 
-    fun loadToolSize(context: Context, type: BrushType, defaultSize: Float = 35f): Float {
+    fun loadToolSize(context: Context, type: BrushType, defaultSize: Float = BrushDefaults.getDefaultSize(type)): Float {
         return getPrefs(context).getFloat("size_${type.name}", defaultSize)
     }
 
@@ -61,7 +54,7 @@ object ToolPreferences {
         getPrefs(context).edit().putFloat("opacity_${type.name}", opacity).apply()
     }
 
-    fun loadToolOpacity(context: Context, type: BrushType, defaultOpacity: Float = 0.75f): Float {
+    fun loadToolOpacity(context: Context, type: BrushType, defaultOpacity: Float = BrushDefaults.getDefaultOpacity(type)): Float {
         return getPrefs(context).getFloat("opacity_${type.name}", defaultOpacity)
     }
 
@@ -70,7 +63,7 @@ object ToolPreferences {
         getPrefs(context).edit().putFloat("stabilizer_${type.name}", stabilizer).apply()
     }
 
-    fun loadToolStabilizer(context: Context, type: BrushType, defaultStabilizer: Float = 0.10f): Float {
+    fun loadToolStabilizer(context: Context, type: BrushType, defaultStabilizer: Float = BrushDefaults.getDefaultStabilizer(type)): Float {
         return getPrefs(context).getFloat("stabilizer_${type.name}", defaultStabilizer)
     }
 
@@ -79,7 +72,7 @@ object ToolPreferences {
         getPrefs(context).edit().putFloat("hardness_${type.name}", hardness).apply()
     }
 
-    fun loadToolHardness(context: Context, type: BrushType, defaultHardness: Float = 0.70f): Float {
+    fun loadToolHardness(context: Context, type: BrushType, defaultHardness: Float = BrushDefaults.getDefaultHardness(type)): Float {
         return getPrefs(context).getFloat("hardness_${type.name}", defaultHardness)
     }
 
@@ -88,7 +81,7 @@ object ToolPreferences {
         getPrefs(context).edit().putFloat("tilt_${type.name}", tilt).apply()
     }
 
-    fun loadToolTilt(context: Context, type: BrushType, defaultTilt: Float = 0.50f): Float {
+    fun loadToolTilt(context: Context, type: BrushType, defaultTilt: Float = BrushDefaults.getDefaultTilt(type)): Float {
         return getPrefs(context).getFloat("tilt_${type.name}", defaultTilt)
     }
 
@@ -105,7 +98,7 @@ object ToolPreferences {
             .apply()
     }
 
-    fun loadToolSizeBezier(context: Context, type: BrushType, defaultCurve: BezierControlPoints): BezierControlPoints {
+    fun loadToolSizeBezier(context: Context, type: BrushType, defaultCurve: BezierControlPoints = BrushDefaults.getDefaultSizeBezier(type)): BezierControlPoints {
         val p = type.name
         val prefs = getPrefs(context)
         if (!prefs.contains("size_bezier_cp1x_$p")) return defaultCurve
@@ -132,7 +125,7 @@ object ToolPreferences {
             .apply()
     }
 
-    fun loadToolOpacityBezier(context: Context, type: BrushType, defaultCurve: BezierControlPoints): BezierControlPoints {
+    fun loadToolOpacityBezier(context: Context, type: BrushType, defaultCurve: BezierControlPoints = BrushDefaults.getDefaultOpacityBezier(type)): BezierControlPoints {
         val p = type.name
         val prefs = getPrefs(context)
         if (!prefs.contains("opacity_bezier_cp1x_$p")) return defaultCurve
@@ -159,7 +152,7 @@ object ToolPreferences {
             .apply()
     }
 
-    fun loadToolTiltBezier(context: Context, type: BrushType, defaultCurve: BezierControlPoints): BezierControlPoints {
+    fun loadToolTiltBezier(context: Context, type: BrushType, defaultCurve: BezierControlPoints = BrushDefaults.getDefaultTiltBezier(type)): BezierControlPoints {
         val p = type.name
         val prefs = getPrefs(context)
         if (!prefs.contains("tilt_bezier_cp1x_$p")) return defaultCurve
@@ -178,7 +171,7 @@ object ToolPreferences {
         getPrefs(context).edit().putInt(KEY_BRUSH_COLOR, colorRgb).apply()
     }
 
-    fun loadBrushColor(context: Context, defaultColor: Int = 0xFF333333.toInt()): Int {
+    fun loadBrushColor(context: Context, defaultColor: Int = PaletteDefaults.DEFAULT_BRUSH_COLOR): Int {
         return getPrefs(context).getInt(KEY_BRUSH_COLOR, defaultColor)
     }
 

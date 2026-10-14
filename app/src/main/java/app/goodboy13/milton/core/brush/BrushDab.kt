@@ -1,5 +1,7 @@
 package app.goodboy13.milton.core.brush
 
+import app.goodboy13.milton.core.constants.BrushDefaults
+import app.goodboy13.milton.core.constants.PaletteDefaults
 import app.goodboy13.milton.core.model.BezierControlPoints
 import app.goodboy13.milton.core.model.PressureCurveDefaults
 
@@ -31,80 +33,33 @@ enum class BrushType(val displayName: String) {
 
 data class BrushProperties(
     var brushType: BrushType = BrushType.PENCIL,
-    var size: Float = 24.0f,
-    var colorRgb: Int = 0xFF141518.toInt(), // Deep rich carbon graphite tone
-    var opacity: Float = 0.85f,
-    var spacing: Float = 0.16f,
-    var hardness: Float = 0.70f,
-    var tilt: Float = 0.50f,
-    var minRadius: Float = 1.5f,
-    var isEraser: Boolean = false,
-    var brushMode: Int = 1,
-    var stabilizer: Float = 0.10f,
-    var sizeBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.50f),
-    var opacityBezierConfig: BezierControlPoints = PressureCurveDefaults.SOFT.copy(minPercent = 0.20f),
-    var tiltBezierConfig: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f)
+    var size: Float = BrushDefaults.getDefaultSize(BrushType.PENCIL),
+    var colorRgb: Int = PaletteDefaults.DEFAULT_BRUSH_COLOR,
+    var opacity: Float = BrushDefaults.getDefaultOpacity(BrushType.PENCIL),
+    var spacing: Float = BrushDefaults.getDefaultSpacing(BrushType.PENCIL),
+    var hardness: Float = BrushDefaults.getDefaultHardness(BrushType.PENCIL),
+    var tilt: Float = BrushDefaults.getDefaultTilt(BrushType.PENCIL),
+    var minRadius: Float = (BrushDefaults.getDefaultSize(BrushType.PENCIL) * 0.12f).coerceAtLeast(1.2f),
+    var isEraser: Boolean = BrushDefaults.getDefaultIsEraser(BrushType.PENCIL),
+    var brushMode: Int = BrushDefaults.getDefaultBrushMode(BrushType.PENCIL),
+    var stabilizer: Float = BrushDefaults.getDefaultStabilizer(BrushType.PENCIL),
+    var sizeBezierConfig: BezierControlPoints = BrushDefaults.getDefaultSizeBezier(BrushType.PENCIL),
+    var opacityBezierConfig: BezierControlPoints = BrushDefaults.getDefaultOpacityBezier(BrushType.PENCIL),
+    var tiltBezierConfig: BezierControlPoints = BrushDefaults.getDefaultTiltBezier(BrushType.PENCIL)
 ) {
     // Legacy alias
     var bezierConfig: BezierControlPoints
         get() = sizeBezierConfig
         set(value) { sizeBezierConfig = value }
 
-    private val savedSizes = mutableMapOf(
-        BrushType.PEN to 30.0f,
-        BrushType.PENCIL to 24.0f,
-        BrushType.PAINTBRUSH to 250.0f,
-        BrushType.ERASER to 120.0f
-    )
-
-    private val savedOpacities = mutableMapOf(
-        BrushType.PEN to 1.0f,
-        BrushType.PENCIL to 0.85f,
-        BrushType.PAINTBRUSH to 0.60f,
-        BrushType.ERASER to 1.0f
-    )
-
-    private val savedStabilizers = mutableMapOf(
-        BrushType.PEN to 0.05f,
-        BrushType.PENCIL to 0.10f,
-        BrushType.PAINTBRUSH to 0.05f,
-        BrushType.ERASER to 0.0f
-    )
-
-    private val savedTilts = mutableMapOf(
-        BrushType.PEN to 0.0f,
-        BrushType.PENCIL to 0.50f,
-        BrushType.PAINTBRUSH to 0.20f,
-        BrushType.ERASER to 0.0f
-    )
-
-    private val savedHardnesses = mutableMapOf(
-        BrushType.PEN to 0.94f,
-        BrushType.PENCIL to 0.70f,
-        BrushType.PAINTBRUSH to 0.70f,
-        BrushType.ERASER to 0.85f
-    )
-
-    private val savedSizeBeziers = mutableMapOf(
-        BrushType.PEN to PressureCurveDefaults.STANDARD.copy(minPercent = 0.15f),
-        BrushType.PENCIL to PressureCurveDefaults.STANDARD.copy(minPercent = 0.50f),
-        BrushType.PAINTBRUSH to PressureCurveDefaults.STANDARD.copy(minPercent = 0.45f),
-        BrushType.ERASER to PressureCurveDefaults.STANDARD.copy(minPercent = 0.45f)
-    )
-
-    private val savedOpacityBeziers = mutableMapOf(
-        BrushType.PEN to PressureCurveDefaults.LINEAR.copy(minPercent = 1.0f, maxPercent = 1.0f),
-        BrushType.PENCIL to PressureCurveDefaults.SOFT.copy(minPercent = 0.20f, maxPercent = 1.0f),
-        BrushType.PAINTBRUSH to PressureCurveDefaults.STANDARD.copy(minPercent = 0.25f, maxPercent = 1.0f),
-        BrushType.ERASER to PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f)
-    )
-
-    private val savedTiltBeziers = mutableMapOf(
-        BrushType.PEN to PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f),
-        BrushType.PENCIL to PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f),
-        BrushType.PAINTBRUSH to PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f),
-        BrushType.ERASER to PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f)
-    )
+    private val savedSizes = BrushType.values().associateWith { BrushDefaults.getDefaultSize(it) }.toMutableMap()
+    private val savedOpacities = BrushType.values().associateWith { BrushDefaults.getDefaultOpacity(it) }.toMutableMap()
+    private val savedStabilizers = BrushType.values().associateWith { BrushDefaults.getDefaultStabilizer(it) }.toMutableMap()
+    private val savedTilts = BrushType.values().associateWith { BrushDefaults.getDefaultTilt(it) }.toMutableMap()
+    private val savedHardnesses = BrushType.values().associateWith { BrushDefaults.getDefaultHardness(it) }.toMutableMap()
+    private val savedSizeBeziers = BrushType.values().associateWith { BrushDefaults.getDefaultSizeBezier(it) }.toMutableMap()
+    private val savedOpacityBeziers = BrushType.values().associateWith { BrushDefaults.getDefaultOpacityBezier(it) }.toMutableMap()
+    private val savedTiltBeziers = BrushType.values().associateWith { BrushDefaults.getDefaultTiltBezier(it) }.toMutableMap()
 
     fun applyPreset(type: BrushType, saveCurrentFirst: Boolean = true) {
         if (saveCurrentFirst) {
@@ -119,60 +74,35 @@ data class BrushProperties(
         }
 
         brushType = type
-        size = savedSizes[type] ?: 24f
-        opacity = savedOpacities[type] ?: 0.85f
-        stabilizer = savedStabilizers[type] ?: 0.0f
-        tilt = savedTilts[type] ?: 0.50f
-        hardness = savedHardnesses[type] ?: 0.70f
-        sizeBezierConfig = savedSizeBeziers[type] ?: PressureCurveDefaults.STANDARD
-        opacityBezierConfig = savedOpacityBeziers[type] ?: PressureCurveDefaults.STANDARD
-        tiltBezierConfig = savedTiltBeziers[type] ?: PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f)
+        size = savedSizes[type] ?: BrushDefaults.getDefaultSize(type)
+        opacity = savedOpacities[type] ?: BrushDefaults.getDefaultOpacity(type)
+        stabilizer = savedStabilizers[type] ?: BrushDefaults.getDefaultStabilizer(type)
+        tilt = savedTilts[type] ?: BrushDefaults.getDefaultTilt(type)
+        hardness = savedHardnesses[type] ?: BrushDefaults.getDefaultHardness(type)
+        sizeBezierConfig = savedSizeBeziers[type] ?: BrushDefaults.getDefaultSizeBezier(type)
+        opacityBezierConfig = savedOpacityBeziers[type] ?: BrushDefaults.getDefaultOpacityBezier(type)
+        tiltBezierConfig = savedTiltBeziers[type] ?: BrushDefaults.getDefaultTiltBezier(type)
         minRadius = (size * 0.12f).coerceAtLeast(1.2f)
 
-        when (type) {
-            BrushType.PEN -> {
-                hardness = 0.94f
-                spacing = 0.10f
-                isEraser = false
-                brushMode = 0
-            }
-            BrushType.PENCIL -> {
-                hardness = savedHardnesses[type] ?: 0.70f
-                spacing = 0.16f
-                isEraser = false
-                brushMode = 1
-            }
-            BrushType.PAINTBRUSH -> {
-                hardness = 0.70f
-                spacing = 0.08f
-                isEraser = false
-                brushMode = 2
-            }
-            BrushType.ERASER -> {
-                hardness = 0.85f
-                spacing = 0.12f
-                isEraser = true
-                brushMode = 0
-            }
-            BrushType.LASSO -> {
-                isEraser = false
-            }
-            BrushType.LIQUIFY -> {
-                isEraser = false
-            }
+        val preset = BrushDefaults.getPreset(type)
+        spacing = preset.spacing
+        brushMode = preset.brushMode
+        isEraser = preset.isEraser
+        if (type == BrushType.PEN) {
+            hardness = preset.hardness
         }
     }
 
     fun loadPreferences(context: android.content.Context) {
         for (t in BrushType.values()) {
-            savedSizes[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolSize(context, t, savedSizes[t] ?: 24f)
-            savedOpacities[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolOpacity(context, t, savedOpacities[t] ?: 0.85f)
-            savedStabilizers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolStabilizer(context, t, savedStabilizers[t] ?: 0.10f)
-            savedTilts[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolTilt(context, t, savedTilts[t] ?: 0.50f)
-            savedHardnesses[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolHardness(context, t, savedHardnesses[t] ?: 0.70f)
-            savedSizeBeziers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolSizeBezier(context, t, savedSizeBeziers[t] ?: PressureCurveDefaults.STANDARD)
-            savedOpacityBeziers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolOpacityBezier(context, t, savedOpacityBeziers[t] ?: PressureCurveDefaults.STANDARD)
-            savedTiltBeziers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolTiltBezier(context, t, savedTiltBeziers[t] ?: PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f))
+            savedSizes[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolSize(context, t, savedSizes[t] ?: BrushDefaults.getDefaultSize(t))
+            savedOpacities[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolOpacity(context, t, savedOpacities[t] ?: BrushDefaults.getDefaultOpacity(t))
+            savedStabilizers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolStabilizer(context, t, savedStabilizers[t] ?: BrushDefaults.getDefaultStabilizer(t))
+            savedTilts[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolTilt(context, t, savedTilts[t] ?: BrushDefaults.getDefaultTilt(t))
+            savedHardnesses[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolHardness(context, t, savedHardnesses[t] ?: BrushDefaults.getDefaultHardness(t))
+            savedSizeBeziers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolSizeBezier(context, t, savedSizeBeziers[t] ?: BrushDefaults.getDefaultSizeBezier(t))
+            savedOpacityBeziers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolOpacityBezier(context, t, savedOpacityBeziers[t] ?: BrushDefaults.getDefaultOpacityBezier(t))
+            savedTiltBeziers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolTiltBezier(context, t, savedTiltBeziers[t] ?: BrushDefaults.getDefaultTiltBezier(t))
         }
         val active = app.goodboy13.milton.core.preferences.ToolPreferences.loadActiveBrushType(context)
         applyPreset(active, saveCurrentFirst = false)

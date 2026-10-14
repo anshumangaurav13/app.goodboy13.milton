@@ -25,7 +25,7 @@ pub fn composite_tile_into_canvas(
     tile_dest_y: i32,
     layer_opacity: f32,
 ) {
-    let tile_size = 512usize;
+    let tile_size = crate::constants::TILE_SIZE;
     let opacity_factor = (layer_opacity.clamp(0.0, 1.0) * 255.0) as u32;
     if opacity_factor == 0 {
         return;

@@ -25,7 +25,7 @@ pub fn decompress_tile(compressed_bytes: &[u8]) -> Result<Vec<u8>, String> {
 
     // 2. Try Zlib stream (Deflater with default wrapper)
     let mut zlib_decoder = ZlibDecoder::new(compressed_bytes);
-    let mut decompressed = Vec::with_capacity(512 * 512 * 4);
+    let mut decompressed = Vec::with_capacity(crate::constants::TILE_BYTES);
     if zlib_decoder.read_to_end(&mut decompressed).is_ok() && !decompressed.is_empty() {
         return Ok(decompressed);
     }

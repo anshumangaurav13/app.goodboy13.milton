@@ -2,6 +2,7 @@ package app.goodboy13.milton.core.gl
 
 import android.opengl.GLES30
 import android.util.Log
+import app.goodboy13.milton.core.constants.CanvasConstants
 import app.goodboy13.milton.core.tile.TileCoord
 import java.util.ArrayDeque
 
@@ -15,7 +16,7 @@ import java.util.ArrayDeque
  */
 object GlTexturePool {
     private const val TAG = "GlTexturePool"
-    const val DEFAULT_MAX_POOL_SIZE: Int = 256
+    const val DEFAULT_MAX_POOL_SIZE: Int = CanvasConstants.DEFAULT_GL_TEXTURE_POOL_SIZE
 
     var maxPoolSize: Int = DEFAULT_MAX_POOL_SIZE
 

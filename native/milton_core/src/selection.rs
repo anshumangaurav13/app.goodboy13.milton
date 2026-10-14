@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
-
-const TILE_SIZE: usize = 512;
+use crate::constants::{TILE_SIZE, TILE_BYTES};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Point2D {
@@ -470,7 +469,7 @@ pub fn session_begin(points: Vec<Point2D>) {
 /// Stores the cutout tile in the native session outside Java heap.
 /// Returns true if any painted (non-transparent) pixel was cut.
 pub fn session_cut_tile(layer_id: i64, tx: i32, ty: i32, tile_rgba: &mut [u8]) -> bool {
-    if tile_rgba.len() < TILE_SIZE * TILE_SIZE * 4 {
+    if tile_rgba.len() < TILE_BYTES {
         return false;
     }
 
@@ -523,7 +522,7 @@ pub fn session_cut_tile(layer_id: i64, tx: i32, ty: i32, tile_rgba: &mut [u8]) -
 
     // 4. Extract cutouts and clear pixels in tile_rgba
     let orig_rgba = tile_rgba.to_vec();
-    let mut cutout_rgba = vec![0u8; TILE_SIZE * TILE_SIZE * 4];
+    let mut cutout_rgba = vec![0u8; TILE_BYTES];
 
     for py in 0..TILE_SIZE {
         let gl_ty = (TILE_SIZE - 1) - py;
@@ -779,7 +778,7 @@ pub fn session_blit_to_tile(
     flip_h: bool,
     flip_v: bool,
 ) -> bool {
-    if tile_rgba.len() < TILE_SIZE * TILE_SIZE * 4 {
+    if tile_rgba.len() < TILE_BYTES {
         return false;
     }
 
@@ -868,7 +867,7 @@ pub fn session_liquify_blit_patch(
     patch_h: usize,
     patch_rgba: &[u8],
 ) -> bool {
-    if tile_rgba.len() < TILE_SIZE * TILE_SIZE * 4 || patch_w == 0 || patch_h == 0 {
+    if tile_rgba.len() < TILE_BYTES || patch_w == 0 || patch_h == 0 {
         return false;
     }
 

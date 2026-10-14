@@ -1,7 +1,5 @@
 use crate::compression;
-
-const TILE_SIZE: usize = 512;
-const TILE_BYTES: usize = TILE_SIZE * TILE_SIZE * 4;
+use crate::constants::{TILE_SIZE, TILE_BYTES};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rect {

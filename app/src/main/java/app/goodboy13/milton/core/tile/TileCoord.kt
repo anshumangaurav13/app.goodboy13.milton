@@ -1,5 +1,6 @@
 package app.goodboy13.milton.core.tile
 
+import app.goodboy13.milton.core.constants.CanvasConstants
 import app.goodboy13.milton.core.model.WorldRect
 import kotlin.math.floor
 
@@ -10,7 +11,8 @@ data class TileCoord(val tx: Int, val ty: Int) {
     val worldBottom: Float get() = (ty + 1) * TILE_SIZE.toFloat()
 
     companion object {
-        const val TILE_SIZE = 512
+        const val TILE_SIZE = CanvasConstants.TILE_SIZE
+        const val BYTES_PER_PIXEL = CanvasConstants.BYTES_PER_PIXEL
 
         fun fromWorld(wx: Float, wy: Float): TileCoord {
             val tx = floor(wx / TILE_SIZE.toFloat()).toInt()

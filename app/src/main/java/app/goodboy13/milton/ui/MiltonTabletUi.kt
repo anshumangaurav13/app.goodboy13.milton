@@ -51,6 +51,7 @@ import app.goodboy13.milton.ui.state.DocumentActions
 import app.goodboy13.milton.ui.state.DocumentUiState
 import app.goodboy13.milton.ui.state.LayerActions
 import app.goodboy13.milton.ui.state.LayersUiState
+import app.goodboy13.milton.core.constants.PaletteDefaults
 import app.goodboy13.milton.ui.state.ToolActions
 import app.goodboy13.milton.ui.state.ToolUiState
 import app.goodboy13.milton.ui.state.ViewportActions
@@ -58,16 +59,7 @@ import app.goodboy13.milton.ui.state.ViewportUiState
 import app.goodboy13.milton.ui.topbar.TabletTopBar
 import app.goodboy13.milton.ui.topbar.TabletTopLeftBar
 
-val QUICK_PALETTE_COLORS = listOf(
-    0xFF111111.toInt(), // Ink Black
-    0xFF4A4A4A.toInt(), // Graphite
-    0xFF78909C.toInt(), // Slate Gray
-    0xFFD32F2F.toInt(), // Crimson Red
-    0xFF1976D2.toInt(), // Cobalt Blue
-    0xFF388E3C.toInt(), // Forest Green
-    0xFFF57C00.toInt(), // Amber Orange
-    0xFFFFFFFF.toInt()  // Paper White
-)
+val QUICK_PALETTE_COLORS = PaletteDefaults.QUICK_PALETTE_COLORS
 
 /**
  * Clean, decomposed Milton Tablet UI using consolidated [CanvasUiState] and [CanvasUiActions].

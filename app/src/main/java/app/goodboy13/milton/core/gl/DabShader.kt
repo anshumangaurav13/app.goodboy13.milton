@@ -74,22 +74,7 @@ class DabShader {
 
             layout(location = 0) inout vec4 fragColor;
 
-            // Persistent 2D integer paper tooth hash (identical to Graphite Lab)
-            float paperTooth(vec2 p) {
-                ivec2 ip = ivec2(floor(p));
-                uint h = (uint(ip.x) * 374761393u + uint(ip.y) * 668265263u) ^ 0x5bf03635u;
-                h = (h ^ (h >> 13u)) * 1274126177u;
-                return float((h ^ (h >> 16u)) & 0xffffu) / 65535.0;
-            }
-
-            // High-frequency stochastic micro-particle deposition hash per dab stamp
-            float particleHash(vec2 p, vec2 dabCenter) {
-                ivec2 ip = ivec2(floor(p));
-                ivec2 ic = ivec2(floor(dabCenter * 8.0));
-                uint h = (uint(ip.x) * 1664525u + uint(ip.y) * 1013904223u + uint(ic.x) * 374761393u + uint(ic.y) * 668265263u) ^ 0x6a09e667u;
-                h = (h ^ (h >> 13u)) * 2246822519u;
-                return float((h ^ (h >> 16u)) & 0xffffu) / 65535.0;
-            }
+$GRAPHITE_HASH_FUNCTIONS_GLSL
 
             void main() {
                 float dist = 0.0;
@@ -103,32 +88,7 @@ class DabShader {
                         discard;
                     }
 
-                    // 1. Effective graphite hardness modulated by stylus pressure (Graphite Lab physics)
-                    float effHardness = uHardness * (0.6 + 0.4 * uPressure);
-
-                    // 2. Micro-particle deposition density per dab stamp
-                    float pRand = particleHash(pixelCoord, vDabCenter);
-                    float particleDensity = clamp(0.286 * (0.6 + effHardness), 0.15, 0.70);
-                    if (pRand > particleDensity) {
-                        discard;
-                    }
-
-                    // 3. Persistent paper tooth test:
-                    // Graphite catches on paper fiber peaks. At higher pressure/softness, graphite reaches deeper into tooth valleys.
-                    float tooth = paperTooth(pixelCoord);
-                    float toothThreshold = max(0.05, 1.0 - (0.55 + 0.42 * effHardness));
-                    if (tooth < toothThreshold) {
-                        discard;
-                    }
-
-                    // 4. Natural linear radial falloff from lead contact center
-                    float falloff = clamp(1.0 - dist, 0.0, 1.0);
-
-                    // 5. Rich carbon deposit opacity with microscopic grain variance
-                    float grainRand = fract(pRand * 13.37 + tooth * 7.19);
-                    float alphaDeposit = (0.16 + 0.36 * grainRand) * (0.35 + 0.65 * falloff) * effHardness;
-
-                    dabAlpha = alphaDeposit * uColor.a;
+$GRAPHITE_PHYSICS_GLSL
                 } else if (uBrushMode == 2) {
                     dist = length(vLocalCoord);
                     if (dist > 1.0) {
@@ -202,22 +162,7 @@ class DabShader {
 
             out vec4 fragColor;
 
-            // Persistent 2D integer paper tooth hash (identical to Graphite Lab)
-            float paperTooth(vec2 p) {
-                ivec2 ip = ivec2(floor(p));
-                uint h = (uint(ip.x) * 374761393u + uint(ip.y) * 668265263u) ^ 0x5bf03635u;
-                h = (h ^ (h >> 13u)) * 1274126177u;
-                return float((h ^ (h >> 16u)) & 0xffffu) / 65535.0;
-            }
-
-            // High-frequency stochastic micro-particle deposition hash per dab stamp
-            float particleHash(vec2 p, vec2 dabCenter) {
-                ivec2 ip = ivec2(floor(p));
-                ivec2 ic = ivec2(floor(dabCenter * 8.0));
-                uint h = (uint(ip.x) * 1664525u + uint(ip.y) * 1013904223u + uint(ic.x) * 374761393u + uint(ic.y) * 668265263u) ^ 0x6a09e667u;
-                h = (h ^ (h >> 13u)) * 2246822519u;
-                return float((h ^ (h >> 16u)) & 0xffffu) / 65535.0;
-            }
+$GRAPHITE_HASH_FUNCTIONS_GLSL
 
             void main() {
                 float dist = 0.0;
@@ -231,32 +176,7 @@ class DabShader {
                         discard;
                     }
 
-                    // 1. Effective graphite hardness modulated by stylus pressure (Graphite Lab physics)
-                    float effHardness = uHardness * (0.6 + 0.4 * uPressure);
-
-                    // 2. Micro-particle deposition density per dab stamp
-                    float pRand = particleHash(pixelCoord, vDabCenter);
-                    float particleDensity = clamp(0.286 * (0.6 + effHardness), 0.15, 0.70);
-                    if (pRand > particleDensity) {
-                        discard;
-                    }
-
-                    // 3. Persistent paper tooth test:
-                    // Graphite catches on paper fiber peaks. At higher pressure/softness, graphite reaches deeper into tooth valleys.
-                    float tooth = paperTooth(pixelCoord);
-                    float toothThreshold = max(0.05, 1.0 - (0.55 + 0.42 * effHardness));
-                    if (tooth < toothThreshold) {
-                        discard;
-                    }
-
-                    // 4. Natural linear radial falloff from lead contact center
-                    float falloff = clamp(1.0 - dist, 0.0, 1.0);
-
-                    // 5. Rich carbon deposit opacity with microscopic grain variance
-                    float grainRand = fract(pRand * 13.37 + tooth * 7.19);
-                    float alphaDeposit = (0.16 + 0.36 * grainRand) * (0.35 + 0.65 * falloff) * effHardness;
-
-                    dabAlpha = alphaDeposit * uColor.a;
+$GRAPHITE_PHYSICS_GLSL
                 } else if (uBrushMode == 2) {
                     dist = length(vLocalCoord);
                     if (dist > 1.0) {
@@ -390,5 +310,55 @@ class DabShader {
             GLES30.glDeleteProgram(programId)
             programId = 0
         }
+    }
+
+    companion object {
+        private const val GRAPHITE_HASH_FUNCTIONS_GLSL = """
+            // Persistent 2D integer paper tooth hash (identical to Graphite Lab)
+            float paperTooth(vec2 p) {
+                ivec2 ip = ivec2(floor(p));
+                uint h = (uint(ip.x) * 374761393u + uint(ip.y) * 668265263u) ^ 0x5bf03635u;
+                h = (h ^ (h >> 13u)) * 1274126177u;
+                return float((h ^ (h >> 16u)) & 0xffffu) / 65535.0;
+            }
+
+            // High-frequency stochastic micro-particle deposition hash per dab stamp
+            float particleHash(vec2 p, vec2 dabCenter) {
+                ivec2 ip = ivec2(floor(p));
+                ivec2 ic = ivec2(floor(dabCenter * 8.0));
+                uint h = (uint(ip.x) * 1664525u + uint(ip.y) * 1013904223u + uint(ic.x) * 374761393u + uint(ic.y) * 668265263u) ^ 0x6a09e667u;
+                h = (h ^ (h >> 13u)) * 2246822519u;
+                return float((h ^ (h >> 16u)) & 0xffffu) / 65535.0;
+            }
+        """
+
+        private const val GRAPHITE_PHYSICS_GLSL = """
+                    // 1. Effective graphite hardness modulated by stylus pressure (Graphite Lab physics)
+                    float effHardness = uHardness * (0.6 + 0.4 * uPressure);
+
+                    // 2. Micro-particle deposition density per dab stamp
+                    float pRand = particleHash(pixelCoord, vDabCenter);
+                    float particleDensity = clamp(0.286 * (0.6 + effHardness), 0.15, 0.70);
+                    if (pRand > particleDensity) {
+                        discard;
+                    }
+
+                    // 3. Persistent paper tooth test:
+                    // Graphite catches on paper fiber peaks. At higher pressure/softness, graphite reaches deeper into tooth valleys.
+                    float tooth = paperTooth(pixelCoord);
+                    float toothThreshold = max(0.05, 1.0 - (0.55 + 0.42 * effHardness));
+                    if (tooth < toothThreshold) {
+                        discard;
+                    }
+
+                    // 4. Natural linear radial falloff from lead contact center
+                    float falloff = clamp(1.0 - dist, 0.0, 1.0);
+
+                    // 5. Rich carbon deposit opacity with microscopic grain variance
+                    float grainRand = fract(pRand * 13.37 + tooth * 7.19);
+                    float alphaDeposit = (0.16 + 0.36 * grainRand) * (0.35 + 0.65 * falloff) * effHardness;
+
+                    dabAlpha = alphaDeposit * uColor.a;
+        """
     }
 }
