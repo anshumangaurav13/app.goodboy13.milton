@@ -68,11 +68,12 @@ class TileBlitShader {
                 vec3 srcColor = tex.rgb / max(tex.a, 0.001);
                 vec4 dst = fragColor;
 
-                // Multi-layer compositing:
-                // Layers in the canvas composite cleanly onto the screen over the background paper.
-                // Standard layer blending prevents inter-layer distortion across tools.
-                vec3 mixed = mix(dst.rgb, srcColor, alpha);
-                fragColor = vec4(mixed, 1.0);
+                // Multi-layer compositing in Photometric Linear Space (Leonardo linearHack):
+                vec3 srcLin = pow(max(srcColor, vec3(0.0)), vec3(2.2));
+                vec3 dstLin = pow(max(dst.rgb, vec3(0.0)), vec3(2.2));
+                vec3 mixedLin = mix(dstLin, srcLin, alpha);
+                vec3 mixedSrgb = pow(max(mixedLin, vec3(0.0)), vec3(1.0 / 2.2));
+                fragColor = vec4(mixedSrgb, 1.0);
             }
         """.trimIndent()
 

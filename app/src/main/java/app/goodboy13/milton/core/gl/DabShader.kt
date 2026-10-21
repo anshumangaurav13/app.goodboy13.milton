@@ -138,8 +138,13 @@ $GRAPHITE_PHYSICS_GLSL
                     return;
                 }
 
-                // Standard Porter-Duff Over digital art blending
-                vec3 outPremul = srcColor * dabAlpha + dst.rgb * (1.0 - dabAlpha);
+                // Photometric Linear Blending (Leonardo linearHack: sRGB -> Linear -> Blend -> sRGB)
+                vec3 dstStraight = dst.rgb / max(dst.a, 0.001);
+                vec3 srcLin = pow(max(srcColor, vec3(0.0)), vec3(2.2));
+                vec3 dstLin = pow(max(dstStraight, vec3(0.0)), vec3(2.2));
+                vec3 mixedLin = mix(dstLin, srcLin, dabAlpha);
+                vec3 mixedSrgb = pow(max(mixedLin, vec3(0.0)), vec3(1.0 / 2.2));
+                vec3 outPremul = mixedSrgb * outAlpha;
                 fragColor = vec4(clamp(outPremul, 0.0, 1.0), clamp(outAlpha, 0.0, 1.0));
             }
         """.trimIndent()
