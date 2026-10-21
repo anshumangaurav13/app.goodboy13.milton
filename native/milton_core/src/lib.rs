@@ -6,6 +6,7 @@ pub mod export;
 pub mod sub_tile;
 pub mod selection;
 pub mod constants;
+pub mod brush;
 
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JByteBuffer, JClass, JFloatArray, JIntArray, JLongArray, JString};
@@ -1276,4 +1277,231 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_docume
         }
     }
     JNI_FALSE
+}
+
+// ============================================================================
+// #6 BRUSH ENGINE & STROKE INTERPOLATION JNI BINDINGS
+// ============================================================================
+
+fn parse_bezier_curve(env: &mut JNIEnv, arr: &JFloatArray) -> brush::BezierCurve {
+    let mut buf = [0.0f32; 6];
+    if env.get_float_array_region(arr, 0, &mut buf).is_ok() {
+        brush::BezierCurve::new(buf[0], buf[1], buf[2], buf[3], buf[4], buf[5])
+    } else {
+        brush::BezierCurve::default()
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_createBrushEngine<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    size: jfloat,
+    opacity: jfloat,
+    color_rgb: jint,
+    spacing: jfloat,
+    hardness: jfloat,
+    tilt: jfloat,
+    min_radius: jfloat,
+    is_eraser: jboolean,
+    brush_mode: jint,
+    stabilizer: jfloat,
+    size_curve: JFloatArray<'local>,
+    opacity_curve: JFloatArray<'local>,
+    tilt_curve: JFloatArray<'local>,
+) -> jlong {
+    let sc = parse_bezier_curve(&mut env, &size_curve);
+    let oc = parse_bezier_curve(&mut env, &opacity_curve);
+    let tc = parse_bezier_curve(&mut env, &tilt_curve);
+
+    let props = brush::BrushProperties {
+        size,
+        opacity,
+        color_rgb,
+        spacing,
+        hardness,
+        tilt,
+        min_radius,
+        is_eraser: is_eraser == JNI_TRUE,
+        brush_mode,
+        stabilizer,
+        size_curve: sc,
+        opacity_curve: oc,
+        tilt_curve: tc,
+    };
+
+    let engine = Box::new(brush::BrushEngine::new(props));
+    Box::into_raw(engine) as jlong
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_destroyBrushEngine<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    engine_ptr: jlong,
+) {
+    if engine_ptr != 0 {
+        unsafe { drop(Box::from_raw(engine_ptr as *mut brush::BrushEngine)); }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_brushSetProperties<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    engine_ptr: jlong,
+    size: jfloat,
+    opacity: jfloat,
+    color_rgb: jint,
+    spacing: jfloat,
+    hardness: jfloat,
+    tilt: jfloat,
+    min_radius: jfloat,
+    is_eraser: jboolean,
+    brush_mode: jint,
+    stabilizer: jfloat,
+    size_curve: JFloatArray<'local>,
+    opacity_curve: JFloatArray<'local>,
+    tilt_curve: JFloatArray<'local>,
+) {
+    if engine_ptr == 0 { return; }
+    let sc = parse_bezier_curve(&mut env, &size_curve);
+    let oc = parse_bezier_curve(&mut env, &opacity_curve);
+    let tc = parse_bezier_curve(&mut env, &tilt_curve);
+
+    let props = brush::BrushProperties {
+        size,
+        opacity,
+        color_rgb,
+        spacing,
+        hardness,
+        tilt,
+        min_radius,
+        is_eraser: is_eraser == JNI_TRUE,
+        brush_mode,
+        stabilizer,
+        size_curve: sc,
+        opacity_curve: oc,
+        tilt_curve: tc,
+    };
+
+    let engine = unsafe { &mut *(engine_ptr as *mut brush::BrushEngine) };
+    engine.properties = props;
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_brushStartStroke<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    engine_ptr: jlong,
+    world_x: jfloat,
+    world_y: jfloat,
+    pressure: jfloat,
+    event_time_millis: jlong,
+    tilt: jfloat,
+    out_direct_buf: JByteBuffer<'local>,
+    head_index: jlong,
+    capacity: jint,
+) -> jint {
+    if engine_ptr == 0 || capacity <= 0 { return 0; }
+    let engine = unsafe { &mut *(engine_ptr as *mut brush::BrushEngine) };
+
+    let ptr = match env.get_direct_buffer_address(&out_direct_buf) {
+        Ok(p) => p,
+        Err(_) => return 0,
+    };
+    let cap_bytes = match env.get_direct_buffer_capacity(&out_direct_buf) {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    if ptr.is_null() || cap_bytes < (capacity as usize * brush::STRIDE_BYTES) {
+        return 0;
+    }
+
+    let total_floats = cap_bytes / std::mem::size_of::<f32>();
+    let base_slice = unsafe {
+        std::slice::from_raw_parts_mut(ptr as *mut f32, total_floats)
+    };
+
+    let count = engine.start_stroke_ring(
+        world_x, world_y, pressure, event_time_millis, tilt,
+        base_slice, head_index as u64, capacity as usize,
+    );
+    count as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_brushAddPoint<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    engine_ptr: jlong,
+    world_x: jfloat,
+    world_y: jfloat,
+    pressure: jfloat,
+    event_time_millis: jlong,
+    tilt: jfloat,
+    out_direct_buf: JByteBuffer<'local>,
+    head_index: jlong,
+    capacity: jint,
+) -> jint {
+    if engine_ptr == 0 || capacity <= 0 { return 0; }
+    let engine = unsafe { &mut *(engine_ptr as *mut brush::BrushEngine) };
+
+    let ptr = match env.get_direct_buffer_address(&out_direct_buf) {
+        Ok(p) => p,
+        Err(_) => return 0,
+    };
+    let cap_bytes = match env.get_direct_buffer_capacity(&out_direct_buf) {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    if ptr.is_null() || cap_bytes < (capacity as usize * brush::STRIDE_BYTES) {
+        return 0;
+    }
+
+    let total_floats = cap_bytes / std::mem::size_of::<f32>();
+    let base_slice = unsafe {
+        std::slice::from_raw_parts_mut(ptr as *mut f32, total_floats)
+    };
+
+    let count = engine.add_point_ring(
+        world_x, world_y, pressure, event_time_millis, tilt,
+        base_slice, head_index as u64, capacity as usize,
+    );
+    count as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_brushEndStroke<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    engine_ptr: jlong,
+    out_direct_buf: JByteBuffer<'local>,
+    head_index: jlong,
+    capacity: jint,
+) -> jint {
+    if engine_ptr == 0 || capacity <= 0 { return 0; }
+    let engine = unsafe { &mut *(engine_ptr as *mut brush::BrushEngine) };
+
+    let ptr = match env.get_direct_buffer_address(&out_direct_buf) {
+        Ok(p) => p,
+        Err(_) => return 0,
+    };
+    let cap_bytes = match env.get_direct_buffer_capacity(&out_direct_buf) {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    if ptr.is_null() || cap_bytes < (capacity as usize * brush::STRIDE_BYTES) {
+        return 0;
+    }
+
+    let total_floats = cap_bytes / std::mem::size_of::<f32>();
+    let base_slice = unsafe {
+        std::slice::from_raw_parts_mut(ptr as *mut f32, total_floats)
+    };
+
+    let count = engine.end_stroke_ring(
+        base_slice, head_index as u64, capacity as usize,
+    );
+    count as jint
 }

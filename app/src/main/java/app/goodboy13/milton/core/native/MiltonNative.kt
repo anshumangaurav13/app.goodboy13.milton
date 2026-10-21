@@ -308,4 +308,80 @@ object MiltonNative {
 
     @JvmStatic
     external fun documentGetBounds(docPtr: Long, outBounds: FloatArray): Boolean
+
+    // ========================================================================
+    // #6 BRUSH ENGINE & STROKE INTERPOLATION
+    // ========================================================================
+
+    @JvmStatic
+    external fun createBrushEngine(
+        size: Float,
+        opacity: Float,
+        colorRgb: Int,
+        spacing: Float,
+        hardness: Float,
+        tilt: Float,
+        minRadius: Float,
+        isEraser: Boolean,
+        brushMode: Int,
+        stabilizer: Float,
+        sizeCurve: FloatArray,
+        opacityCurve: FloatArray,
+        tiltCurve: FloatArray
+    ): Long
+
+    @JvmStatic
+    external fun destroyBrushEngine(enginePtr: Long)
+
+    @JvmStatic
+    external fun brushSetProperties(
+        enginePtr: Long,
+        size: Float,
+        opacity: Float,
+        colorRgb: Int,
+        spacing: Float,
+        hardness: Float,
+        tilt: Float,
+        minRadius: Float,
+        isEraser: Boolean,
+        brushMode: Int,
+        stabilizer: Float,
+        sizeCurve: FloatArray,
+        opacityCurve: FloatArray,
+        tiltCurve: FloatArray
+    )
+
+    @JvmStatic
+    external fun brushStartStroke(
+        enginePtr: Long,
+        worldX: Float,
+        worldY: Float,
+        pressure: Float,
+        eventTimeMillis: Long,
+        tilt: Float,
+        outDirectBuf: java.nio.ByteBuffer,
+        headIndex: Long,
+        capacity: Int
+    ): Int
+
+    @JvmStatic
+    external fun brushAddPoint(
+        enginePtr: Long,
+        worldX: Float,
+        worldY: Float,
+        pressure: Float,
+        eventTimeMillis: Long,
+        tilt: Float,
+        outDirectBuf: java.nio.ByteBuffer,
+        headIndex: Long,
+        capacity: Int
+    ): Int
+
+    @JvmStatic
+    external fun brushEndStroke(
+        enginePtr: Long,
+        outDirectBuf: java.nio.ByteBuffer,
+        headIndex: Long,
+        capacity: Int
+    ): Int
 }

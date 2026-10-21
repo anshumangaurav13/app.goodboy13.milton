@@ -1,6 +1,8 @@
 package app.goodboy13.milton.core.brush
 
 import app.goodboy13.milton.core.memory.NativeDabRingBuffer
+import app.goodboy13.milton.core.model.BezierControlPoints
+import app.goodboy13.milton.core.native.MiltonNative
 import kotlin.math.exp
 import kotlin.math.hypot
 import kotlin.math.max
@@ -9,9 +11,11 @@ import kotlin.math.pow
 /**
  * Converts continuous stylus stroke coordinates into discrete equidistant raster dabs.
  * Supports rate-invariant, time-decay lazy brush stabilization.
- * Supports zero-allocation stamping via [NativeDabRingBuffer].
+ * Supports zero-allocation stamping via [NativeDabRingBuffer] backed by Rust core when loaded.
  */
 class BrushEngine(val properties: BrushProperties = BrushProperties()) {
+
+    private var nativeEnginePtr: Long = 0L
 
     private var lastX: Float = 0f
     private var lastY: Float = 0f
@@ -26,6 +30,61 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
     private var distanceFromLastDab: Float = 0f
     private var isStrokeActive: Boolean = false
     private var currentStrokeId: Long = 0L
+
+    init {
+        if (MiltonNative.isLoaded) {
+            nativeEnginePtr = MiltonNative.createBrushEngine(
+                properties.size,
+                properties.opacity,
+                properties.colorRgb,
+                properties.spacing,
+                properties.hardness,
+                properties.tilt,
+                properties.minRadius,
+                properties.isEraser,
+                properties.brushMode,
+                properties.stabilizer,
+                properties.sizeBezierConfig.toFloatArray(),
+                properties.opacityBezierConfig.toFloatArray(),
+                properties.tiltBezierConfig.toFloatArray()
+            )
+        }
+    }
+
+    private fun BezierControlPoints.toFloatArray(): FloatArray =
+        floatArrayOf(cp1x, cp1y, cp2x, cp2y, minPercent, maxPercent)
+
+    private fun syncNativeProperties() {
+        if (nativeEnginePtr != 0L) {
+            MiltonNative.brushSetProperties(
+                nativeEnginePtr,
+                properties.size,
+                properties.opacity,
+                properties.colorRgb,
+                properties.spacing,
+                properties.hardness,
+                properties.tilt,
+                properties.minRadius,
+                properties.isEraser,
+                properties.brushMode,
+                properties.stabilizer,
+                properties.sizeBezierConfig.toFloatArray(),
+                properties.opacityBezierConfig.toFloatArray(),
+                properties.tiltBezierConfig.toFloatArray()
+            )
+        }
+    }
+
+    fun release() {
+        if (nativeEnginePtr != 0L) {
+            MiltonNative.destroyBrushEngine(nativeEnginePtr)
+            nativeEnginePtr = 0L
+        }
+    }
+
+    protected fun finalize() {
+        release()
+    }
 
     private fun computeAlpha(normY: Float): Float {
         val maxAlpha = properties.opacity.coerceIn(0.001f, 1.0f)
@@ -50,6 +109,25 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
         tilt: Float = 0f,
         outRing: NativeDabRingBuffer
     ) {
+        if (nativeEnginePtr != 0L) {
+            syncNativeProperties()
+            isStrokeActive = true
+            currentStrokeId = System.nanoTime()
+            val placed = MiltonNative.brushStartStroke(
+                nativeEnginePtr,
+                worldX,
+                worldY,
+                pressure,
+                eventTimeMillis,
+                tilt,
+                outRing.byteBuffer,
+                outRing.headIndex,
+                outRing.capacity
+            )
+            outRing.advanceHead(placed)
+            return
+        }
+
         isStrokeActive = true
         currentStrokeId = System.nanoTime()
         lastX = worldX
@@ -150,6 +228,22 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
         tilt: Float = 0f,
         outRing: NativeDabRingBuffer
     ) {
+        if (nativeEnginePtr != 0L) {
+            val placed = MiltonNative.brushAddPoint(
+                nativeEnginePtr,
+                worldX,
+                worldY,
+                pressure,
+                eventTimeMillis,
+                tilt,
+                outRing.byteBuffer,
+                outRing.headIndex,
+                outRing.capacity
+            )
+            outRing.advanceHead(placed)
+            return
+        }
+
         if (!isStrokeActive) {
             startStroke(worldX, worldY, pressure, eventTimeMillis, tilt, outRing)
             return
@@ -387,6 +481,19 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
      * Zero-allocation endStroke directly writing into off-heap [NativeDabRingBuffer].
      */
     fun endStroke(outRing: NativeDabRingBuffer) {
+        if (nativeEnginePtr != 0L) {
+            if (!isStrokeActive) return
+            isStrokeActive = false
+            val placed = MiltonNative.brushEndStroke(
+                nativeEnginePtr,
+                outRing.byteBuffer,
+                outRing.headIndex,
+                outRing.capacity
+            )
+            outRing.advanceHead(placed)
+            return
+        }
+
         if (!isStrokeActive) return
         isStrokeActive = false
 

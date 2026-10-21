@@ -49,6 +49,15 @@ class NativeDabRingBuffer(val capacity: Int = DEFAULT_CAPACITY) {
     var headIndex: Long = 0L
         private set
 
+    /**
+     * Advances the monotonic head counter after native code batch writes into the direct buffer.
+     */
+    fun advanceHead(addedCount: Int) {
+        if (addedCount > 0) {
+            headIndex += addedCount
+        }
+    }
+
     /** Total count of resident dabs available (clamped to capacity). */
     val count: Int get() = minOf(headIndex, capacity.toLong()).toInt()
 
