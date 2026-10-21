@@ -43,6 +43,7 @@ import app.goodboy13.milton.ui.components.EraserIcon
 import app.goodboy13.milton.ui.components.LassoIcon
 import app.goodboy13.milton.ui.components.LiquifyIcon
 import app.goodboy13.milton.ui.components.PaintbrushIcon
+import app.goodboy13.milton.ui.components.SmudgeIcon
 import app.goodboy13.milton.ui.components.PenIcon
 import app.goodboy13.milton.ui.components.PencilIcon
 import java.util.Locale
@@ -135,6 +136,12 @@ fun TabletToolRail(
                 brushType = BrushType.PAINTBRUSH,
                 isSelected = activeBrush == BrushType.PAINTBRUSH,
                 onSelect = { onSelectBrush(BrushType.PAINTBRUSH) },
+                onOpenMenu = onOpenToolParameters
+            )
+            ToolButton(
+                brushType = BrushType.SMUDGE,
+                isSelected = activeBrush == BrushType.SMUDGE,
+                onSelect = { onSelectBrush(BrushType.SMUDGE) },
                 onOpenMenu = onOpenToolParameters
             )
             ToolButton(
@@ -231,6 +238,7 @@ private fun ToolButton(
                 BrushType.PEN -> PenIcon(tint = tint, modifier = Modifier.size(22.dp))
                 BrushType.PENCIL -> PencilIcon(tint = tint, modifier = Modifier.size(22.dp))
                 BrushType.PAINTBRUSH -> PaintbrushIcon(tint = tint, modifier = Modifier.size(22.dp))
+                BrushType.SMUDGE -> SmudgeIcon(tint = tint, modifier = Modifier.size(22.dp))
                 BrushType.ERASER -> EraserIcon(tint = tint, modifier = Modifier.size(22.dp))
                 BrushType.LASSO -> LassoIcon(tint = tint, modifier = Modifier.size(22.dp))
                 BrushType.LIQUIFY -> LiquifyIcon(tint = tint, modifier = Modifier.size(22.dp))

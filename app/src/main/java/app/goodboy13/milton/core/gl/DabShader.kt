@@ -96,6 +96,10 @@ $GRAPHITE_PHYSICS_GLSL
                     // Paintbrush: soft feathered edge
                     float edge = smoothstep(1.0, uHardness, dist);
                     dabAlpha = edge * uColor.a;
+                } else if (uBrushMode == 3) {
+                    // Smudge tool: smooth quadratic/Gaussian pigment advection profile
+                    float edge = smoothstep(1.0, uHardness, dist);
+                    dabAlpha = edge * uColor.a * uPressure;
                 } else {
                     // Pen / Eraser: firm anti-aliased edge
                     dabAlpha = smoothstep(1.0, uHardness, dist) * uColor.a;
@@ -110,6 +114,32 @@ $GRAPHITE_PHYSICS_GLSL
                 // Eraser mode directly attenuates tile
                 if (uIsEraser == 1) {
                     fragColor = dst * (1.0 - dabAlpha);
+                    return;
+                }
+
+                // BrushMode 3: Pigment Advection Smudge with Leonardo's linear photometric blending (linearHack)
+                if (uBrushMode == 3) {
+                    if (dst.a <= 0.002) {
+                        // Empty tile / background: deposit carried pigment with pressure falloff
+                        vec3 srcLinear = pow(clamp(uColor.rgb, 0.0, 1.0), vec3(2.2));
+                        vec3 outSrgb = pow(srcLinear, vec3(1.0 / 2.2));
+                        float depositA = dabAlpha * 0.40;
+                        fragColor = vec4(outSrgb * depositA, depositA);
+                        return;
+                    }
+
+                    // Convert destination and carried pigment to linear photometric space
+                    vec3 dstUnpremul = dst.rgb / max(dst.a, 0.001);
+                    vec3 dstLinear = pow(clamp(dstUnpremul, 0.0, 1.0), vec3(2.2));
+                    vec3 srcLinear = pow(clamp(uColor.rgb, 0.0, 1.0), vec3(2.2));
+
+                    // Advect & physically mix pigments
+                    float blendWeight = clamp(dabAlpha * 0.65, 0.0, 0.95);
+                    vec3 mixedLinear = mix(dstLinear, srcLinear, blendWeight);
+                    vec3 outSrgb = pow(clamp(mixedLinear, 0.0, 1.0), vec3(1.0 / 2.2));
+
+                    float outA = clamp(dst.a + (uColor.a - dst.a) * dabAlpha * 0.25, 0.0, 1.0);
+                    fragColor = vec4(outSrgb * outA, outA);
                     return;
                 }
 
@@ -178,6 +208,9 @@ $GRAPHITE_PHYSICS_GLSL
                 } else if (uBrushMode == 2) {
                     float edge = smoothstep(1.0, uHardness, dist);
                     dabAlpha = edge * uColor.a;
+                } else if (uBrushMode == 3) {
+                    float edge = smoothstep(1.0, uHardness, dist);
+                    dabAlpha = edge * uColor.a * uPressure;
                 } else {
                     dabAlpha = smoothstep(1.0, uHardness, dist) * uColor.a;
                 }

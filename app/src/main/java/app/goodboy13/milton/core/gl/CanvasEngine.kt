@@ -70,6 +70,7 @@ class CanvasEngine(
         commandQueue.clear()
         dabsToCommit.clear()
         ringDabsToCommit.clear()
+        sceneRenderer.resetSmudgeCarrier()
     }
 
     /**
@@ -231,6 +232,7 @@ class CanvasEngine(
             if (isStrokeDone) {
                 undoManager.commitStroke(activeLayer.id, activeLayer.tileMap)
                 pendingTrimBudget.set(true)
+                sceneRenderer.resetSmudgeCarrier()
             }
         } else if (dabsToCommit.isNotEmpty()) {
             val activeLayer = layerManager.activeLayer

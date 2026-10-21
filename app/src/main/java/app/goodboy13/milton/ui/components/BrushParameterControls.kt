@@ -485,6 +485,7 @@ fun ToolParametersFloatingWindow(
                 BrushType.PEN -> PenIcon(tint = Color(0xFF90CAF9), modifier = Modifier.size(16.dp))
                 BrushType.PENCIL -> PencilIcon(tint = Color(0xFFFFCC80), modifier = Modifier.size(16.dp))
                 BrushType.PAINTBRUSH -> PaintbrushIcon(tint = Color(0xFFA5D6A7), modifier = Modifier.size(16.dp))
+                BrushType.SMUDGE -> SmudgeIcon(tint = Color(0xFFFFAB91), modifier = Modifier.size(16.dp))
                 BrushType.ERASER -> EraserIcon(tint = Color(0xFFEF9A9A), modifier = Modifier.size(16.dp))
                 BrushType.LASSO -> LassoIcon(tint = Color(0xFFCE93D8), modifier = Modifier.size(16.dp))
                 BrushType.LIQUIFY -> LiquifyIcon(tint = Color(0xFF80DEEA), modifier = Modifier.size(16.dp))
