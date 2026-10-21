@@ -1,8 +1,8 @@
 package app.goodboy13.milton.core.viewport
 
-import android.opengl.Matrix
 import app.goodboy13.milton.core.model.Vec2
 import app.goodboy13.milton.core.model.WorldRect
+import app.goodboy13.milton.core.native.MiltonNative
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
@@ -13,23 +13,84 @@ import kotlin.math.sin
  * - panX, panY (screen offset in pixels)
  * - zoom (scale factor, 1.0 = 1 world pixel per screen pixel)
  * - rotationDegrees (canvas rotation angle in degrees)
+ *
+ * Backed by native Rust `milton_core::viewport::Viewport` for maximum precision and performance.
  */
-class Viewport {
+class Viewport(
+    initialWidth: Int = 1,
+    initialHeight: Int = 1
+) {
+    var nativePtr: Long = 0L
+        private set
+
     @Volatile var panX: Float = 0f
+        set(value) {
+            field = value
+            if (nativePtr != 0L) {
+                MiltonNative.viewportSetPan(nativePtr, field, panY)
+            }
+        }
+
     @Volatile var panY: Float = 0f
+        set(value) {
+            field = value
+            if (nativePtr != 0L) {
+                MiltonNative.viewportSetPan(nativePtr, panX, field)
+            }
+        }
+
     @Volatile var zoom: Float = 0.5f
         set(value) {
             field = value.coerceIn(0.02f, 50.0f)
+            if (nativePtr != 0L) {
+                MiltonNative.viewportSetZoom(nativePtr, field)
+            }
         }
-    @Volatile var rotationDegrees: Float = 0f
-    @Volatile var isFlippedHorizontally: Boolean = false
 
-    @Volatile var screenWidth: Int = 1
-    @Volatile var screenHeight: Int = 1
+    @Volatile var rotationDegrees: Float = 0f
+        set(value) {
+            field = value
+            if (nativePtr != 0L) {
+                MiltonNative.viewportSetRotation(nativePtr, field)
+            }
+        }
+
+    @Volatile var isFlippedHorizontally: Boolean = false
+        set(value) {
+            field = value
+            if (nativePtr != 0L) {
+                MiltonNative.viewportSetFlipped(nativePtr, field)
+            }
+        }
+
+    @Volatile var screenWidth: Int = max(1, initialWidth)
+    @Volatile var screenHeight: Int = max(1, initialHeight)
+
+    private val tempBounds = FloatArray(4)
+
+    init {
+        if (MiltonNative.isNativeAvailable()) {
+            nativePtr = MiltonNative.viewportCreate(screenWidth.toFloat(), screenHeight.toFloat())
+            MiltonNative.viewportSetPan(nativePtr, panX, panY)
+            MiltonNative.viewportSetZoom(nativePtr, zoom)
+            MiltonNative.viewportSetRotation(nativePtr, rotationDegrees)
+            MiltonNative.viewportSetFlipped(nativePtr, isFlippedHorizontally)
+        }
+    }
+
+    protected fun finalize() {
+        if (nativePtr != 0L) {
+            MiltonNative.viewportDestroy(nativePtr)
+            nativePtr = 0L
+        }
+    }
 
     fun updateScreenSize(w: Int, h: Int) {
         screenWidth = max(1, w)
         screenHeight = max(1, h)
+        if (nativePtr != 0L) {
+            MiltonNative.viewportUpdateScreenSize(nativePtr, screenWidth.toFloat(), screenHeight.toFloat())
+        }
     }
 
     /**
@@ -37,6 +98,10 @@ class Viewport {
      * Writes results into [outCoords] where index 0 is worldX and index 1 is worldY.
      */
     fun screenToWorld(screenX: Float, screenY: Float, outCoords: FloatArray) {
+        if (nativePtr != 0L) {
+            MiltonNative.viewportScreenToWorld(nativePtr, screenX, screenY, outCoords)
+            return
+        }
         val sx = if (isFlippedHorizontally) (screenWidth.toFloat() - screenX) else screenX
         val dx = (sx - panX) / zoom
         val dy = (screenY - panY) / zoom
@@ -55,22 +120,11 @@ class Viewport {
 
     /**
      * Converts a 2D screen coordinate (sx, sy) into world coordinate space.
-     * When flipped, reflects the screen X coordinate about the screen center.
      */
     fun screenToWorld(screenX: Float, screenY: Float): Vec2 {
-        val sx = if (isFlippedHorizontally) (screenWidth.toFloat() - screenX) else screenX
-        val dx = (sx - panX) / zoom
-        val dy = (screenY - panY) / zoom
-        val rot = rotationDegrees
-        if (rot == 0f) {
-            return Vec2(dx, dy)
-        }
-        val rad = Math.toRadians(-rot.toDouble())
-        val c = cos(rad).toFloat()
-        val s = sin(rad).toFloat()
-        val wx = dx * c - dy * s
-        val wy = dx * s + dy * c
-        return Vec2(wx, wy)
+        val temp = FloatArray(2)
+        screenToWorld(screenX, screenY, temp)
+        return Vec2(temp[0], temp[1])
     }
 
     /**
@@ -78,6 +132,10 @@ class Viewport {
      * Writes results into [outCoords] where index 0 is screenX and index 1 is screenY.
      */
     fun worldToScreen(worldX: Float, worldY: Float, outCoords: FloatArray) {
+        if (nativePtr != 0L) {
+            MiltonNative.viewportWorldToScreen(nativePtr, worldX, worldY, outCoords)
+            return
+        }
         val rot = rotationDegrees
         val z = zoom
         val px = panX
@@ -107,36 +165,23 @@ class Viewport {
 
     /**
      * Converts a 2D world coordinate (wx, wy) into screen coordinate space.
-     * When flipped, reflects the screen X coordinate about the screen center.
      */
     fun worldToScreen(worldX: Float, worldY: Float): Vec2 {
-        val rot = rotationDegrees
-        val sx = if (rot == 0f) {
-            worldX * zoom + panX
-        } else {
-            val rad = Math.toRadians(rot.toDouble())
-            val c = cos(rad).toFloat()
-            val s = sin(rad).toFloat()
-            val rx = worldX * c - worldY * s
-            rx * zoom + panX
-        }
-        val sy = if (rot == 0f) {
-            worldY * zoom + panY
-        } else {
-            val rad = Math.toRadians(rot.toDouble())
-            val c = cos(rad).toFloat()
-            val s = sin(rad).toFloat()
-            val ry = worldX * s + worldY * c
-            ry * zoom + panY
-        }
-        val finalSx = if (isFlippedHorizontally) (screenWidth.toFloat() - sx) else sx
-        return Vec2(finalSx, sy)
+        val temp = FloatArray(2)
+        worldToScreen(worldX, worldY, temp)
+        return Vec2(temp[0], temp[1])
     }
 
     /**
      * Computes the bounding box of world coordinates visible in the current viewport.
      */
     fun getVisibleWorldBounds(): WorldRect {
+        if (nativePtr != 0L) {
+            synchronized(tempBounds) {
+                MiltonNative.viewportGetVisibleBounds(nativePtr, tempBounds)
+                return WorldRect(tempBounds[0], tempBounds[1], tempBounds[2], tempBounds[3])
+            }
+        }
         val w = screenWidth.toFloat()
         val h = screenHeight.toFloat()
         val temp = FloatArray(2)
@@ -173,6 +218,22 @@ class Viewport {
         zoomFactor: Float,
         angleDelta: Float
     ) {
+        if (nativePtr != 0L) {
+            MiltonNative.viewportApplyGesture(
+                nativePtr,
+                prevFocalX, prevFocalY,
+                curFocalX, curFocalY,
+                zoomFactor, angleDelta
+            )
+            val panBuf = FloatArray(2)
+            MiltonNative.viewportGetPan(nativePtr, panBuf)
+            panX = panBuf[0]
+            panY = panBuf[1]
+            zoom = MiltonNative.viewportGetZoom(nativePtr)
+            rotationDegrees = MiltonNative.viewportGetRotation(nativePtr)
+            return
+        }
+
         val pFx = if (isFlippedHorizontally) (screenWidth.toFloat() - prevFocalX) else prevFocalX
         val cFx = if (isFlippedHorizontally) (screenWidth.toFloat() - curFocalX) else curFocalX
         val effAngle = if (isFlippedHorizontally) -angleDelta else angleDelta
@@ -206,6 +267,17 @@ class Viewport {
     }
 
     fun reset() {
+        if (nativePtr != 0L) {
+            MiltonNative.viewportReset(nativePtr)
+            val panBuf = FloatArray(2)
+            MiltonNative.viewportGetPan(nativePtr, panBuf)
+            panX = panBuf[0]
+            panY = panBuf[1]
+            zoom = MiltonNative.viewportGetZoom(nativePtr)
+            rotationDegrees = MiltonNative.viewportGetRotation(nativePtr)
+            isFlippedHorizontally = MiltonNative.viewportIsFlipped(nativePtr)
+            return
+        }
         panX = screenWidth * 0.5f
         panY = screenHeight * 0.5f
         zoom = 0.5f

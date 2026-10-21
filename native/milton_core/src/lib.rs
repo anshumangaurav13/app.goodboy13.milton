@@ -8,6 +8,7 @@ pub mod selection;
 pub mod constants;
 pub mod brush;
 pub mod history;
+pub mod viewport;
 
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JByteBuffer, JClass, JFloatArray, JIntArray, JLongArray, JString};
@@ -1837,4 +1838,264 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_histor
     if history_ptr == 0 { return JNI_FALSE; }
     let mgr = unsafe { &mut *(history_ptr as *mut history::HistoryManager) };
     if mgr.commit_redo() { JNI_TRUE } else { JNI_FALSE }
+}
+
+// ============================================================================
+// #11 VIEWPORT & CAMERA TRANSFORMATION JNI BINDINGS
+// ============================================================================
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportCreate<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    screen_width: jfloat,
+    screen_height: jfloat,
+) -> jlong {
+    let vp = Box::new(viewport::Viewport::new(screen_width as f32, screen_height as f32));
+    Box::into_raw(vp) as jlong
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportDestroy<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+) {
+    if vp_ptr != 0 {
+        unsafe {
+            drop(Box::from_raw(vp_ptr as *mut viewport::Viewport));
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportUpdateScreenSize<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    width: jfloat,
+    height: jfloat,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &mut *(vp_ptr as *mut viewport::Viewport) };
+    vp.update_screen_size(width as f32, height as f32);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportSetPan<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    pan_x: jfloat,
+    pan_y: jfloat,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &mut *(vp_ptr as *mut viewport::Viewport) };
+    vp.pan_x = pan_x as f32;
+    vp.pan_y = pan_y as f32;
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportGetPan<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    out_pan: JFloatArray<'local>,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &*(vp_ptr as *mut viewport::Viewport) };
+    let buf = [vp.pan_x, vp.pan_y];
+    let _ = env.set_float_array_region(&out_pan, 0, &buf);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportSetZoom<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    zoom: jfloat,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &mut *(vp_ptr as *mut viewport::Viewport) };
+    vp.set_zoom(zoom as f32);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportGetZoom<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+) -> jfloat {
+    if vp_ptr == 0 { return 1.0; }
+    let vp = unsafe { &*(vp_ptr as *mut viewport::Viewport) };
+    vp.zoom as jfloat
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportSetRotation<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    degrees: jfloat,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &mut *(vp_ptr as *mut viewport::Viewport) };
+    vp.rotation_degrees = degrees as f32;
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportGetRotation<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+) -> jfloat {
+    if vp_ptr == 0 { return 0.0; }
+    let vp = unsafe { &*(vp_ptr as *mut viewport::Viewport) };
+    vp.rotation_degrees as jfloat
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportSetFlipped<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    flipped: jboolean,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &mut *(vp_ptr as *mut viewport::Viewport) };
+    vp.is_flipped_horizontally = flipped != JNI_FALSE;
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportIsFlipped<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+) -> jboolean {
+    if vp_ptr == 0 { return JNI_FALSE; }
+    let vp = unsafe { &*(vp_ptr as *mut viewport::Viewport) };
+    if vp.is_flipped_horizontally { JNI_TRUE } else { JNI_FALSE }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportReset<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &mut *(vp_ptr as *mut viewport::Viewport) };
+    vp.reset();
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportScreenToWorld<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    screen_x: jfloat,
+    screen_y: jfloat,
+    out_coords: JFloatArray<'local>,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &*(vp_ptr as *mut viewport::Viewport) };
+    let (wx, wy) = vp.screen_to_world(screen_x as f32, screen_y as f32);
+    let buf = [wx, wy];
+    let _ = env.set_float_array_region(&out_coords, 0, &buf);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportWorldToScreen<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    world_x: jfloat,
+    world_y: jfloat,
+    out_coords: JFloatArray<'local>,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &*(vp_ptr as *mut viewport::Viewport) };
+    let (sx, sy) = vp.world_to_screen(world_x as f32, world_y as f32);
+    let buf = [sx, sy];
+    let _ = env.set_float_array_region(&out_coords, 0, &buf);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportGetVisibleBounds<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    out_bounds: JFloatArray<'local>,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &*(vp_ptr as *mut viewport::Viewport) };
+    let bounds = vp.get_visible_world_bounds();
+    let _ = env.set_float_array_region(&out_bounds, 0, &bounds);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportApplyGesture<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    prev_focal_x: jfloat,
+    prev_focal_y: jfloat,
+    cur_focal_x: jfloat,
+    cur_focal_y: jfloat,
+    zoom_factor: jfloat,
+    angle_delta: jfloat,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &mut *(vp_ptr as *mut viewport::Viewport) };
+    vp.apply_gesture(
+        prev_focal_x as f32,
+        prev_focal_y as f32,
+        cur_focal_x as f32,
+        cur_focal_y as f32,
+        zoom_factor as f32,
+        angle_delta as f32,
+    );
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportStepFling<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dt: jfloat,
+    velocities: JFloatArray<'local>,
+    out_deltas: JFloatArray<'local>,
+) -> jboolean {
+    let mut vel = [0.0f32; 2];
+    if env.get_float_array_region(&velocities, 0, &mut vel).is_err() {
+        return JNI_TRUE;
+    }
+    let mut vx = vel[0];
+    let mut vy = vel[1];
+    let (dx, dy, is_stopped) = viewport::Viewport::step_fling(dt as f32, &mut vx, &mut vy);
+    let vel = [vx, vy];
+    let _ = env.set_float_array_region(&velocities, 0, &vel);
+    let deltas = [dx, dy];
+    let _ = env.set_float_array_region(&out_deltas, 0, &deltas);
+    if is_stopped { JNI_TRUE } else { JNI_FALSE }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportComputeFinalMvp<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    buffer_w: jfloat,
+    buffer_h: jfloat,
+    transform: JFloatArray<'local>,
+    out_mvp: JFloatArray<'local>,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &*(vp_ptr as *mut viewport::Viewport) };
+    let mut tf = [0.0f32; 16];
+    if env.get_float_array_region(&transform, 0, &mut tf).is_err() {
+        return;
+    }
+    let mut mvp = [0.0f32; 16];
+    vp.compute_final_mvp_matrix(buffer_w as f32, buffer_h as f32, &tf, &mut mvp);
+    let _ = env.set_float_array_region(&out_mvp, 0, &mvp);
 }

@@ -10,6 +10,7 @@ import app.goodboy13.milton.core.brush.BrushDab
 import app.goodboy13.milton.core.memory.NativeDabRingBuffer
 import app.goodboy13.milton.core.layer.Layer
 import app.goodboy13.milton.core.model.WorldRect
+import app.goodboy13.milton.core.native.MiltonNative
 import app.goodboy13.milton.core.tile.RasterTile
 import app.goodboy13.milton.core.tile.TileCoord
 import app.goodboy13.milton.core.tile.TileMap
@@ -52,6 +53,7 @@ class GlSceneRenderer {
     private val screenProjectionMatrix = FloatArray(16)
     private val worldToViewMatrix = FloatArray(16)
     private val finalMvpMatrix = FloatArray(16)
+    private val identityMatrix = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
 
     // Reusable buffers on GL render thread to eliminate frame-rate GC allocations
     private val reusableVisibleTiles = mutableListOf<RasterTile>()
@@ -127,6 +129,16 @@ class GlSceneRenderer {
     }
 
     fun computeFinalMvpMatrix(viewport: Viewport, bufferInfo: BufferInfo, transform: FloatArray): FloatArray {
+        if (viewport.nativePtr != 0L) {
+            MiltonNative.viewportComputeFinalMvp(
+                viewport.nativePtr,
+                bufferInfo.width.toFloat(),
+                bufferInfo.height.toFloat(),
+                transform,
+                finalMvpMatrix
+            )
+            return finalMvpMatrix
+        }
         // 1. screenOrthoMatrix: maps buffer pixels [0..bufW, 0..bufH] to buffer NDC [-1, 1]
         Matrix.orthoM(
             screenOrthoMatrix, 0,
@@ -881,25 +893,35 @@ class GlSceneRenderer {
             val screenW = viewport.screenWidth.toFloat()
             val screenH = viewport.screenHeight.toFloat()
 
-            val exportOrtho = FloatArray(16)
-            Matrix.orthoM(exportOrtho, 0, 0f, screenW, 0f, screenH, -1f, 1f)
-
-            val worldToView = FloatArray(16)
-            Matrix.setIdentityM(worldToView, 0)
-            if (viewport.isFlippedHorizontally) {
-                val cx = viewport.screenWidth * 0.5f
-                Matrix.translateM(worldToView, 0, cx, 0f, 0f)
-                Matrix.scaleM(worldToView, 0, -1f, 1f, 1f)
-                Matrix.translateM(worldToView, 0, -cx, 0f, 0f)
-            }
-            Matrix.translateM(worldToView, 0, viewport.panX, viewport.panY, 0f)
-            Matrix.scaleM(worldToView, 0, viewport.zoom, viewport.zoom, 1.0f)
-            if (viewport.rotationDegrees != 0f) {
-                Matrix.rotateM(worldToView, 0, viewport.rotationDegrees, 0f, 0f, 1f)
-            }
-
             val exportMvp = FloatArray(16)
-            Matrix.multiplyMM(exportMvp, 0, exportOrtho, 0, worldToView, 0)
+            if (viewport.nativePtr != 0L) {
+                MiltonNative.viewportComputeFinalMvp(
+                    viewport.nativePtr,
+                    screenW,
+                    screenH,
+                    identityMatrix,
+                    exportMvp
+                )
+            } else {
+                val exportOrtho = FloatArray(16)
+                Matrix.orthoM(exportOrtho, 0, 0f, screenW, 0f, screenH, -1f, 1f)
+
+                val worldToView = FloatArray(16)
+                Matrix.setIdentityM(worldToView, 0)
+                if (viewport.isFlippedHorizontally) {
+                    val cx = viewport.screenWidth * 0.5f
+                    Matrix.translateM(worldToView, 0, cx, 0f, 0f)
+                    Matrix.scaleM(worldToView, 0, -1f, 1f, 1f)
+                    Matrix.translateM(worldToView, 0, -cx, 0f, 0f)
+                }
+                Matrix.translateM(worldToView, 0, viewport.panX, viewport.panY, 0f)
+                Matrix.scaleM(worldToView, 0, viewport.zoom, viewport.zoom, 1.0f)
+                if (viewport.rotationDegrees != 0f) {
+                    Matrix.rotateM(worldToView, 0, viewport.rotationDegrees, 0f, 0f, 1f)
+                }
+
+                Matrix.multiplyMM(exportMvp, 0, exportOrtho, 0, worldToView, 0)
+            }
 
             val visibleBounds = viewport.getVisibleWorldBounds()
             tileBlitShader.begin(exportMvp, flipY = true, backgroundColorRgb = backgroundColorRgb)

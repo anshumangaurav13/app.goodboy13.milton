@@ -14,6 +14,9 @@ object MiltonNative {
     var isLoaded: Boolean = false
         private set
 
+    @JvmStatic
+    fun isNativeAvailable(): Boolean = isLoaded
+
     init {
         try {
             System.loadLibrary("milton_core")
@@ -469,4 +472,80 @@ object MiltonNative {
 
     @JvmStatic
     external fun historyCommitRedo(historyPtr: Long): Boolean
+
+    // ========================================================================
+    // #11 VIEWPORT & CAMERA TRANSFORMATION ENGINE
+    // ========================================================================
+
+    @JvmStatic
+    external fun viewportCreate(screenWidth: Float, screenHeight: Float): Long
+
+    @JvmStatic
+    external fun viewportDestroy(vpPtr: Long)
+
+    @JvmStatic
+    external fun viewportUpdateScreenSize(vpPtr: Long, width: Float, height: Float)
+
+    @JvmStatic
+    external fun viewportSetPan(vpPtr: Long, panX: Float, panY: Float)
+
+    @JvmStatic
+    external fun viewportGetPan(vpPtr: Long, outPan: FloatArray)
+
+    @JvmStatic
+    external fun viewportSetZoom(vpPtr: Long, zoom: Float)
+
+    @JvmStatic
+    external fun viewportGetZoom(vpPtr: Long): Float
+
+    @JvmStatic
+    external fun viewportSetRotation(vpPtr: Long, degrees: Float)
+
+    @JvmStatic
+    external fun viewportGetRotation(vpPtr: Long): Float
+
+    @JvmStatic
+    external fun viewportSetFlipped(vpPtr: Long, flipped: Boolean)
+
+    @JvmStatic
+    external fun viewportIsFlipped(vpPtr: Long): Boolean
+
+    @JvmStatic
+    external fun viewportReset(vpPtr: Long)
+
+    @JvmStatic
+    external fun viewportScreenToWorld(vpPtr: Long, screenX: Float, screenY: Float, outCoords: FloatArray)
+
+    @JvmStatic
+    external fun viewportWorldToScreen(vpPtr: Long, worldX: Float, worldY: Float, outCoords: FloatArray)
+
+    @JvmStatic
+    external fun viewportGetVisibleBounds(vpPtr: Long, outBounds: FloatArray)
+
+    @JvmStatic
+    external fun viewportApplyGesture(
+        vpPtr: Long,
+        prevFocalX: Float,
+        prevFocalY: Float,
+        curFocalX: Float,
+        curFocalY: Float,
+        zoomFactor: Float,
+        angleDelta: Float
+    )
+
+    @JvmStatic
+    external fun viewportStepFling(
+        dt: Float,
+        velocities: FloatArray,
+        outDeltas: FloatArray
+    ): Boolean
+
+    @JvmStatic
+    external fun viewportComputeFinalMvp(
+        vpPtr: Long,
+        bufferW: Float,
+        bufferH: Float,
+        transform: FloatArray,
+        outMvp: FloatArray
+    )
 }
