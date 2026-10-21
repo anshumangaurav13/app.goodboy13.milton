@@ -384,4 +384,89 @@ object MiltonNative {
         headIndex: Long,
         capacity: Int
     ): Int
+
+    // ========================================================================
+    // #7 HISTORY & UNDO/REDO
+    // ========================================================================
+
+    @JvmStatic
+    external fun createHistoryManager(maxHistorySize: Int): Long
+
+    @JvmStatic
+    external fun destroyHistoryManager(historyPtr: Long)
+
+    @JvmStatic
+    external fun historyCanUndo(historyPtr: Long): Boolean
+
+    @JvmStatic
+    external fun historyCanRedo(historyPtr: Long): Boolean
+
+    @JvmStatic
+    external fun historyUndoCount(historyPtr: Long): Int
+
+    @JvmStatic
+    external fun historyRedoCount(historyPtr: Long): Int
+
+    @JvmStatic
+    external fun historyClear(historyPtr: Long)
+
+    @JvmStatic
+    external fun historyTotalMemoryBytes(historyPtr: Long): Long
+
+    @JvmStatic
+    external fun historyPushTileDelta(
+        historyPtr: Long,
+        isStartOfCommand: Boolean,
+        layerId: Long,
+        tx: Int,
+        ty: Int,
+        minX: Int,
+        minY: Int,
+        width: Int,
+        height: Int,
+        beforePatch: ByteArray?,
+        afterPatch: ByteArray?
+    )
+
+    @JvmStatic
+    external fun historyGetUndoDeltasCount(historyPtr: Long): Int
+
+    @JvmStatic
+    external fun historyGetUndoDeltaMetadata(
+        historyPtr: Long,
+        index: Int,
+        outMeta: IntArray,
+        outLayerId: LongArray
+    ): Boolean
+
+    @JvmStatic
+    external fun historyApplyUndoTileDirect(
+        historyPtr: Long,
+        index: Int,
+        tileDirectBuf: java.nio.ByteBuffer
+    ): Boolean
+
+    @JvmStatic
+    external fun historyCommitUndo(historyPtr: Long): Boolean
+
+    @JvmStatic
+    external fun historyGetRedoDeltasCount(historyPtr: Long): Int
+
+    @JvmStatic
+    external fun historyGetRedoDeltaMetadata(
+        historyPtr: Long,
+        index: Int,
+        outMeta: IntArray,
+        outLayerId: LongArray
+    ): Boolean
+
+    @JvmStatic
+    external fun historyApplyRedoTileDirect(
+        historyPtr: Long,
+        index: Int,
+        tileDirectBuf: java.nio.ByteBuffer
+    ): Boolean
+
+    @JvmStatic
+    external fun historyCommitRedo(historyPtr: Long): Boolean
 }

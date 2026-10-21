@@ -89,6 +89,25 @@ data class UndoWorkItem(
 
 class UndoManager(val maxHistorySize: Int = 30) {
 
+    private var nativeHistoryPtr: Long = 0L
+
+    init {
+        if (MiltonNative.isLoaded) {
+            nativeHistoryPtr = MiltonNative.createHistoryManager(maxHistorySize)
+        }
+    }
+
+    fun release() {
+        if (nativeHistoryPtr != 0L) {
+            MiltonNative.destroyHistoryManager(nativeHistoryPtr)
+            nativeHistoryPtr = 0L
+        }
+    }
+
+    protected fun finalize() {
+        release()
+    }
+
     private val lock = Any()
     private val undoStack = ArrayDeque<UndoCommand>()
     private val redoStack = ArrayDeque<UndoCommand>()
@@ -104,6 +123,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
 
     val canUndo: Boolean get() = synchronized(lock) { undoStack.isNotEmpty() }
     val canRedo: Boolean get() = synchronized(lock) { redoStack.isNotEmpty() }
+    val nativeMemoryBytes: Long get() = if (nativeHistoryPtr != 0L) MiltonNative.historyTotalMemoryBytes(nativeHistoryPtr) else 0L
 
     /**
      * Call before stamping stroke dabs to snapshot pre-stroke state of affected tiles.
@@ -270,6 +290,24 @@ class UndoManager(val maxHistorySize: Int = 30) {
             }
 
             if (deltas.isNotEmpty()) {
+                if (nativeHistoryPtr != 0L) {
+                    for (i in deltas.indices) {
+                        val d = deltas[i]
+                        MiltonNative.historyPushTileDelta(
+                            nativeHistoryPtr,
+                            isStartOfCommand = (i == 0),
+                            layerId = d.layerId,
+                            tx = d.coord.tx,
+                            ty = d.coord.ty,
+                            minX = d.minX,
+                            minY = d.minY,
+                            width = d.patchWidth,
+                            height = d.patchHeight,
+                            beforePatch = d.beforeCompressed,
+                            afterPatch = d.afterCompressed
+                        )
+                    }
+                }
                 synchronized(lock) {
                     redoStack.clear()
                     undoStack.push(StrokeCommand(deltas))
@@ -575,6 +613,9 @@ class UndoManager(val maxHistorySize: Int = 30) {
     }
 
     fun clear() {
+        if (nativeHistoryPtr != 0L) {
+            MiltonNative.historyClear(nativeHistoryPtr)
+        }
         synchronized(lock) {
             undoStack.clear()
             redoStack.clear()
