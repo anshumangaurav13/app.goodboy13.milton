@@ -144,6 +144,11 @@ $GRAPHITE_PHYSICS_GLSL
                 }
 
                 vec3 srcColor = uColor.rgb;
+                if (uBrushMode == 1) {
+                    // Soften harsh ink-black into natural matte charcoal/graphite pencil grey
+                    vec3 graphiteTone = vec3(0.25, 0.26, 0.28);
+                    srcColor = mix(srcColor, max(srcColor, graphiteTone), 0.70);
+                }
 
                 // Empty tile / front-buffer pixel: direct premultiplied stamp
                 if (dst.a <= 0.002) {
@@ -219,7 +224,13 @@ $GRAPHITE_PHYSICS_GLSL
                     discard;
                 }
 
-                fragColor = vec4(uColor.rgb * dabAlpha, dabAlpha);
+                vec3 srcColor = uColor.rgb;
+                if (uBrushMode == 1) {
+                    vec3 graphiteTone = vec3(0.25, 0.26, 0.28);
+                    srcColor = mix(srcColor, max(srcColor, graphiteTone), 0.70);
+                }
+
+                fragColor = vec4(srcColor * dabAlpha, dabAlpha);
             }
         """.trimIndent()
 
@@ -394,32 +405,25 @@ $GRAPHITE_PHYSICS_GLSL
         """
 
         private const val GRAPHITE_PHYSICS_GLSL = """
-                    // 1. Effective graphite hardness modulated by stylus pressure (Graphite Lab physics)
-                    float effHardness = uHardness * (0.6 + 0.4 * uPressure);
+                    // 1. Soft lead contact edge falloff (smooth feathering instead of harsh cutoff)
+                    float leadEdge = smoothstep(1.0, 0.60, dist);
 
-                    // 2. Micro-particle deposition density per dab stamp
-                    float pRand = particleHash(pixelCoord, vDabCenter);
-                    float particleDensity = clamp(0.286 * (0.6 + effHardness), 0.15, 0.70);
-                    if (pRand > particleDensity) {
-                        discard;
-                    }
-
-                    // 3. Persistent paper tooth test:
-                    // Graphite catches on paper fiber peaks. At higher pressure/softness, graphite reaches deeper into tooth valleys.
+                    // 2. Paper tooth texture (microscopic paper fiber peaks and valleys)
                     float tooth = paperTooth(pixelCoord);
-                    float toothThreshold = max(0.05, 1.0 - (0.55 + 0.42 * effHardness));
-                    if (tooth < toothThreshold) {
-                        discard;
-                    }
+                    float pRand = particleHash(pixelCoord, vDabCenter);
 
-                    // 4. Natural linear radial falloff from lead contact center
-                    float falloff = clamp(1.0 - dist, 0.0, 1.0);
+                    // 3. Pressure modulates paper fiber penetration:
+                    // Low pressure: graphite catches mostly on fiber peaks (distinct visible tooth texture)
+                    // High pressure: graphite compresses into the tooth valleys for rich solid shading
+                    float pressureNorm = clamp(uPressure, 0.0, 1.0);
+                    float toothCoverage = mix(0.45 + 0.55 * tooth, 0.80 + 0.20 * tooth, pressureNorm);
 
-                    // 5. Rich carbon deposit opacity with microscopic grain variance
-                    float grainRand = fract(pRand * 13.37 + tooth * 7.19);
-                    float alphaDeposit = (0.16 + 0.36 * grainRand) * (0.35 + 0.65 * falloff) * effHardness;
+                    // 4. Delicate micro-particle grain variance (±12% analog roughness)
+                    float microGrain = 0.88 + 0.24 * pRand;
 
-                    dabAlpha = alphaDeposit * uColor.a;
+                    // 5. Dense, continuous graphite deposition (responsive to lead hardness & stylus pressure)
+                    float leadDensity = (0.42 + 0.58 * pressureNorm) * (0.60 + 0.40 * uHardness);
+                    dabAlpha = clamp(leadEdge * toothCoverage * microGrain * leadDensity * uColor.a, 0.0, 1.0);
         """
     }
 }
