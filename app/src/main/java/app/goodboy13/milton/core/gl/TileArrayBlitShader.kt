@@ -217,19 +217,24 @@ class TileArrayBlitShader {
         }
     }
 
-    fun renderTilesBatch(tiles: List<RasterTile>, opacity: Float) {
+    fun renderTilesBatch(
+        tiles: List<RasterTile>,
+        opacity: Float,
+        worldTileSize: Float = TileCoord.TILE_SIZE.toFloat()
+    ) {
         val count = tiles.size
         if (count <= 0 || !isReady) return
 
         ensureCapacity(count)
         instanceFloatBuffer.position(0)
-        val tileSize = TileCoord.TILE_SIZE.toFloat()
 
         for (i in 0 until count) {
             val tile = tiles[i]
-            instanceFloatBuffer.put(tile.coord.worldLeft)
-            instanceFloatBuffer.put(tile.coord.worldTop)
-            instanceFloatBuffer.put(tileSize)
+            val left = tile.coord.tx * worldTileSize
+            val top = tile.coord.ty * worldTileSize
+            instanceFloatBuffer.put(left)
+            instanceFloatBuffer.put(top)
+            instanceFloatBuffer.put(worldTileSize)
             instanceFloatBuffer.put(tile.sliceIndex.toFloat())
             instanceFloatBuffer.put(opacity)
         }

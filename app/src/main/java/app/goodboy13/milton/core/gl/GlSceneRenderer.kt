@@ -281,40 +281,61 @@ class GlSceneRenderer {
 
         if (useArrayBlit) {
             tileArrayBlitShader.begin(mvp, true, textureArrayId)
+            val useOverviewLOD = viewport.zoom < 0.35f
 
             for (layer in layers) {
                 if (!layer.isVisible || layer.opacity <= 0.001f) continue
-                val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds, reusableVisibleTiles)
-                if (visibleTiles.isNotEmpty()) {
-                    val isLayerLiquifying = selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify &&
-                        selectionState.session.targetLayerIds.contains(layer.id)
-                    val liquifyMinTx = if (isLayerLiquifying) {
-                        floor(selectionState.session.srcBounds.left / TileCoord.TILE_SIZE).toInt()
-                    } else Int.MAX_VALUE
-                    val liquifyMaxTx = if (isLayerLiquifying) {
-                        floor((selectionState.session.srcBounds.right - 1f) / TileCoord.TILE_SIZE).toInt()
-                    } else Int.MIN_VALUE
-                    val liquifyMinTy = if (isLayerLiquifying) {
-                        floor(selectionState.session.srcBounds.top / TileCoord.TILE_SIZE).toInt()
-                    } else Int.MAX_VALUE
-                    val liquifyMaxTy = if (isLayerLiquifying) {
-                        floor((selectionState.session.srcBounds.bottom - 1f) / TileCoord.TILE_SIZE).toInt()
-                    } else Int.MIN_VALUE
 
+                if (useOverviewLOD) {
                     reusableBatchTiles.clear()
-                    for (tile in visibleTiles) {
-                        if (!tile.isInitialized || !tile.hasContent || tile.sliceIndex < 0) continue
-                        if (isLayerLiquifying &&
-                            tile.coord.tx in liquifyMinTx..liquifyMaxTx &&
-                            tile.coord.ty in liquifyMinTy..liquifyMaxTy
-                        ) {
-                            continue
-                        }
-                        reusableBatchTiles.add(tile)
-                    }
-
+                    layer.tileMap.getVisibleOverviewTiles(visibleBounds, reusableBatchTiles)
                     if (reusableBatchTiles.isNotEmpty()) {
-                        tileArrayBlitShader.renderTilesBatch(reusableBatchTiles, layer.opacity)
+                        tileArrayBlitShader.renderTilesBatch(reusableBatchTiles, layer.opacity, TileCoord.TILE_SIZE * 2f)
+                    } else {
+                        // Overview tiles not yet created for this layer, populate or fallback
+                        val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds, reusableVisibleTiles)
+                        reusableBatchTiles.clear()
+                        for (tile in visibleTiles) {
+                            if (!tile.isInitialized || !tile.hasContent || tile.sliceIndex < 0) continue
+                            reusableBatchTiles.add(tile)
+                        }
+                        if (reusableBatchTiles.isNotEmpty()) {
+                            tileArrayBlitShader.renderTilesBatch(reusableBatchTiles, layer.opacity, TileCoord.TILE_SIZE.toFloat())
+                        }
+                    }
+                } else {
+                    val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds, reusableVisibleTiles)
+                    if (visibleTiles.isNotEmpty()) {
+                        val isLayerLiquifying = selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify &&
+                            selectionState.session.targetLayerIds.contains(layer.id)
+                        val liquifyMinTx = if (isLayerLiquifying) {
+                            floor(selectionState.session.srcBounds.left / TileCoord.TILE_SIZE).toInt()
+                        } else Int.MAX_VALUE
+                        val liquifyMaxTx = if (isLayerLiquifying) {
+                            floor((selectionState.session.srcBounds.right - 1f) / TileCoord.TILE_SIZE).toInt()
+                        } else Int.MIN_VALUE
+                        val liquifyMinTy = if (isLayerLiquifying) {
+                            floor(selectionState.session.srcBounds.top / TileCoord.TILE_SIZE).toInt()
+                        } else Int.MAX_VALUE
+                        val liquifyMaxTy = if (isLayerLiquifying) {
+                            floor((selectionState.session.srcBounds.bottom - 1f) / TileCoord.TILE_SIZE).toInt()
+                        } else Int.MIN_VALUE
+
+                        reusableBatchTiles.clear()
+                        for (tile in visibleTiles) {
+                            if (!tile.isInitialized || !tile.hasContent || tile.sliceIndex < 0) continue
+                            if (isLayerLiquifying &&
+                                tile.coord.tx in liquifyMinTx..liquifyMaxTx &&
+                                tile.coord.ty in liquifyMinTy..liquifyMaxTy
+                            ) {
+                                continue
+                            }
+                            reusableBatchTiles.add(tile)
+                        }
+
+                        if (reusableBatchTiles.isNotEmpty()) {
+                            tileArrayBlitShader.renderTilesBatch(reusableBatchTiles, layer.opacity, TileCoord.TILE_SIZE.toFloat())
+                        }
                     }
                 }
 
@@ -565,6 +586,7 @@ class GlSceneRenderer {
                 strokeCompositeShader.render(strokeTextureId = scratchTextureId)
             }
         }
+        targetTileMap.updateOverviewTiles(reusableAffectedTiles)
     }
 
     /**
@@ -705,6 +727,7 @@ class GlSceneRenderer {
                 strokeCompositeShader.render(strokeTextureId = scratchTextureId)
             }
         }
+        targetTileMap.updateOverviewTiles(reusableAffectedTiles)
     }
 
     /**
