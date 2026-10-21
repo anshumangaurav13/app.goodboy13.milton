@@ -50,6 +50,8 @@ class GlSceneRenderer {
 
     // Reusable buffers on GL render thread to eliminate frame-rate GC allocations
     private val reusableVisibleTiles = mutableListOf<RasterTile>()
+    var lastDrawCalls: Int = 0
+        private set
     private val reusableBatchTiles = ArrayList<RasterTile>()
     private val reusableAffectedTiles = mutableListOf<RasterTile>()
     private val tileDabsBucketMap = HashMap<Long, TileDabBucket>()
@@ -275,13 +277,18 @@ class GlSceneRenderer {
         viewport: Viewport,
         selectionState: app.goodboy13.milton.core.selection.SelectionState? = null
     ) {
+        var drawCallCounter = 0
+        val showBorders = app.goodboy13.milton.core.telemetry.TelemetryManager.cvarShowTileBorders
+        val forceOverview = app.goodboy13.milton.core.telemetry.TelemetryManager.cvarForceOverviewLod
+        val allowArrayBlit = app.goodboy13.milton.core.telemetry.TelemetryManager.cvarUseTextureArrayBlit
+
         val mvp = computeFinalMvpMatrix(viewport, bufferInfo, transform)
         val textureArrayId = GlTexturePool.textureArrayId
-        val useArrayBlit = GlTexturePool.usesTextureArray && tileArrayBlitShader.isReady && textureArrayId != 0
+        val useArrayBlit = allowArrayBlit && GlTexturePool.usesTextureArray && tileArrayBlitShader.isReady && textureArrayId != 0
 
         if (useArrayBlit) {
-            tileArrayBlitShader.begin(mvp, true, textureArrayId)
-            val useOverviewLOD = viewport.zoom < 0.35f
+            tileArrayBlitShader.begin(mvp, true, textureArrayId, showBorders)
+            val useOverviewLOD = forceOverview || viewport.zoom < 0.35f
 
             for (layer in layers) {
                 if (!layer.isVisible || layer.opacity <= 0.001f) continue
@@ -290,7 +297,7 @@ class GlSceneRenderer {
                     reusableBatchTiles.clear()
                     layer.tileMap.getVisibleOverviewTiles(visibleBounds, reusableBatchTiles)
                     if (reusableBatchTiles.isNotEmpty()) {
-                        tileArrayBlitShader.renderTilesBatch(reusableBatchTiles, layer.opacity, TileCoord.TILE_SIZE * 2f)
+                        tileArrayBlitShader.renderTilesBatch(reusableBatchTiles, layer.opacity, TileCoord.TILE_SIZE * 2f); drawCallCounter++
                     } else {
                         // Overview tiles not yet created for this layer, populate or fallback
                         val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds, reusableVisibleTiles)
@@ -300,7 +307,7 @@ class GlSceneRenderer {
                             reusableBatchTiles.add(tile)
                         }
                         if (reusableBatchTiles.isNotEmpty()) {
-                            tileArrayBlitShader.renderTilesBatch(reusableBatchTiles, layer.opacity, TileCoord.TILE_SIZE.toFloat())
+                            tileArrayBlitShader.renderTilesBatch(reusableBatchTiles, layer.opacity, TileCoord.TILE_SIZE.toFloat()); drawCallCounter++
                         }
                     }
                 } else {
@@ -334,7 +341,7 @@ class GlSceneRenderer {
                         }
 
                         if (reusableBatchTiles.isNotEmpty()) {
-                            tileArrayBlitShader.renderTilesBatch(reusableBatchTiles, layer.opacity, TileCoord.TILE_SIZE.toFloat())
+                            tileArrayBlitShader.renderTilesBatch(reusableBatchTiles, layer.opacity, TileCoord.TILE_SIZE.toFloat()); drawCallCounter++
                         }
                     }
                 }
@@ -351,7 +358,7 @@ class GlSceneRenderer {
                             patch = patch,
                             layerOpacity = layer.opacity,
                             mvpMatrix = mvp
-                        )
+                        ); drawCallCounter++
                         tileArrayBlitShader.begin(mvp, true, textureArrayId)
                     }
                 } else if (selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify &&
@@ -365,14 +372,14 @@ class GlSceneRenderer {
                             patch = patch,
                             layerOpacity = layer.opacity,
                             mvpMatrix = mvp
-                        )
+                        ); drawCallCounter++
                         tileArrayBlitShader.begin(mvp, true, textureArrayId)
                     }
                 }
             }
             tileArrayBlitShader.end()
         } else {
-            tileBlitShader.begin(mvp, true, backgroundColorRgb)
+            tileBlitShader.begin(mvp, true, backgroundColorRgb, showBorders)
 
             for (layer in layers) {
                 if (!layer.isVisible || layer.opacity <= 0.001f) continue
@@ -422,7 +429,7 @@ class GlSceneRenderer {
                             patch = patch,
                             layerOpacity = layer.opacity,
                             mvpMatrix = mvp
-                        )
+                        ); drawCallCounter++
                         tileBlitShader.begin(mvp, true, backgroundColorRgb)
                     }
                 } else if (selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify &&
@@ -436,7 +443,7 @@ class GlSceneRenderer {
                             patch = patch,
                             layerOpacity = layer.opacity,
                             mvpMatrix = mvp
-                        )
+                        ); drawCallCounter++
                         tileBlitShader.begin(mvp, true, backgroundColorRgb)
                     }
                 }

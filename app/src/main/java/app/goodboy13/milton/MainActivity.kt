@@ -241,7 +241,11 @@ class MainActivity : ComponentActivity() {
                         onToggleZoomLock = { viewModel.toggleZoomLock(canvasView) },
                         onToggleRotationLock = { viewModel.toggleRotationLock(canvasView) },
                         onResetCanvas = { viewModel.resetCanvas(canvasView) },
-                        onToggleZenMode = { viewModel.setZenMode(it) }
+                        onToggleZenMode = { viewModel.setZenMode(it) },
+                        onTrimBudget = {
+                            canvasView.renderer.requestTrimBudget()
+                            canvasView.requestRedraw()
+                        }
                     ),
                     document = DocumentActions(
                         onTitleChange = { viewModel.setDocumentTitle(it, canvasView, storageManager) },

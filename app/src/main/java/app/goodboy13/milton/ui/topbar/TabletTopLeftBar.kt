@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -105,6 +106,7 @@ fun TabletTopLeftBar(
     onAddReferenceImage: () -> Unit = {},
     onClearReferenceImages: () -> Unit = {},
     onShowKeyboardShortcuts: () -> Unit = {},
+    onOpenTelemetry: () -> Unit = {},
     onIsEditingTitleChange: (Boolean) -> Unit = {}
 ) {
     val barShape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 14.dp)
@@ -319,6 +321,18 @@ fun TabletTopLeftBar(
                                             isMenuExpanded = false
                                             activeSubmenu = LeftBarSubmenu.NONE
                                             onShowKeyboardShortcuts()
+                                        }
+                                    )
+
+                                    // 8b. Carmack Telemetry HUD
+                                    CompactMenuItem(
+                                        icon = Icons.Default.Speed,
+                                        iconTint = Color(0xFF00E5FF),
+                                        text = "Carmack Telemetry HUD",
+                                        onClick = {
+                                            isMenuExpanded = false
+                                            activeSubmenu = LeftBarSubmenu.NONE
+                                            onOpenTelemetry()
                                         }
                                     )
 

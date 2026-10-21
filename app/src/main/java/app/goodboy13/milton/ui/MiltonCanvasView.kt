@@ -886,7 +886,9 @@ class MiltonCanvasView @JvmOverloads constructor(
                 val isEraser = brushEngine.properties.isEraser
                 Log.i(TAG, "Stylus DOWN at screen=($sx, $sy), world=(${worldPos.x}, ${worldPos.y}), pressure=$pressure, tilt=$tilt, isEraser=$isEraser")
                 brushEngine.startStroke(worldPos.x, worldPos.y, pressure, event.eventTime, tilt, strokeRingBuffer)
+                app.goodboy13.milton.core.telemetry.TelemetryManager.recordTouchLatency((android.os.SystemClock.uptimeMillis() - event.eventTime).toFloat())
                 if (strokeRingBuffer.isNotEmpty) {
+                    app.goodboy13.milton.core.telemetry.TelemetryManager.recordDabs(strokeRingBuffer.count)
                     renderer.queueRingDabs(strokeRingBuffer, 0, strokeRingBuffer.count)
                     if (isEraser) {
                         frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
@@ -920,7 +922,9 @@ class MiltonCanvasView @JvmOverloads constructor(
                 brushEngine.addPoint(worldPos.x, worldPos.y, pressure, event.eventTime, tilt, strokeRingBuffer)
 
                 val addedCount = strokeRingBuffer.count - startIdx
+                app.goodboy13.milton.core.telemetry.TelemetryManager.recordTouchLatency((android.os.SystemClock.uptimeMillis() - event.eventTime).toFloat())
                 if (addedCount > 0) {
+                    app.goodboy13.milton.core.telemetry.TelemetryManager.recordDabs(addedCount)
                     renderer.queueRingDabs(strokeRingBuffer, startIdx, addedCount)
                     if (isEraser) {
                         frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
@@ -938,7 +942,9 @@ class MiltonCanvasView @JvmOverloads constructor(
                 val startIdx = strokeRingBuffer.count
                 brushEngine.endStroke(strokeRingBuffer)
                 val addedCount = strokeRingBuffer.count - startIdx
+                app.goodboy13.milton.core.telemetry.TelemetryManager.recordTouchLatency((android.os.SystemClock.uptimeMillis() - event.eventTime).toFloat())
                 if (addedCount > 0) {
+                    app.goodboy13.milton.core.telemetry.TelemetryManager.recordDabs(addedCount)
                     renderer.queueRingDabs(strokeRingBuffer, startIdx, addedCount)
                 }
                 renderer.markStrokeFinished()

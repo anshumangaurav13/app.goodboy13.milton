@@ -23,6 +23,7 @@ class RasterTile(val coord: TileCoord) {
 
     var isInitialized: Boolean = false
         private set
+    val isResident: Boolean get() = isInitialized
     var isDirty: Boolean = false
 
     var lastAccessTime: Long = System.nanoTime()

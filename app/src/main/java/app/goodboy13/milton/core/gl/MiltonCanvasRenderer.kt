@@ -148,11 +148,14 @@ class MiltonCanvasRenderer(
         transform: FloatArray,
         param: DabPacket
     ) {
+        val t0 = System.nanoTime()
         if (param.ringBuffer != null && param.ringCount > 0) {
             engine.renderFrontBuffer(param.ringBuffer, param.ringStartIndex, param.ringCount, bufferInfo, transform)
         } else {
             engine.renderFrontBuffer(param.dabs, bufferInfo, transform)
         }
+        val t1 = System.nanoTime()
+        app.goodboy13.milton.core.telemetry.TelemetryManager.recordFrontBufferFrame((t1 - t0) / 1_000_000f)
     }
 
     override fun onDrawMultiBufferedLayer(
@@ -163,7 +166,27 @@ class MiltonCanvasRenderer(
         transform: FloatArray,
         params: Collection<DabPacket>
     ) {
+        val t0 = System.nanoTime()
         engine.processFrame(bufferInfo, transform, backgroundColorRgb)
+        val t1 = System.nanoTime()
+
+        var residentCount = 0
+        var diskCount = 0
+        for (layer in layerManager.layers) {
+            for (tile in layer.tileMap.getAllTiles()) {
+                if (tile.isResident) residentCount++
+                else if (tile.hasContent) diskCount++
+            }
+        }
+        val lodLevel = if (engine.viewport.zoom < 0.35f || app.goodboy13.milton.core.telemetry.TelemetryManager.cvarForceOverviewLod) 1 else 0
+
+        app.goodboy13.milton.core.telemetry.TelemetryManager.recordMultiBufferFrame(
+            durationMs = (t1 - t0) / 1_000_000f,
+            drawCalls = sceneRenderer.lastDrawCalls,
+            residentCount = residentCount,
+            diskCount = diskCount,
+            lodLevel = lodLevel
+        )
     }
 
     /**

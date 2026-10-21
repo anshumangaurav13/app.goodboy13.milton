@@ -37,6 +37,7 @@ import app.goodboy13.milton.core.layer.Layer
 import app.goodboy13.milton.core.model.BezierControlPoints
 import app.goodboy13.milton.core.storage.SavedProjectSummary
 import app.goodboy13.milton.ui.components.LayersFloatingWindow
+import app.goodboy13.milton.ui.components.TelemetryFloatingWindow
 import app.goodboy13.milton.ui.components.ToolParametersFloatingWindow
 import app.goodboy13.milton.ui.components.rememberFloatingWindowState
 import app.goodboy13.milton.ui.palette.ColorPaletteFloatingWindow
@@ -91,6 +92,8 @@ fun MiltonTabletUi(
     var showLayersWindow by remember { mutableStateOf(false) }
     var showToolParametersWindow by remember { mutableStateOf(false) }
     var showKeyboardShortcutsDialog by remember { mutableStateOf(false) }
+    var showTelemetryWindow by remember { mutableStateOf(false) }
+    val telemetryWindowState = rememberFloatingWindowState(initialX = 120f, initialY = 100f)
 
     // Preserve window open/closed states across fullscreen (Zen mode) toggles
     var preZenToolParams by remember { mutableStateOf(false) }
@@ -166,6 +169,7 @@ fun MiltonTabletUi(
                 onAddReferenceImage = { imagePickerLauncher.launch("image/*") },
                 onClearReferenceImages = { referenceImages = emptyList() },
                 onShowKeyboardShortcuts = { showKeyboardShortcutsDialog = true },
+                onOpenTelemetry = { showTelemetryWindow = !showTelemetryWindow },
                 onIsEditingTitleChange = actions.document.onTextInputActiveChanged
             )
         }
@@ -380,6 +384,17 @@ fun MiltonTabletUi(
         if (showKeyboardShortcutsDialog) {
             app.goodboy13.milton.ui.dialogs.KeyboardShortcutsDialog(
                 onDismissRequest = { showKeyboardShortcutsDialog = false }
+            )
+        }
+
+        // 8. Carmack Telemetry HUD & Lagometer Floating Window
+        if (showTelemetryWindow) {
+            TelemetryFloatingWindow(
+                onClose = { showTelemetryWindow = false },
+                containerWidth = containerW,
+                containerHeight = containerH,
+                state = telemetryWindowState,
+                onFlushVram = { actions.viewport.onTrimBudget() }
             )
         }
     }

@@ -32,6 +32,7 @@ class TileArrayBlitShader {
     private var uMvpMatrixLoc: Int = -1
     private var uFlipYLoc: Int = -1
     private var uTextureArrayLoc: Int = -1
+    private var uShowBordersLoc: Int = -1
 
     private var instanceCapacity: Int = INITIAL_INSTANCE_CAPACITY
     private var instanceByteBuffer: ByteBuffer = ByteBuffer.allocateDirect(INITIAL_INSTANCE_CAPACITY * BYTES_PER_INSTANCE)
@@ -57,11 +58,13 @@ class TileArrayBlitShader {
             uniform int uFlipY;
 
             out vec3 vTexCoord; // (u, v, sliceIndex)
+            out vec2 vUnitPos;
             out float vOpacity;
 
             void main() {
                 float ty = (uFlipY == 1) ? (1.0 - aPosition.y) : aPosition.y;
                 vTexCoord = vec3(aPosition.x, ty, aSliceIndex);
+                vUnitPos = aPosition;
                 vec2 worldPos = aTilePos + aPosition * aTileSize;
                 vOpacity = aOpacity;
                 gl_Position = uMvpMatrix * vec4(worldPos, 0.0, 1.0);
@@ -75,13 +78,22 @@ class TileArrayBlitShader {
             precision highp sampler2DArray;
 
             in vec3 vTexCoord;
+            in vec2 vUnitPos;
             in float vOpacity;
 
             uniform sampler2DArray uTextureArray;
+            uniform int uShowBorders;
 
             layout(location = 0) inout vec4 fragColor;
 
             void main() {
+                if (uShowBorders == 1) {
+                    if (vUnitPos.x < 0.008 || vUnitPos.x > 0.992 || vUnitPos.y < 0.008 || vUnitPos.y > 0.992) {
+                        fragColor = vec4(0.0, 0.9, 1.0, 1.0);
+                        return;
+                    }
+                }
+
                 vec4 tex = texture(uTextureArray, vTexCoord);
                 float alpha = tex.a * vOpacity;
                 if (alpha <= 0.001) {
@@ -103,12 +115,21 @@ class TileArrayBlitShader {
             precision mediump sampler2DArray;
 
             in vec3 vTexCoord;
+            in vec2 vUnitPos;
             in float vOpacity;
 
             uniform sampler2DArray uTextureArray;
+            uniform int uShowBorders;
             out vec4 fragColor;
 
             void main() {
+                if (uShowBorders == 1) {
+                    if (vUnitPos.x < 0.008 || vUnitPos.x > 0.992 || vUnitPos.y < 0.008 || vUnitPos.y > 0.992) {
+                        fragColor = vec4(0.0, 0.9, 1.0, 1.0);
+                        return;
+                    }
+                }
+
                 vec4 tex = texture(uTextureArray, vTexCoord);
                 if (tex.a <= 0.001) {
                     discard;
@@ -130,6 +151,7 @@ class TileArrayBlitShader {
         uMvpMatrixLoc = GLES30.glGetUniformLocation(programId, "uMvpMatrix")
         uFlipYLoc = GLES30.glGetUniformLocation(programId, "uFlipY")
         uTextureArrayLoc = GLES30.glGetUniformLocation(programId, "uTextureArray")
+        uShowBordersLoc = GLES30.glGetUniformLocation(programId, "uShowBorders")
 
         // Setup VAO and VBOs
         val vaos = IntArray(1)
@@ -196,12 +218,13 @@ class TileArrayBlitShader {
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
     }
 
-    fun begin(mvpMatrix: FloatArray, flipY: Boolean, textureArrayId: Int) {
+    fun begin(mvpMatrix: FloatArray, flipY: Boolean, textureArrayId: Int, showBorders: Boolean = false) {
         if (!isReady) return
 
         GLES30.glUseProgram(programId)
         GLES30.glUniformMatrix4fv(uMvpMatrixLoc, 1, false, mvpMatrix, 0)
         GLES30.glUniform1i(uFlipYLoc, if (flipY) 1 else 0)
+        GLES30.glUniform1i(uShowBordersLoc, if (showBorders) 1 else 0)
 
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D_ARRAY, textureArrayId)
