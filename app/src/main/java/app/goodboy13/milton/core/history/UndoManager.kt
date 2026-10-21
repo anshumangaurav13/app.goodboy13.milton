@@ -157,7 +157,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
     fun clearPending() {
         for ((_, entry) in pendingPreStrokeGpu) {
             if (entry != null) {
-                GlTexturePool.release(entry.textureId, entry.fboId)
+                GlTexturePool.release(entry)
             }
         }
         pendingPreStrokeGpu.clear()
@@ -213,7 +213,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
                                 )
                                 afterBuf.rewind()
 
-                                GlTexturePool.release(snapshotEntry.textureId, snapshotEntry.fboId)
+                                GlTexturePool.release(snapshotEntry)
 
                                 val dirtyRect = if (MiltonNative.isLoaded) {
                                     MiltonNative.computeDirtyRectDirect(beforeBuf, afterBuf)
@@ -300,7 +300,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
                                 )
                             )
                         }
-                        GlTexturePool.release(snapshotEntry!!.textureId, snapshotEntry.fboId)
+                        GlTexturePool.release(snapshotEntry!!)
                     }
                     gpuIter.remove()
                 }
@@ -401,7 +401,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
             // Safely release any lingering GPU entries if an exception occurred
             for ((_, entry) in pendingPreStrokeGpu) {
                 if (entry != null) {
-                    GlTexturePool.release(entry.textureId, entry.fboId)
+                    GlTexturePool.release(entry)
                 }
             }
             pendingPreStrokeGpu.clear()

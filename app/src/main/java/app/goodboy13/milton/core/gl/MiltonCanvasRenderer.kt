@@ -62,6 +62,7 @@ class MiltonCanvasRenderer(
 
     val dabShader get() = sceneRenderer.dabShader
     val tileBlitShader get() = sceneRenderer.tileBlitShader
+    val tileArrayBlitShader get() = sceneRenderer.tileArrayBlitShader
     val thumbnailRenderer get() = sceneRenderer.thumbnailRenderer
     val strokeCompositeShader get() = sceneRenderer.strokeCompositeShader
 
