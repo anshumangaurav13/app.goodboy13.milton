@@ -201,10 +201,10 @@ impl BrushEngine {
         out_slice[offset + 3] = alpha;
         out_slice[offset + 4] = f32::from_bits(color_rgb as u32);
         out_slice[offset + 5] = hardness;
-        out_slice[offset + 6] = brush_mode as f32;
+        out_slice[offset + 6] = f32::from_bits(brush_mode as u32);
         out_slice[offset + 7] = pressure;
         out_slice[offset + 8] = tilt;
-        out_slice[offset + 9] = if is_eraser { 1.0 } else { 0.0 };
+        out_slice[offset + 9] = f32::from_bits(if is_eraser { 1u32 } else { 0u32 });
     }
 
     /// Begins a new stroke and outputs the initial anchor dab into the circular ring buffer.
@@ -572,5 +572,25 @@ mod tests {
         assert!(ring[7 * STRIDE_FLOATS] > 0.0);
         // Dab wrapped to slot 0 (head 8 % 8 = 0)
         assert!(ring[0 * STRIDE_FLOATS] > 0.0);
+    }
+
+    #[test]
+    fn test_brush_engine_integer_bit_encoding() {
+        let mut props = BrushProperties::default();
+        props.brush_mode = 1; // Pencil
+        props.is_eraser = true; // Eraser
+        props.color_rgb = 0x123456;
+        let mut engine = BrushEngine::new(props);
+
+        let mut out = [0.0f32; STRIDE_FLOATS * 10];
+        let count = engine.start_stroke(10.0, 20.0, 0.5, 1000, 0.0, &mut out);
+        assert_eq!(count, 1);
+
+        // Offset 4: color_rgb as u32 bits
+        assert_eq!(out[4].to_bits(), 0x123456);
+        // Offset 6: brush_mode as u32 bits
+        assert_eq!(out[6].to_bits(), 1);
+        // Offset 9: is_eraser as u32 bits
+        assert_eq!(out[9].to_bits(), 1);
     }
 }

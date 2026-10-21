@@ -119,4 +119,29 @@ class NativeDabRingBufferTest {
         assertEquals(5L, ring.headIndex)
         assertEquals(50f, ring.getX(4L), 0.001f)
     }
+
+    @Test
+    fun testFloatFallbackForBrushModeAndEraser() {
+        val ring = NativeDabRingBuffer(capacity = 4)
+        ring.pushDab(10f, 10f, 1f, 1f, 1)
+
+        // Directly write IEEE-754 float 1.0f into offset 6 (brushMode) and offset 9 (isEraser)
+        // to simulate any legacy/mismatched float writer
+        val slot = 0
+        val offset = slot * NativeDabRingBuffer.STRIDE_FLOATS
+        ring.floatBuffer.put(offset + 6, 1.0f)
+        ring.floatBuffer.put(offset + 9, 1.0f)
+
+        assertEquals(1, ring.getBrushMode(0))
+        assertTrue(ring.isEraser(0))
+
+        var readBrushMode = -1
+        var readEraser = false
+        ring.forEachDab(0L, 1) { _, _, _, _, _, _, _, brushMode, _, _, isEraser ->
+            readBrushMode = brushMode
+            readEraser = isEraser
+        }
+        assertEquals(1, readBrushMode)
+        assertTrue(readEraser)
+    }
 }

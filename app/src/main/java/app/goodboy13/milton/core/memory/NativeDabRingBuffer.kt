@@ -127,10 +127,16 @@ class NativeDabRingBuffer(val capacity: Int = DEFAULT_CAPACITY) {
     inline fun getAlphaBySlot(slot: Int): Float = floatBuffer.get(slot * STRIDE_FLOATS + 3)
     inline fun getColorRgbBySlot(slot: Int): Int = intBuffer.get(slot * STRIDE_FLOATS + 4)
     inline fun getHardnessBySlot(slot: Int): Float = floatBuffer.get(slot * STRIDE_FLOATS + 5)
-    inline fun getBrushModeBySlot(slot: Int): Int = intBuffer.get(slot * STRIDE_FLOATS + 6)
+    inline fun getBrushModeBySlot(slot: Int): Int {
+        val raw = intBuffer.get(slot * STRIDE_FLOATS + 6)
+        return if (raw in 0..15) raw else floatBuffer.get(slot * STRIDE_FLOATS + 6).toInt()
+    }
     inline fun getPressureBySlot(slot: Int): Float = floatBuffer.get(slot * STRIDE_FLOATS + 7)
     inline fun getTiltBySlot(slot: Int): Float = floatBuffer.get(slot * STRIDE_FLOATS + 8)
-    inline fun isEraserBySlot(slot: Int): Boolean = intBuffer.get(slot * STRIDE_FLOATS + 9) == 1
+    inline fun isEraserBySlot(slot: Int): Boolean {
+        val raw = intBuffer.get(slot * STRIDE_FLOATS + 9)
+        return raw == 1 || floatBuffer.get(slot * STRIDE_FLOATS + 9) > 0.5f
+    }
 
     // Monotonic sequence accessors
     inline fun getX(seq: Long): Float = getXBySlot(slotOf(seq))
@@ -189,10 +195,10 @@ class NativeDabRingBuffer(val capacity: Int = DEFAULT_CAPACITY) {
                 floatBuffer.get(offset + 3),
                 intBuffer.get(offset + 4),
                 floatBuffer.get(offset + 5),
-                intBuffer.get(offset + 6),
+                getBrushModeBySlot(slot),
                 floatBuffer.get(offset + 7),
                 floatBuffer.get(offset + 8),
-                intBuffer.get(offset + 9) == 1
+                isEraserBySlot(slot)
             )
         }
     }
