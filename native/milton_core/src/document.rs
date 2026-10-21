@@ -194,7 +194,7 @@ impl MiltonDocument {
         view_top: f32,
         view_right: f32,
         view_bottom: f32,
-        zoom: f32,
+        _zoom: f32,
         force_overview: bool,
         exclude_layer_id: i64,
         exclude_left: f32,
@@ -203,7 +203,7 @@ impl MiltonDocument {
         exclude_bottom: f32,
         out_slice: &mut [f32],
     ) -> usize {
-        let use_overview = force_overview || zoom < 0.35;
+        let use_overview = force_overview;
         let max_instances = out_slice.len() / FLOATS_PER_INSTANCE;
         let mut instance_count = 0;
         let has_exclusion = exclude_layer_id != 0 && exclude_left < exclude_right && exclude_top < exclude_bottom;
