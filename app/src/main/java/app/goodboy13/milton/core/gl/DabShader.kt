@@ -77,16 +77,18 @@ class DabShader {
 $GRAPHITE_HASH_FUNCTIONS_GLSL
 
             void main() {
-                float dist = 0.0;
                 vec2 pixelCoord = floor(vWorldPos + vec2(0.01));
-
-                float dabAlpha = 0.0;
+                float dist = length(vLocalCoord);
                 if (uBrushMode == 1) {
                     vec2 pixelCenter = pixelCoord + vec2(0.5);
                     dist = length(pixelCenter - vDabCenter) / vRadius;
-                    if (dist > 1.0) {
-                        discard;
-                    }
+                }
+                if (dist > 1.0) {
+                    discard;
+                }
+
+                float dabAlpha = 0.0;
+                if (uBrushMode == 1) {
 
 
 $GRAPHITE_PHYSICS_GLSL
@@ -131,14 +133,8 @@ $GRAPHITE_PHYSICS_GLSL
                     return;
                 }
 
-                // Photometric Linear Blending (Leonardo linearHack: sRGB -> Linear -> Blend -> sRGB)
-                vec3 dstStraight = dst.rgb / max(dst.a, 0.001);
-                vec3 srcLin = pow(max(srcColor, vec3(0.0)), vec3(2.2));
-                vec3 dstLin = pow(max(dstStraight, vec3(0.0)), vec3(2.2));
-                float wSrc = dabAlpha / max(outAlpha, 0.0001);
-                vec3 mixedLin = mix(dstLin, srcLin, clamp(wSrc, 0.0, 1.0));
-                vec3 mixedSrgb = pow(max(mixedLin, vec3(0.0)), vec3(1.0 / 2.2));
-                vec3 outPremul = mixedSrgb * outAlpha;
+                // Standard Porter-Duff Over digital art blending
+                vec3 outPremul = srcColor * dabAlpha + dst.rgb * (1.0 - dabAlpha);
                 fragColor = vec4(clamp(outPremul, 0.0, 1.0), clamp(outAlpha, 0.0, 1.0));
             }
         """.trimIndent()
@@ -164,16 +160,18 @@ $GRAPHITE_PHYSICS_GLSL
 $GRAPHITE_HASH_FUNCTIONS_GLSL
 
             void main() {
-                float dist = 0.0;
                 vec2 pixelCoord = floor(vWorldPos + vec2(0.01));
-
-                float dabAlpha = 0.0;
+                float dist = length(vLocalCoord);
                 if (uBrushMode == 1) {
                     vec2 pixelCenter = pixelCoord + vec2(0.5);
                     dist = length(pixelCenter - vDabCenter) / vRadius;
-                    if (dist > 1.0) {
-                        discard;
-                    }
+                }
+                if (dist > 1.0) {
+                    discard;
+                }
+
+                float dabAlpha = 0.0;
+                if (uBrushMode == 1) {
 
 
 $GRAPHITE_PHYSICS_GLSL

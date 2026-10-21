@@ -58,20 +58,11 @@ class StrokeCompositeShader {
                 }
 
                 float strokeAlpha = stroke.a;
-                vec3 strokeRgb = stroke.rgb / max(strokeAlpha, 0.001);
                 float dstAlpha = dst.a;
-                vec3 dstRgb = dst.rgb / max(dstAlpha, 0.001);
-
                 float outAlpha = dstAlpha + strokeAlpha * (1.0 - dstAlpha);
 
-                // Photometric Linear Blending (Leonardo linearHack: sRGB -> Linear -> Blend -> sRGB)
-                vec3 strokeLin = pow(max(strokeRgb, vec3(0.0)), vec3(2.2));
-                vec3 dstLin = pow(max(dstRgb, vec3(0.0)), vec3(2.2));
-                float wSrc = strokeAlpha / max(outAlpha, 0.0001);
-                vec3 mixedLin = mix(dstLin, strokeLin, clamp(wSrc, 0.0, 1.0));
-                vec3 mixedSrgb = pow(max(mixedLin, vec3(0.0)), vec3(1.0 / 2.2));
-
-                vec3 outPremul = mixedSrgb * outAlpha;
+                // Single-pass Porter-Duff Over optical blending evaluated once across the stroke ribbon
+                vec3 outPremul = stroke.rgb + dst.rgb * (1.0 - strokeAlpha);
                 fragColor = vec4(clamp(outPremul, 0.0, 1.0), clamp(outAlpha, 0.0, 1.0));
             }
         """.trimIndent()
