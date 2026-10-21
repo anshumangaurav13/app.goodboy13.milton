@@ -14,7 +14,7 @@ object CanvasConstants {
     const val TILE_BYTE_SIZE: Int = TILE_SIZE * TILE_SIZE * BYTES_PER_PIXEL
 
     /** Default maximum resident uncompressed tiles kept in RAM/VRAM cache (256 MB budget). */
-    const val DEFAULT_MAX_RESIDENT_TILES: Int = 256
+    const val DEFAULT_MAX_RESIDENT_TILES: Int = 512
 
     /** Number of direct off-heap native 1MB ByteBuffers to pre-allocate in pool. */
     const val DEFAULT_DIRECT_BUFFER_POOL_SIZE: Int = 6

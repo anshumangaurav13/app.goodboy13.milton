@@ -83,10 +83,8 @@ class UndoManager(val maxHistorySize: Int = 30) {
     private val redoStack = ArrayDeque<UndoCommand>()
 
     // Tiles touched in the currently active stroke before stamping:
-    // 1. Direct raw byte snapshots (e.g. from Liquify or Selection transformations)
-    private val pendingPreStrokeRaw = mutableMapOf<Pair<Long, TileCoord>, ByteArray?>()
-
-
+    // Compressed off-heap snapshots to prevent JVM heap bloat and GC/OOM crashes during zoomed-out sketching
+    private val pendingPreStrokeCompressed = mutableMapOf<Pair<Long, TileCoord>, ByteArray?>()
 
     var onStateChangedListener: (() -> Unit)? = null
     var onTilesCommittedListener: ((List<TileDelta>) -> Unit)? = null
@@ -96,18 +94,22 @@ class UndoManager(val maxHistorySize: Int = 30) {
 
     /**
      * Call before stamping stroke dabs to snapshot pre-stroke state of affected tiles.
-     * Operates completely in GPU VRAM via glBlitFramebuffer, eliminating in-stroke CPU stalls.
+     * Operates using reusable off-heap direct ByteBuffers and immediate ZSTD compression
+     * to eliminate JVM heap allocations.
      */
     fun capturePreStrokeTiles(layerId: Long, tiles: Collection<RasterTile>) {
         for (tile in tiles) {
             val key = layerId to tile.coord
-            if (pendingPreStrokeRaw.containsKey(key)) {
+            if (pendingPreStrokeCompressed.containsKey(key)) {
                 continue
             }
             if (tile.isInitialized && tile.hasContent) {
-                pendingPreStrokeRaw[key] = tile.readPixels()
+                DirectBufferPool.useBuffer { directBuf ->
+                    tile.readPixelsDirect(directBuf)
+                    pendingPreStrokeCompressed[key] = compress(directBuf)
+                }
             } else {
-                pendingPreStrokeRaw[key] = null
+                pendingPreStrokeCompressed[key] = null
             }
         }
     }
@@ -121,8 +123,8 @@ class UndoManager(val maxHistorySize: Int = 30) {
      */
     fun registerPreModifiedTile(layerId: Long, coord: TileCoord, rawBytes: ByteArray?) {
         val key = layerId to coord
-        if (!pendingPreStrokeRaw.containsKey(key)) {
-            pendingPreStrokeRaw[key] = rawBytes
+        if (!pendingPreStrokeCompressed.containsKey(key)) {
+            pendingPreStrokeCompressed[key] = if (rawBytes != null) compress(rawBytes) else null
         }
     }
 
@@ -130,28 +132,27 @@ class UndoManager(val maxHistorySize: Int = 30) {
      * Clears and recycles all pending pre-stroke snapshots without pushing to undo stack.
      */
     fun clearPending() {
-        pendingPreStrokeRaw.clear()
+        pendingPreStrokeCompressed.clear()
     }
 
     /**
      * Call after stamping stroke dabs or committing a multi-layer action to finalize the stroke command into the undo stack.
      */
     fun commitMultiLayerStroke(layers: Collection<Pair<Long, TileMap>>) {
-        if (pendingPreStrokeRaw.isEmpty()) return
+        if (pendingPreStrokeCompressed.isEmpty()) return
 
         val layerMap = layers.associate { it.first to it.second }
         val deltas = mutableListOf<TileDelta>()
 
         try {
-            // 2. Process direct byte snapshots (from Liquify / SelectionTransform)
-            if (pendingPreStrokeRaw.isNotEmpty()) {
-                val rawIter = pendingPreStrokeRaw.iterator()
+            if (pendingPreStrokeCompressed.isNotEmpty()) {
+                val rawIter = pendingPreStrokeCompressed.iterator()
                 while (rawIter.hasNext()) {
                     val entry = rawIter.next()
                     val (entryLayerId, coord) = entry.key
                     val tileMap = layerMap[entryLayerId] ?: continue
 
-                    val beforeRaw = entry.value
+                    val beforeCompressed = entry.value
                     val tile = tileMap.getExistingTile(coord.tx, coord.ty)
                     val afterRaw = if (tile != null && tile.isInitialized && tile.hasContent) {
                         tile.readPixels()
@@ -159,7 +160,8 @@ class UndoManager(val maxHistorySize: Int = 30) {
                         null
                     }
 
-                    if (beforeRaw != null && afterRaw != null) {
+                    if (beforeCompressed != null && afterRaw != null) {
+                        val beforeRaw = decompress(beforeCompressed)
                         val dirtyRect = if (MiltonNative.isLoaded) {
                             MiltonNative.computeDirtyRect(beforeRaw, afterRaw)
                         } else null
@@ -193,19 +195,18 @@ class UndoManager(val maxHistorySize: Int = 30) {
                                 )
                             }
                         } else {
-                            val beforeFull = compress(beforeRaw)
-                            val afterFull = compress(afterRaw)
+                            val fullAfter = compress(afterRaw)
                             deltas.add(
                                 TileDelta(
                                     layerId = entryLayerId,
                                     coord = coord,
-                                    beforeCompressed = beforeFull,
-                                    afterCompressed = afterFull,
-                                    fullAfterForAutosave = afterFull
+                                    beforeCompressed = beforeCompressed,
+                                    afterCompressed = fullAfter,
+                                    fullAfterForAutosave = fullAfter
                                 )
                             )
                         }
-                    } else if (beforeRaw == null && afterRaw != null) {
+                    } else if (beforeCompressed == null && afterRaw != null) {
                         val fullAfter = compress(afterRaw)
                         deltas.add(
                             TileDelta(
@@ -216,13 +217,12 @@ class UndoManager(val maxHistorySize: Int = 30) {
                                 fullAfterForAutosave = fullAfter
                             )
                         )
-                    } else if (beforeRaw != null && afterRaw == null) {
-                        val fullBefore = compress(beforeRaw)
+                    } else if (beforeCompressed != null && afterRaw == null) {
                         deltas.add(
                             TileDelta(
                                 layerId = entryLayerId,
                                 coord = coord,
-                                beforeCompressed = fullBefore,
+                                beforeCompressed = beforeCompressed,
                                 afterCompressed = null,
                                 fullAfterForAutosave = null
                             )
@@ -232,7 +232,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
                 }
             }
         } finally {
-            pendingPreStrokeRaw.clear()
+            pendingPreStrokeCompressed.clear()
         }
 
         if (deltas.isEmpty()) return

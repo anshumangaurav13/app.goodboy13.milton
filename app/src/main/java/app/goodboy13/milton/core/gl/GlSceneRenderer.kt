@@ -38,15 +38,10 @@ class GlSceneRenderer {
     val strokeCompositeShader = StrokeCompositeShader()
     val patchBlitShader = PatchBlitShader()
 
-    // Leonardo-style Pigment Advection Smudge Reservoir
-    private var smudgeCarrierR: Float = 0f
-    private var smudgeCarrierG: Float = 0f
-    private var smudgeCarrierB: Float = 0f
-    private var smudgeCarrierA: Float = 0f
-    private var isSmudgeCarrierActive: Boolean = false
+    val smudgeShader = SmudgeShader()
 
     fun resetSmudgeCarrier() {
-        isSmudgeCarrierActive = false
+        // Maintained for backward compatibility; GPU SmudgeShader advects tile pixels directly
     }
 
     private var scratchFboId: Int = 0
@@ -64,6 +59,7 @@ class GlSceneRenderer {
     var lastDrawCalls: Int = 0
         private set
     private val reusableBatchTiles = ArrayList<RasterTile>()
+    private val reusableFallbackTiles = ArrayList<RasterTile>()
     private val reusableAffectedTiles = mutableListOf<RasterTile>()
     private val tileDabsBucketMap = HashMap<Long, TileDabBucket>()
     private val bucketPool = ArrayList<TileDabBucket>()
@@ -93,6 +89,7 @@ class GlSceneRenderer {
             thumbnailRenderer.initGl()
             strokeCompositeShader.initGl()
             patchBlitShader.initGl()
+            smudgeShader.initGl()
             initScratchTileGl()
             isGlInitialized = true
             Log.d(TAG, "OpenGL ES shaders, FBOs, and VAOs initialized successfully")
@@ -189,7 +186,7 @@ class GlSceneRenderer {
 
         val mvp = computeFinalMvpMatrix(viewport, bufferInfo, transform)
         for (dab in dabs) {
-            if (dab.isEraser) continue // Eraser is never drawn into the front buffer overlay
+            if (dab.isEraser || dab.brushMode == 3) continue // Eraser and Smudge are never drawn into front buffer overlay
 
             dabShader.renderDab(
                 centerX = dab.x,
@@ -240,7 +237,7 @@ class GlSceneRenderer {
 
         val mvp = computeFinalMvpMatrix(viewport, bufferInfo, transform)
         ringBuffer.forEachDab(startHead, count) { _, x, y, radius, alpha, colorRgb, hardness, brushMode, pressure, _, isEraser ->
-            if (!isEraser) {
+            if (!isEraser && brushMode != 3) {
                 dabShader.renderDab(
                     centerX = x,
                     centerY = y,
@@ -330,22 +327,41 @@ class GlSceneRenderer {
                     } else Int.MIN_VALUE
 
                     reusableBatchTiles.clear()
+                    reusableFallbackTiles.clear()
                     for (tile in visibleTiles) {
                         if (!tile.isInitialized && tile.isOnDisk) {
                             tile.ensureResident(layer.tileMap.cacheDir)
                         }
-                        if (!tile.isInitialized || !tile.hasContent || tile.sliceIndex < 0) continue
+                        if (!tile.isInitialized || !tile.hasContent) continue
                         if (isLayerLiquifying &&
                             tile.coord.tx in liquifyMinTx..liquifyMaxTx &&
                             tile.coord.ty in liquifyMinTy..liquifyMaxTy
                         ) {
                             continue
                         }
-                        reusableBatchTiles.add(tile)
+                        if (tile.sliceIndex >= 0) {
+                            reusableBatchTiles.add(tile)
+                        } else {
+                            reusableFallbackTiles.add(tile)
+                        }
                     }
 
                     if (reusableBatchTiles.isNotEmpty()) {
                         tileArrayBlitShader.renderTilesBatch(reusableBatchTiles, layer.opacity, TileCoord.TILE_SIZE.toFloat()); drawCallCounter++
+                    }
+                    if (reusableFallbackTiles.isNotEmpty()) {
+                        tileArrayBlitShader.end()
+                        tileBlitShader.begin(mvp, true, backgroundColorRgb = 0, showBorders = showBorders)
+                        tileBlitShader.setOpacity(layer.opacity)
+                        for (tile in reusableFallbackTiles) {
+                            tileBlitShader.renderTile(
+                                worldLeft = tile.coord.worldLeft,
+                                worldTop = tile.coord.worldTop,
+                                textureId = tile.textureId
+                            ); drawCallCounter++
+                        }
+                        tileBlitShader.end()
+                        tileArrayBlitShader.begin(mvp, true, textureArrayId, showBorders)
                     }
                 }
 
@@ -554,76 +570,61 @@ class GlSceneRenderer {
                 }
             }
 
-            // 2. Smudge dabs: Dynamic Pigment Advection directly on tile
+            // 2. Smudge dabs: Dynamic GPU Pigment Advection directly on tile
             if (bucket.smudgeDabs.isNotEmpty()) {
+                // Snapshot tile to scratch FBO completely in VRAM
+                GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, tile.fboId)
+                GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, scratchFboId)
+                GLES30.glBlitFramebuffer(
+                    0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+                    0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+                    GLES30.GL_COLOR_BUFFER_BIT,
+                    GLES30.GL_NEAREST
+                )
+
                 tile.bindFboDirect()
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glDisable(GLES30.GL_BLEND)
-                } else {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                    GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
-                    GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-                }
+                GLES30.glDisable(GLES30.GL_BLEND)
 
-                for (dab in bucket.smudgeDabs) {
-                    val localX = dab.x - (tx * tileSize)
-                    val localY = dab.y - (ty * tileSize)
+                smudgeShader.begin(tileOrthoMatrix, scratchTextureId)
+                for (idx in bucket.smudgeDabs.indices) {
+                    val dab = bucket.smudgeDabs[idx]
+                    val curX = dab.x
+                    val curY = dab.y
+                    val localX = curX - (tx * tileSize)
+                    val localY = curY - (ty * tileSize)
+                    val radius = dab.radius
                     val pressure = dab.pressure
+                    val hardness = dab.hardness
+                    val alpha = dab.alpha
 
-                    // Pigment Pickup & Advection:
-                    val samplePxX = localX.toInt().coerceIn(0, 511)
-                    val samplePxY = (511 - localY.toInt()).coerceIn(0, 511)
-                    pickPixelBuf.position(0)
-                    GLES30.glReadPixels(samplePxX, samplePxY, 1, 1, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, pickPixelBuf)
-                    pickPixelBuf.position(0)
-
-                    val sr = (pickPixelBuf.get().toInt() and 0xFF) / 255.0f
-                    val sg = (pickPixelBuf.get().toInt() and 0xFF) / 255.0f
-                    val sb = (pickPixelBuf.get().toInt() and 0xFF) / 255.0f
-                    val sa = (pickPixelBuf.get().toInt() and 0xFF) / 255.0f
-
-                    if (!isSmudgeCarrierActive) {
-                        smudgeCarrierR = if (sa > 0.01f) sr / sa else sr
-                        smudgeCarrierG = if (sa > 0.01f) sg / sa else sg
-                        smudgeCarrierB = if (sa > 0.01f) sb / sa else sb
-                        smudgeCarrierA = sa
-                        isSmudgeCarrierActive = true
-                    } else if (sa > 0.02f) {
-                        val unPremulR = sr / sa
-                        val unPremulG = sg / sa
-                        val unPremulB = sb / sa
-                        val pickupRate = (0.20f + pressure * 0.25f).coerceIn(0.1f, 0.6f)
-                        smudgeCarrierR = smudgeCarrierR * (1f - pickupRate) + unPremulR * pickupRate
-                        smudgeCarrierG = smudgeCarrierG * (1f - pickupRate) + unPremulG * pickupRate
-                        smudgeCarrierB = smudgeCarrierB * (1f - pickupRate) + unPremulB * pickupRate
-                        smudgeCarrierA = smudgeCarrierA * (1f - pickupRate) + sa * pickupRate
+                    var dirX = 0f
+                    var dirY = 0f
+                    if (idx > 0) {
+                        val prev = bucket.smudgeDabs[idx - 1]
+                        dirX = curX - prev.x
+                        dirY = curY - prev.y
                     }
+                    val lenSq = dirX * dirX + dirY * dirY
+                    val maxLen = radius * 0.8f
+                    if (lenSq > maxLen * maxLen && lenSq > 0.001f) {
+                        val scale = maxLen / kotlin.math.sqrt(lenSq)
+                        dirX *= scale
+                        dirY *= scale
+                    }
+                    val strength = (alpha * pressure).coerceIn(0.1f, 1.0f)
 
-                    val carriedColorRgb = android.graphics.Color.rgb(
-                        (smudgeCarrierR.coerceIn(0f, 1f) * 255).toInt(),
-                        (smudgeCarrierG.coerceIn(0f, 1f) * 255).toInt(),
-                        (smudgeCarrierB.coerceIn(0f, 1f) * 255).toInt()
-                    )
-
-                    dabShader.renderDab(
+                    smudgeShader.renderDab(
                         centerX = localX,
                         centerY = localY,
-                        radius = dab.radius,
-                        colorRgb = carriedColorRgb,
-                        alpha = dab.alpha,
-                        hardness = dab.hardness,
-                        brushMode = 3,
-                        pressure = pressure,
-                        worldOffsetX = tx * tileSize,
-                        worldOffsetY = ty * tileSize,
-                        projectionMatrix = tileOrthoMatrix,
-                        isEraser = false
+                        radius = radius,
+                        dirX = dirX,
+                        dirY = dirY,
+                        strength = strength,
+                        hardness = hardness
                     )
                 }
-
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                }
+                smudgeShader.end()
+                GLES30.glEnable(GLES30.GL_BLEND)
             }
 
             // 2. Brush dabs: Two-pass scratch composition
@@ -769,77 +770,61 @@ class GlSceneRenderer {
                 }
             }
 
-            // 2. Smudge dabs: Dynamic Pigment Advection directly on tile
+            // 2. Smudge dabs: Dynamic GPU Pigment Advection directly on tile
             if (bucket.smudgeCount > 0) {
-                tile.bindFboDirect()
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glDisable(GLES30.GL_BLEND)
-                } else {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                    GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
-                    GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-                }
+                // Snapshot tile to scratch FBO completely in VRAM
+                GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, tile.fboId)
+                GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, scratchFboId)
+                GLES30.glBlitFramebuffer(
+                    0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+                    0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+                    GLES30.GL_COLOR_BUFFER_BIT,
+                    GLES30.GL_NEAREST
+                )
 
+                tile.bindFboDirect()
+                GLES30.glDisable(GLES30.GL_BLEND)
+
+                smudgeShader.begin(tileOrthoMatrix, scratchTextureId)
                 for (k in 0 until bucket.smudgeCount) {
                     val slot = bucket.smudgeIndices[k]
-                    val localX = ringBuffer.getXBySlot(slot) - (tx * tileSize)
-                    val localY = ringBuffer.getYBySlot(slot) - (ty * tileSize)
+                    val curX = ringBuffer.getXBySlot(slot)
+                    val curY = ringBuffer.getYBySlot(slot)
+                    val localX = curX - (tx * tileSize)
+                    val localY = curY - (ty * tileSize)
+                    val radius = ringBuffer.getRadiusBySlot(slot)
                     val pressure = ringBuffer.getPressureBySlot(slot)
+                    val hardness = ringBuffer.getHardnessBySlot(slot)
+                    val alpha = ringBuffer.getAlphaBySlot(slot)
 
-                    // Pigment Pickup & Advection:
-                    val samplePxX = localX.toInt().coerceIn(0, 511)
-                    val samplePxY = (511 - localY.toInt()).coerceIn(0, 511)
-                    pickPixelBuf.position(0)
-                    GLES30.glReadPixels(samplePxX, samplePxY, 1, 1, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, pickPixelBuf)
-                    pickPixelBuf.position(0)
-
-                    val sr = (pickPixelBuf.get().toInt() and 0xFF) / 255.0f
-                    val sg = (pickPixelBuf.get().toInt() and 0xFF) / 255.0f
-                    val sb = (pickPixelBuf.get().toInt() and 0xFF) / 255.0f
-                    val sa = (pickPixelBuf.get().toInt() and 0xFF) / 255.0f
-
-                    if (!isSmudgeCarrierActive) {
-                        smudgeCarrierR = if (sa > 0.01f) sr / sa else sr
-                        smudgeCarrierG = if (sa > 0.01f) sg / sa else sg
-                        smudgeCarrierB = if (sa > 0.01f) sb / sa else sb
-                        smudgeCarrierA = sa
-                        isSmudgeCarrierActive = true
-                    } else if (sa > 0.02f) {
-                        val unPremulR = sr / sa
-                        val unPremulG = sg / sa
-                        val unPremulB = sb / sa
-                        val pickupRate = (0.20f + pressure * 0.25f).coerceIn(0.1f, 0.6f)
-                        smudgeCarrierR = smudgeCarrierR * (1f - pickupRate) + unPremulR * pickupRate
-                        smudgeCarrierG = smudgeCarrierG * (1f - pickupRate) + unPremulG * pickupRate
-                        smudgeCarrierB = smudgeCarrierB * (1f - pickupRate) + unPremulB * pickupRate
-                        smudgeCarrierA = smudgeCarrierA * (1f - pickupRate) + sa * pickupRate
+                    var dirX = 0f
+                    var dirY = 0f
+                    if (k > 0) {
+                        val prevSlot = bucket.smudgeIndices[k - 1]
+                        dirX = curX - ringBuffer.getXBySlot(prevSlot)
+                        dirY = curY - ringBuffer.getYBySlot(prevSlot)
                     }
+                    val lenSq = dirX * dirX + dirY * dirY
+                    val maxLen = radius * 0.8f
+                    if (lenSq > maxLen * maxLen && lenSq > 0.001f) {
+                        val scale = maxLen / kotlin.math.sqrt(lenSq)
+                        dirX *= scale
+                        dirY *= scale
+                    }
+                    val strength = (alpha * pressure).coerceIn(0.1f, 1.0f)
 
-                    val carriedColorRgb = android.graphics.Color.rgb(
-                        (smudgeCarrierR.coerceIn(0f, 1f) * 255).toInt(),
-                        (smudgeCarrierG.coerceIn(0f, 1f) * 255).toInt(),
-                        (smudgeCarrierB.coerceIn(0f, 1f) * 255).toInt()
-                    )
-
-                    dabShader.renderDab(
+                    smudgeShader.renderDab(
                         centerX = localX,
                         centerY = localY,
-                        radius = ringBuffer.getRadiusBySlot(slot),
-                        colorRgb = carriedColorRgb,
-                        alpha = ringBuffer.getAlphaBySlot(slot),
-                        hardness = ringBuffer.getHardnessBySlot(slot),
-                        brushMode = 3,
-                        pressure = pressure,
-                        worldOffsetX = tx * tileSize,
-                        worldOffsetY = ty * tileSize,
-                        projectionMatrix = tileOrthoMatrix,
-                        isEraser = false
+                        radius = radius,
+                        dirX = dirX,
+                        dirY = dirY,
+                        strength = strength,
+                        hardness = hardness
                     )
                 }
-
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                }
+                smudgeShader.end()
+                GLES30.glEnable(GLES30.GL_BLEND)
             }
 
             // 3. Brush dabs: Two-pass scratch composition
@@ -1094,6 +1079,7 @@ class GlSceneRenderer {
             tileArrayBlitShader.releaseGl()
             thumbnailRenderer.releaseGl()
             patchBlitShader.releaseGl()
+            smudgeShader.releaseGl()
             isGlInitialized = false
         }
     }
