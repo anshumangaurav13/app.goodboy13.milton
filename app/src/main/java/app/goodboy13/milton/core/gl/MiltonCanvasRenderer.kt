@@ -183,23 +183,7 @@ class MiltonCanvasRenderer(
         engine.processFrame(bufferInfo, transform, backgroundColorRgb)
         val t1 = System.nanoTime()
 
-        var residentCount = 0
-        var diskCount = 0
-        for (layer in layerManager.layers) {
-            for (tile in layer.tileMap.getAllTiles()) {
-                if (tile.isResident) residentCount++
-                else if (tile.hasContent) diskCount++
-            }
-        }
-        val lodLevel = 0
 
-        app.goodboy13.milton.core.telemetry.TelemetryManager.recordMultiBufferFrame(
-            durationMs = (t1 - t0) / 1_000_000f,
-            drawCalls = sceneRenderer.lastDrawCalls,
-            residentCount = residentCount,
-            diskCount = diskCount,
-            lodLevel = lodLevel
-        )
     }
 
     /**

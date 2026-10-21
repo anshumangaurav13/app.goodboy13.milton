@@ -82,16 +82,7 @@ object BrushDefaults {
         tiltBezier = PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f)
     )
 
-    val SMUDGE = ToolPreset(
-        size = 45.0f,
-        opacity = 0.85f,
-        stabilizer = 0.15f,
-        hardness = 0.20f,
-        tilt = 0.0f,
-        spacing = 0.08f,
-        brushMode = 3,
-        isEraser = false
-    )
+
 
     val LASSO = ToolPreset(
         size = 24.0f,
@@ -119,7 +110,6 @@ object BrushDefaults {
         BrushType.PEN to PEN,
         BrushType.PENCIL to PENCIL,
         BrushType.PAINTBRUSH to PAINTBRUSH,
-        BrushType.SMUDGE to SMUDGE,
         BrushType.ERASER to ERASER,
         BrushType.LASSO to LASSO,
         BrushType.LIQUIFY to LIQUIFY

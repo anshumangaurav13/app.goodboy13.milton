@@ -324,17 +324,7 @@ fun TabletTopLeftBar(
                                         }
                                     )
 
-                                    // 8b. Carmack Telemetry HUD
-                                    CompactMenuItem(
-                                        icon = Icons.Default.Speed,
-                                        iconTint = Color(0xFF00E5FF),
-                                        text = "Carmack Telemetry HUD",
-                                        onClick = {
-                                            isMenuExpanded = false
-                                            activeSubmenu = LeftBarSubmenu.NONE
-                                            onOpenTelemetry()
-                                        }
-                                    )
+
 
                                     HorizontalDivider(
                                         color = Color(0x22FFFFFF),

@@ -26,7 +26,6 @@ enum class BrushType(val displayName: String) {
     PEN("Pen"),
     PENCIL("Pencil"),
     PAINTBRUSH("Paintbrush"),
-    SMUDGE("Smudge"),
     ERASER("Eraser"),
     LASSO("Lasso"),
     LIQUIFY("Liquify")

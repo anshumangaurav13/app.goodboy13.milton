@@ -38,7 +38,6 @@ class GlSceneRenderer {
     val strokeCompositeShader = StrokeCompositeShader()
     val patchBlitShader = PatchBlitShader()
 
-    val smudgeShader = SmudgeShader()
 
     fun resetSmudgeCarrier() {
         // Maintained for backward compatibility; GPU SmudgeShader advects tile pixels directly
@@ -89,7 +88,6 @@ class GlSceneRenderer {
             thumbnailRenderer.initGl()
             strokeCompositeShader.initGl()
             patchBlitShader.initGl()
-            smudgeShader.initGl()
             initScratchTileGl()
             isGlInitialized = true
             Log.d(TAG, "OpenGL ES shaders, FBOs, and VAOs initialized successfully")
@@ -512,8 +510,6 @@ class GlSceneRenderer {
                     }
                     if (dab.isEraser) {
                         bucket.eraserDabs.add(dab)
-                    } else if (dab.brushMode == 3) {
-                        bucket.smudgeDabs.add(dab)
                     } else {
                         bucket.brushDabs.add(dab)
                     }
@@ -532,7 +528,7 @@ class GlSceneRenderer {
             val eraserDabs = bucket.eraserDabs
             val brushDabs = bucket.brushDabs
 
-            if (brushDabs.isNotEmpty() || bucket.smudgeDabs.isNotEmpty()) {
+            if (brushDabs.isNotEmpty()) {
                 tile.hasContent = true
             }
 
@@ -568,63 +564,6 @@ class GlSceneRenderer {
                 if (dabShader.usesFramebufferFetch) {
                     GLES30.glEnable(GLES30.GL_BLEND)
                 }
-            }
-
-            // 2. Smudge dabs: Dynamic GPU Pigment Advection directly on tile
-            if (bucket.smudgeDabs.isNotEmpty()) {
-                // Snapshot tile to scratch FBO completely in VRAM
-                GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, tile.fboId)
-                GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, scratchFboId)
-                GLES30.glBlitFramebuffer(
-                    0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
-                    0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
-                    GLES30.GL_COLOR_BUFFER_BIT,
-                    GLES30.GL_NEAREST
-                )
-
-                tile.bindFboDirect()
-                GLES30.glDisable(GLES30.GL_BLEND)
-
-                smudgeShader.begin(tileOrthoMatrix, scratchTextureId)
-                for (idx in bucket.smudgeDabs.indices) {
-                    val dab = bucket.smudgeDabs[idx]
-                    val curX = dab.x
-                    val curY = dab.y
-                    val localX = curX - (tx * tileSize)
-                    val localY = curY - (ty * tileSize)
-                    val radius = dab.radius
-                    val pressure = dab.pressure
-                    val hardness = dab.hardness
-                    val alpha = dab.alpha
-
-                    var dirX = 0f
-                    var dirY = 0f
-                    if (idx > 0) {
-                        val prev = bucket.smudgeDabs[idx - 1]
-                        dirX = curX - prev.x
-                        dirY = curY - prev.y
-                    }
-                    val lenSq = dirX * dirX + dirY * dirY
-                    val maxLen = radius * 0.8f
-                    if (lenSq > maxLen * maxLen && lenSq > 0.001f) {
-                        val scale = maxLen / kotlin.math.sqrt(lenSq)
-                        dirX *= scale
-                        dirY *= scale
-                    }
-                    val strength = (alpha * pressure).coerceIn(0.1f, 1.0f)
-
-                    smudgeShader.renderDab(
-                        centerX = localX,
-                        centerY = localY,
-                        radius = radius,
-                        dirX = dirX,
-                        dirY = dirY,
-                        strength = strength,
-                        hardness = hardness
-                    )
-                }
-                smudgeShader.end()
-                GLES30.glEnable(GLES30.GL_BLEND)
             }
 
             // 2. Brush dabs: Two-pass scratch composition
@@ -714,8 +653,6 @@ class GlSceneRenderer {
                     }
                     if (isEraser) {
                         bucket.addEraserIndex(slot)
-                    } else if (ringBuffer.getBrushModeBySlot(slot) == 3) {
-                        bucket.addSmudgeIndex(slot)
                     } else {
                         bucket.addBrushIndex(slot)
                     }
@@ -731,7 +668,7 @@ class GlSceneRenderer {
             val ty = bucket.ty
             val tile = bucket.tile ?: continue
 
-            if (bucket.brushCount > 0 || bucket.smudgeCount > 0) {
+            if (bucket.brushCount > 0) {
                 tile.hasContent = true
             }
 
@@ -768,63 +705,6 @@ class GlSceneRenderer {
                 if (dabShader.usesFramebufferFetch) {
                     GLES30.glEnable(GLES30.GL_BLEND)
                 }
-            }
-
-            // 2. Smudge dabs: Dynamic GPU Pigment Advection directly on tile
-            if (bucket.smudgeCount > 0) {
-                // Snapshot tile to scratch FBO completely in VRAM
-                GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, tile.fboId)
-                GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, scratchFboId)
-                GLES30.glBlitFramebuffer(
-                    0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
-                    0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
-                    GLES30.GL_COLOR_BUFFER_BIT,
-                    GLES30.GL_NEAREST
-                )
-
-                tile.bindFboDirect()
-                GLES30.glDisable(GLES30.GL_BLEND)
-
-                smudgeShader.begin(tileOrthoMatrix, scratchTextureId)
-                for (k in 0 until bucket.smudgeCount) {
-                    val slot = bucket.smudgeIndices[k]
-                    val curX = ringBuffer.getXBySlot(slot)
-                    val curY = ringBuffer.getYBySlot(slot)
-                    val localX = curX - (tx * tileSize)
-                    val localY = curY - (ty * tileSize)
-                    val radius = ringBuffer.getRadiusBySlot(slot)
-                    val pressure = ringBuffer.getPressureBySlot(slot)
-                    val hardness = ringBuffer.getHardnessBySlot(slot)
-                    val alpha = ringBuffer.getAlphaBySlot(slot)
-
-                    var dirX = 0f
-                    var dirY = 0f
-                    if (k > 0) {
-                        val prevSlot = bucket.smudgeIndices[k - 1]
-                        dirX = curX - ringBuffer.getXBySlot(prevSlot)
-                        dirY = curY - ringBuffer.getYBySlot(prevSlot)
-                    }
-                    val lenSq = dirX * dirX + dirY * dirY
-                    val maxLen = radius * 0.8f
-                    if (lenSq > maxLen * maxLen && lenSq > 0.001f) {
-                        val scale = maxLen / kotlin.math.sqrt(lenSq)
-                        dirX *= scale
-                        dirY *= scale
-                    }
-                    val strength = (alpha * pressure).coerceIn(0.1f, 1.0f)
-
-                    smudgeShader.renderDab(
-                        centerX = localX,
-                        centerY = localY,
-                        radius = radius,
-                        dirX = dirX,
-                        dirY = dirY,
-                        strength = strength,
-                        hardness = hardness
-                    )
-                }
-                smudgeShader.end()
-                GLES30.glEnable(GLES30.GL_BLEND)
             }
 
             // 3. Brush dabs: Two-pass scratch composition
@@ -1079,7 +959,6 @@ class GlSceneRenderer {
             tileArrayBlitShader.releaseGl()
             thumbnailRenderer.releaseGl()
             patchBlitShader.releaseGl()
-            smudgeShader.releaseGl()
             isGlInitialized = false
         }
     }
@@ -1092,23 +971,12 @@ class TileDabBucket(
 ) {
     val eraserDabs = mutableListOf<BrushDab>()
     val brushDabs = mutableListOf<BrushDab>()
-    val smudgeDabs = mutableListOf<BrushDab>()
 
     var eraserIndices = IntArray(64)
     var eraserCount = 0
 
     var brushIndices = IntArray(128)
     var brushCount = 0
-
-    var smudgeIndices = IntArray(128)
-    var smudgeCount = 0
-
-    fun addSmudgeIndex(idx: Int) {
-        if (smudgeCount >= smudgeIndices.size) {
-            smudgeIndices = smudgeIndices.copyOf(smudgeIndices.size * 2)
-        }
-        smudgeIndices[smudgeCount++] = idx
-    }
 
     fun addEraserIndex(idx: Int) {
         if (eraserCount >= eraserIndices.size) {
@@ -1130,9 +998,7 @@ class TileDabBucket(
         this.tile = tile
         eraserDabs.clear()
         brushDabs.clear()
-        smudgeDabs.clear()
         eraserCount = 0
         brushCount = 0
-        smudgeCount = 0
     }
 }

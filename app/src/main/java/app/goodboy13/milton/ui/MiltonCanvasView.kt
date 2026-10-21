@@ -891,8 +891,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                 if (addedCount > 0) {
                     app.goodboy13.milton.core.telemetry.TelemetryManager.recordDabs(addedCount)
                     renderer.queueRingDabs(strokeRingBuffer, startHead, addedCount)
-                    val bypassFrontBuffer = isEraser || (brushType == app.goodboy13.milton.core.brush.BrushType.SMUDGE)
-                    if (bypassFrontBuffer) {
+                    if (isEraser) {
                         frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
                     } else {
                         frontBufferedRenderer?.renderFrontBufferedLayer(
@@ -928,8 +927,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                 if (addedCount > 0) {
                     app.goodboy13.milton.core.telemetry.TelemetryManager.recordDabs(addedCount)
                     renderer.queueRingDabs(strokeRingBuffer, startHead, addedCount)
-                    val bypassFrontBuffer = isEraser || (brushType == app.goodboy13.milton.core.brush.BrushType.SMUDGE)
-                    if (bypassFrontBuffer) {
+                    if (isEraser) {
                         frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
                     } else {
                         frontBufferedRenderer?.renderFrontBufferedLayer(
@@ -952,7 +950,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                 }
                 renderer.markStrokeFinished()
                 frontBufferedRenderer?.commit()
-                if (!isEraser && brushType != app.goodboy13.milton.core.brush.BrushType.SMUDGE) {
+                if (!isEraser) {
                     val strokeColor = brushEngine.properties.colorRgb
                     post { onStrokeCompleted?.invoke(strokeColor) }
                 }
