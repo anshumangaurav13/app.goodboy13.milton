@@ -304,6 +304,7 @@ class LayerManager(
                 initialIsVisible = desc.isVisible,
                 tileMap = tileMap
             )
+            bindLayerToNative(layer)
             _layers.add(layer)
             onLayerRestored(layer, desc)
             if (desc.id > maxId) maxId = desc.id
