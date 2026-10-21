@@ -142,7 +142,8 @@ $GRAPHITE_PHYSICS_GLSL
                 vec3 dstStraight = dst.rgb / max(dst.a, 0.001);
                 vec3 srcLin = pow(max(srcColor, vec3(0.0)), vec3(2.2));
                 vec3 dstLin = pow(max(dstStraight, vec3(0.0)), vec3(2.2));
-                vec3 mixedLin = mix(dstLin, srcLin, dabAlpha);
+                float wSrc = dabAlpha / max(outAlpha, 0.0001);
+                vec3 mixedLin = mix(dstLin, srcLin, clamp(wSrc, 0.0, 1.0));
                 vec3 mixedSrgb = pow(max(mixedLin, vec3(0.0)), vec3(1.0 / 2.2));
                 vec3 outPremul = mixedSrgb * outAlpha;
                 fragColor = vec4(clamp(outPremul, 0.0, 1.0), clamp(outAlpha, 0.0, 1.0));

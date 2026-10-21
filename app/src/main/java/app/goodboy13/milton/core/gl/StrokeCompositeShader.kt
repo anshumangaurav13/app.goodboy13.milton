@@ -67,7 +67,8 @@ class StrokeCompositeShader {
                 // Photometric Linear Blending (Leonardo linearHack: sRGB -> Linear -> Blend -> sRGB)
                 vec3 strokeLin = pow(max(strokeRgb, vec3(0.0)), vec3(2.2));
                 vec3 dstLin = pow(max(dstRgb, vec3(0.0)), vec3(2.2));
-                vec3 mixedLin = mix(dstLin, strokeLin, strokeAlpha);
+                float wSrc = strokeAlpha / max(outAlpha, 0.0001);
+                vec3 mixedLin = mix(dstLin, strokeLin, clamp(wSrc, 0.0, 1.0));
                 vec3 mixedSrgb = pow(max(mixedLin, vec3(0.0)), vec3(1.0 / 2.2));
 
                 vec3 outPremul = mixedSrgb * outAlpha;
