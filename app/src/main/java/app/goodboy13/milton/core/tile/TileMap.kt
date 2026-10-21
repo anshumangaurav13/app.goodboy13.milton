@@ -242,28 +242,20 @@ class TileMap(
             tile.clear()
             tile.deleteDiskSwap(cacheDir)
         }
-        for (tile in overviewTiles.values) {
-            tile.clear()
-        }
     }
 
     fun clearTiles(renderer: app.goodboy13.milton.core.gl.MiltonCanvasRenderer? = null) {
         val oldTiles = tiles.values.toList()
-        val oldOverview = overviewTiles.values.toList()
         for (tile in oldTiles) {
             tile.hasContent = false
             tile.deleteDiskSwap(cacheDir)
         }
         tiles.clear()
-        overviewTiles.clear()
         cacheDir?.deleteRecursively()
         cacheDir?.mkdirs()
         if (renderer != null) {
             renderer.runOnGlThread {
                 for (tile in oldTiles) {
-                    tile.releaseGl()
-                }
-                for (tile in oldOverview) {
                     tile.releaseGl()
                 }
             }
@@ -275,11 +267,7 @@ class TileMap(
             tile.releaseGl()
             tile.deleteDiskSwap(cacheDir)
         }
-        for (tile in overviewTiles.values) {
-            tile.releaseGl()
-        }
         tiles.clear()
-        overviewTiles.clear()
         cacheDir?.deleteRecursively()
     }
 }

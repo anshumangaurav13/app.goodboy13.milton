@@ -178,7 +178,7 @@ class MiltonCanvasRenderer(
                 else if (tile.hasContent) diskCount++
             }
         }
-        val lodLevel = if (engine.viewport.zoom < 0.35f || app.goodboy13.milton.core.telemetry.TelemetryManager.cvarForceOverviewLod) 1 else 0
+        val lodLevel = 0
 
         app.goodboy13.milton.core.telemetry.TelemetryManager.recordMultiBufferFrame(
             durationMs = (t1 - t0) / 1_000_000f,
