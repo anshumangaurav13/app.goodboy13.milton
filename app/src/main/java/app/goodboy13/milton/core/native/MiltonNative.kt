@@ -548,4 +548,69 @@ object MiltonNative {
         transform: FloatArray,
         outMvp: FloatArray
     )
+
+    // ========================================================================
+    // #12 SPATIAL TILE MAP & LRU BUDGET ENGINE
+    // ========================================================================
+
+    @JvmStatic
+    external fun spatialMapCreate(maxResidentTiles: Int): Long
+
+    @JvmStatic
+    external fun spatialMapDestroy(mapPtr: Long)
+
+    @JvmStatic
+    external fun spatialMapSetTile(
+        mapPtr: Long,
+        tx: Int,
+        ty: Int,
+        sliceIndex: Int,
+        hasContent: Boolean,
+        isResident: Boolean,
+        isOnDisk: Boolean,
+        isDirty: Boolean,
+        timestampNs: Long
+    )
+
+    @JvmStatic
+    external fun spatialMapUpdateTileState(
+        mapPtr: Long,
+        tx: Int,
+        ty: Int,
+        sliceIndex: Int,
+        hasContent: Boolean,
+        isResident: Boolean
+    )
+
+    @JvmStatic
+    external fun spatialMapRemoveTile(mapPtr: Long, tx: Int, ty: Int): Boolean
+
+    @JvmStatic
+    external fun spatialMapTouchTile(mapPtr: Long, tx: Int, ty: Int, timestampNs: Long)
+
+    @JvmStatic
+    external fun spatialMapQueryVisible(
+        mapPtr: Long,
+        minTx: Int,
+        minTy: Int,
+        maxTx: Int,
+        maxTy: Int,
+        timestampNs: Long,
+        outKeys: LongArray
+    ): Int
+
+    @JvmStatic
+    external fun spatialMapFindEvictionCandidates(
+        mapPtr: Long,
+        visibleKeys: LongArray,
+        nowNs: Long,
+        maxEvictions: Int,
+        outEvictKeys: LongArray
+    ): Int
+
+    @JvmStatic
+    external fun spatialMapGetBounds(mapPtr: Long, outBounds: FloatArray): Boolean
+
+    @JvmStatic
+    external fun spatialMapClear(mapPtr: Long)
 }

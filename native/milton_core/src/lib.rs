@@ -9,6 +9,7 @@ pub mod constants;
 pub mod brush;
 pub mod history;
 pub mod viewport;
+pub mod spatial_map;
 
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JByteBuffer, JClass, JFloatArray, JIntArray, JLongArray, JString};
@@ -2098,4 +2099,196 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewpo
     let mut mvp = [0.0f32; 16];
     vp.compute_final_mvp_matrix(buffer_w as f32, buffer_h as f32, &tf, &mut mvp);
     let _ = env.set_float_array_region(&out_mvp, 0, &mvp);
+}
+
+// ============================================================================
+// #12 SPATIAL TILE MAP & LRU BUDGET JNI BINDINGS
+// ============================================================================
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapCreate<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    max_resident_tiles: jint,
+) -> jlong {
+    let map = Box::new(spatial_map::SpatialTileMap::new(max_resident_tiles as usize));
+    Box::into_raw(map) as jlong
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapDestroy<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+) {
+    if map_ptr != 0 {
+        unsafe {
+            drop(Box::from_raw(map_ptr as *mut spatial_map::SpatialTileMap));
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapSetTile<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+    tx: jint,
+    ty: jint,
+    slice_index: jint,
+    has_content: jboolean,
+    is_resident: jboolean,
+    is_on_disk: jboolean,
+    is_dirty: jboolean,
+    timestamp_ns: jlong,
+) {
+    if map_ptr == 0 { return; }
+    let map = unsafe { &mut *(map_ptr as *mut spatial_map::SpatialTileMap) };
+    map.set_tile(
+        tx,
+        ty,
+        slice_index,
+        has_content != JNI_FALSE,
+        is_resident != JNI_FALSE,
+        is_on_disk != JNI_FALSE,
+        is_dirty != JNI_FALSE,
+        timestamp_ns as u64,
+    );
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapUpdateTileState<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+    tx: jint,
+    ty: jint,
+    slice_index: jint,
+    has_content: jboolean,
+    is_resident: jboolean,
+) {
+    if map_ptr == 0 { return; }
+    let map = unsafe { &mut *(map_ptr as *mut spatial_map::SpatialTileMap) };
+    map.update_tile_state(
+        tx,
+        ty,
+        slice_index,
+        has_content != JNI_FALSE,
+        is_resident != JNI_FALSE,
+    );
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapRemoveTile<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+    tx: jint,
+    ty: jint,
+) -> jboolean {
+    if map_ptr == 0 { return JNI_FALSE; }
+    let map = unsafe { &mut *(map_ptr as *mut spatial_map::SpatialTileMap) };
+    if map.remove_tile(tx, ty) { JNI_TRUE } else { JNI_FALSE }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapTouchTile<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+    tx: jint,
+    ty: jint,
+    timestamp_ns: jlong,
+) {
+    if map_ptr == 0 { return; }
+    let map = unsafe { &mut *(map_ptr as *mut spatial_map::SpatialTileMap) };
+    map.touch_tile(tx, ty, timestamp_ns as u64);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapQueryVisible<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+    min_tx: jint,
+    min_ty: jint,
+    max_tx: jint,
+    max_ty: jint,
+    timestamp_ns: jlong,
+    out_keys: JLongArray<'local>,
+) -> jint {
+    if map_ptr == 0 { return 0; }
+    let map = unsafe { &mut *(map_ptr as *mut spatial_map::SpatialTileMap) };
+    let len = match env.get_array_length(&out_keys) {
+        Ok(l) => l as usize,
+        Err(_) => return 0,
+    };
+    if len == 0 { return 0; }
+
+    let mut buf = vec![0i64; len];
+    let count = map.query_visible_into_slice(min_tx, min_ty, max_tx, max_ty, timestamp_ns as u64, &mut buf);
+    if count > 0 {
+        let _ = env.set_long_array_region(&out_keys, 0, &buf[..count]);
+    }
+    count as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapFindEvictionCandidates<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+    visible_keys: JLongArray<'local>,
+    now_ns: jlong,
+    max_evictions: jint,
+    out_evict_keys: JLongArray<'local>,
+) -> jint {
+    if map_ptr == 0 { return 0; }
+    let map = unsafe { &*(map_ptr as *mut spatial_map::SpatialTileMap) };
+
+    let vis_len = env.get_array_length(&visible_keys).unwrap_or(0) as usize;
+    let mut vis_buf = vec![0i64; vis_len];
+    if vis_len > 0 {
+        let _ = env.get_long_array_region(&visible_keys, 0, &mut vis_buf);
+    }
+    let vis_u64: Vec<u64> = vis_buf.into_iter().map(|k| k as u64).collect();
+
+    let mut evict_candidates = Vec::new();
+    map.find_eviction_candidates(&vis_u64, now_ns as u64, max_evictions as usize, &mut evict_candidates);
+
+    let count = evict_candidates.len();
+    if count > 0 {
+        let evict_i64: Vec<i64> = evict_candidates.into_iter().map(|k| k as i64).collect();
+        let _ = env.set_long_array_region(&out_evict_keys, 0, &evict_i64);
+    }
+    count as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapGetBounds<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+    out_bounds: JFloatArray<'local>,
+) -> jboolean {
+    if map_ptr == 0 { return JNI_FALSE; }
+    let map = unsafe { &*(map_ptr as *mut spatial_map::SpatialTileMap) };
+    if let Some((min_x, min_y, max_x, max_y)) = map.compute_bounds() {
+        let bounds = [min_x, min_y, max_x, max_y];
+        let _ = env.set_float_array_region(&out_bounds, 0, &bounds);
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapClear<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+) {
+    if map_ptr == 0 { return; }
+    let map = unsafe { &mut *(map_ptr as *mut spatial_map::SpatialTileMap) };
+    map.clear();
 }
