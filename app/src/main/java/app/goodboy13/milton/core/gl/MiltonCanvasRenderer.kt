@@ -167,8 +167,6 @@ class MiltonCanvasRenderer(
         } else {
             engine.renderFrontBuffer(param.dabs, bufferInfo, transform)
         }
-        val t1 = System.nanoTime()
-        app.goodboy13.milton.core.telemetry.TelemetryManager.recordFrontBufferFrame((t1 - t0) / 1_000_000f)
     }
 
     override fun onDrawMultiBufferedLayer(

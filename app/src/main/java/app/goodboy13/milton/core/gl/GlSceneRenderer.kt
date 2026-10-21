@@ -295,9 +295,9 @@ class GlSceneRenderer {
         nativeDoc: app.goodboy13.milton.core.document.NativeMiltonDocument? = null
     ) {
         var drawCallCounter = 0
-        val showBorders = app.goodboy13.milton.core.telemetry.TelemetryManager.cvarShowTileBorders
-        val forceOverview = app.goodboy13.milton.core.telemetry.TelemetryManager.cvarForceOverviewLod
-        val allowArrayBlit = app.goodboy13.milton.core.telemetry.TelemetryManager.cvarUseTextureArrayBlit
+        val showBorders = false
+        val forceOverview = false
+        val allowArrayBlit = true
 
         val mvp = computeFinalMvpMatrix(viewport, bufferInfo, transform)
         val textureArrayId = GlTexturePool.textureArrayId
