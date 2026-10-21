@@ -653,12 +653,6 @@ fun ToolParametersFloatingWindow(
                         )
                     }
 
-                    // 4. Lead Grade Discrete Control (9H .. 9B, HB in middle)
-                    DiscreteLeadGradeControl(
-                        hardness = brushHardness,
-                        onHardnessChange = onBrushHardnessChange,
-                        fillColor = Color(0xFFFFCC80)
-                    )
                 }
 
                 // 5. Stabilizer Slider (0% .. 100%)

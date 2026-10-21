@@ -65,14 +65,14 @@ class BrushEngineTest {
         assertTrue(props.opacityBezierConfig.minPercent == 1.0f)
 
         props.applyPreset(app.goodboy13.milton.core.brush.BrushType.PENCIL)
-        assertEquals(0.70f, props.hardness, 0.001f)
+        assertEquals(0.10f, props.hardness, 0.001f)
         assertEquals(0.12f, props.spacing, 0.001f)
         assertTrue(!props.isEraser)
         assertTrue(props.brushMode == 1)
         assertEquals(24.0f, props.size, 0.001f)
-        assertEquals(0.90f, props.opacity, 0.001f)
+        assertEquals(0.30f, props.opacity, 0.001f)
         assertEquals(0.40f, props.sizeBezierConfig.minPercent, 0.001f)
-        assertEquals(0.35f, props.opacityBezierConfig.minPercent, 0.001f)
+        assertEquals(0.25f, props.opacityBezierConfig.minPercent, 0.001f)
 
         props.applyPreset(app.goodboy13.milton.core.brush.BrushType.PAINTBRUSH)
         assertTrue(props.hardness == 0.70f)

@@ -406,7 +406,7 @@ $GRAPHITE_PHYSICS_GLSL
 
         private const val GRAPHITE_PHYSICS_GLSL = """
                     // 1. Soft lead contact edge falloff (smooth feathering instead of harsh cutoff)
-                    float leadEdge = smoothstep(1.0, 0.60, dist);
+                    float leadEdge = smoothstep(1.0, 0.50, dist);
 
                     // 2. Paper tooth texture (microscopic paper fiber peaks and valleys)
                     float tooth = paperTooth(pixelCoord);
@@ -416,13 +416,13 @@ $GRAPHITE_PHYSICS_GLSL
                     // Low pressure: graphite catches mostly on fiber peaks (distinct visible tooth texture)
                     // High pressure: graphite compresses into the tooth valleys for rich solid shading
                     float pressureNorm = clamp(uPressure, 0.0, 1.0);
-                    float toothCoverage = mix(0.45 + 0.55 * tooth, 0.80 + 0.20 * tooth, pressureNorm);
+                    float toothCoverage = mix(0.38 + 0.62 * tooth, 0.72 + 0.28 * tooth, pressureNorm);
 
                     // 4. Delicate micro-particle grain variance (±12% analog roughness)
                     float microGrain = 0.88 + 0.24 * pRand;
 
                     // 5. Dense, continuous graphite deposition (responsive to lead hardness & stylus pressure)
-                    float leadDensity = (0.42 + 0.58 * pressureNorm) * (0.60 + 0.40 * uHardness);
+                    float leadDensity = (0.24 + 0.36 * pressureNorm);
                     dabAlpha = clamp(leadEdge * toothCoverage * microGrain * leadDensity * uColor.a, 0.0, 1.0);
         """
     }
