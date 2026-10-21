@@ -136,10 +136,11 @@ class RasterTile(
 
     /**
      * Reads this tile's current RGBA pixel buffer directly into an off-heap direct ByteBuffer.
+     * Uses bindFboDirect to avoid synchronous glGetIntegerv state queries.
      */
     fun readPixelsDirect(outDirectBuf: ByteBuffer) {
         if (!isInitialized) initGl()
-        bindFbo()
+        bindFboDirect()
         outDirectBuf.clear()
         GLES30.glReadPixels(
             0, 0,
@@ -147,7 +148,6 @@ class RasterTile(
             GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, outDirectBuf
         )
         outDirectBuf.rewind()
-        unbindFbo()
     }
 
     /**

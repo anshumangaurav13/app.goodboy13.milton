@@ -4,9 +4,9 @@ use rayon::prelude::*;
 
 const ZSTD_MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
 
-/// Compresses raw RGBA tile bytes using fast ZSTD (level 3).
+/// Compresses raw RGBA tile bytes using ultra-fast real-time ZSTD (level 1).
 pub fn compress_tile(raw_bytes: &[u8]) -> Result<Vec<u8>, String> {
-    zstd::encode_all(raw_bytes, 3).map_err(|e| format!("Zstd compression failed: {e}"))
+    zstd::encode_all(raw_bytes, 1).map_err(|e| format!("Zstd compression failed: {e}"))
 }
 
 /// Decompresses tile bytes with automatic format detection:

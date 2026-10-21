@@ -59,8 +59,14 @@ class AutosaveCoordinator(
     ) {
         for (delta in deltas) {
             val key = delta.layerId to (delta.coord.tx to delta.coord.ty)
-            val bytes = delta.forAutosaveCompressed ?: CLEARED_TILE_SENTINEL
-            pendingCompressedTiles[key] = bytes
+            if (delta.afterCompressed == null) {
+                pendingCompressedTiles[key] = CLEARED_TILE_SENTINEL
+            } else {
+                val bytes = delta.forAutosaveCompressed ?: (if (!delta.isSubTile) delta.afterCompressed else null)
+                if (bytes != null && bytes.isNotEmpty()) {
+                    pendingCompressedTiles[key] = bytes
+                }
+            }
         }
         scheduleAutosave(documentTitle, canvasView)
     }

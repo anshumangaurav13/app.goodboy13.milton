@@ -110,22 +110,28 @@ class UndoManager(val maxHistorySize: Int = 30) {
      * Operates via fast DirectBufferPool memory transfer without in-stroke CPU compression stalls.
      */
     fun capturePreStrokeTiles(layerId: Long, tiles: Collection<RasterTile>) {
-        for (tile in tiles) {
-            val key = layerId to tile.coord
-            if (pendingPreStrokeRaw.containsKey(key)) {
-                continue
-            }
-            if (tile.isInitialized && tile.hasContent) {
-                val raw = ByteArray(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4)
-                DirectBufferPool.useBuffer { directBuf ->
-                    tile.readPixelsDirect(directBuf)
-                    directBuf.get(raw)
-                    directBuf.rewind()
+        val prevFbo = IntArray(1)
+        GLES30.glGetIntegerv(GLES30.GL_FRAMEBUFFER_BINDING, prevFbo, 0)
+        try {
+            for (tile in tiles) {
+                val key = layerId to tile.coord
+                if (pendingPreStrokeRaw.containsKey(key)) {
+                    continue
                 }
-                pendingPreStrokeRaw[key] = raw
-            } else {
-                pendingPreStrokeRaw[key] = null
+                if (tile.isInitialized && tile.hasContent) {
+                    val raw = ByteArray(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4)
+                    DirectBufferPool.useBuffer { directBuf ->
+                        tile.readPixelsDirect(directBuf)
+                        directBuf.get(raw)
+                        directBuf.rewind()
+                    }
+                    pendingPreStrokeRaw[key] = raw
+                } else {
+                    pendingPreStrokeRaw[key] = null
+                }
             }
+        } finally {
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, prevFbo[0])
         }
     }
 
@@ -163,22 +169,28 @@ class UndoManager(val maxHistorySize: Int = 30) {
         val workItems = ArrayList<UndoWorkItem>(pendingPreStrokeRaw.size)
 
         // Step 1: Read all "after" pixels quickly on the GL thread
-        for ((key, beforeRaw) in pendingPreStrokeRaw) {
-            val (entryLayerId, coord) = key
-            val tileMap = layerMap[entryLayerId] ?: continue
-            val tile = tileMap.getExistingTile(coord.tx, coord.ty)
-            val afterRaw = if (tile != null && tile.isInitialized && tile.hasContent) {
-                val raw = ByteArray(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4)
-                DirectBufferPool.useBuffer { directBuf ->
-                    tile.readPixelsDirect(directBuf)
-                    directBuf.get(raw)
-                    directBuf.rewind()
+        val prevFbo = IntArray(1)
+        GLES30.glGetIntegerv(GLES30.GL_FRAMEBUFFER_BINDING, prevFbo, 0)
+        try {
+            for ((key, beforeRaw) in pendingPreStrokeRaw) {
+                val (entryLayerId, coord) = key
+                val tileMap = layerMap[entryLayerId] ?: continue
+                val tile = tileMap.getExistingTile(coord.tx, coord.ty)
+                val afterRaw = if (tile != null && tile.isInitialized && tile.hasContent) {
+                    val raw = ByteArray(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4)
+                    DirectBufferPool.useBuffer { directBuf ->
+                        tile.readPixelsDirect(directBuf)
+                        directBuf.get(raw)
+                        directBuf.rewind()
+                    }
+                    raw
+                } else {
+                    null
                 }
-                raw
-            } else {
-                null
+                workItems.add(UndoWorkItem(entryLayerId, coord, beforeRaw, afterRaw))
             }
-            workItems.add(UndoWorkItem(entryLayerId, coord, beforeRaw, afterRaw))
+        } finally {
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, prevFbo[0])
         }
         pendingPreStrokeRaw.clear()
 
@@ -187,14 +199,13 @@ class UndoManager(val maxHistorySize: Int = 30) {
         // Step 2: Offload dirty rect computing and ZSTD compression to background worker thread
         undoScope.launch(Dispatchers.Default) {
             val deltas = mutableListOf<TileDelta>()
-            val isLargeStroke = workItems.size > 6
 
             for (item in workItems) {
                 val beforeRaw = item.beforeRaw
                 val afterRaw = item.afterRaw
 
                 if (beforeRaw != null && afterRaw != null) {
-                    val dirtyRect = if (!isLargeStroke && MiltonNative.isLoaded) {
+                    val dirtyRect = if (MiltonNative.isLoaded) {
                         MiltonNative.computeDirtyRect(beforeRaw, afterRaw)
                     } else null
 
