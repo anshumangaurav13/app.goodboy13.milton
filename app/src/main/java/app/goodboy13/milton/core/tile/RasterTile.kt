@@ -13,7 +13,10 @@ import java.nio.ByteOrder
  * A single 512x512 raster chunk of the infinite canvas.
  * Backed by an OpenGL ES 3.0 RGBA texture and Framebuffer Object (FBO).
  */
-class RasterTile(val coord: TileCoord) {
+class RasterTile(
+    val coord: TileCoord,
+    var onStateChanged: ((RasterTile) -> Unit)? = null
+) {
     var textureId: Int = 0
         private set
     var fboId: Int = 0
@@ -28,6 +31,13 @@ class RasterTile(val coord: TileCoord) {
 
     var lastAccessTime: Long = System.nanoTime()
     var hasContent: Boolean = false
+        set(value) {
+            val changed = field != value
+            field = value
+            if (changed) {
+                onStateChanged?.invoke(this)
+            }
+        }
     var isOnDisk: Boolean = false
 
     private val prevFbo = IntArray(1)
@@ -43,6 +53,7 @@ class RasterTile(val coord: TileCoord) {
 
         isInitialized = true
         isDirty = true
+        onStateChanged?.invoke(this)
     }
 
     /**
@@ -370,5 +381,6 @@ class RasterTile(val coord: TileCoord) {
             textureId = 0
         }
         isInitialized = false
+        onStateChanged?.invoke(this)
     }
 }

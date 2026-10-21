@@ -1,6 +1,7 @@
 package app.goodboy13.milton.core.layer
 
 import android.graphics.Bitmap
+import app.goodboy13.milton.core.document.NativeMiltonDocument
 import app.goodboy13.milton.core.model.WorldRect
 import app.goodboy13.milton.core.tile.RasterTile
 import app.goodboy13.milton.core.tile.TileMap
@@ -20,6 +21,8 @@ class LayerManager(
         const val MAX_LAYERS = 16
         const val MIN_LAYERS = 1
     }
+
+    val nativeDoc: NativeMiltonDocument = NativeMiltonDocument()
 
     private var nextLayerId: Long = 1L
     private var layerNameCounter: Int = 1
@@ -50,17 +53,29 @@ class LayerManager(
         activeLayerId = firstLayer.id
     }
 
+    private fun bindLayerToNative(layer: Layer) {
+        nativeDoc.addLayer(layer.id, layer.name, layer.opacity, layer.isVisible)
+        layer.tileMap.onTileStateChanged = { tx, ty, sliceIndex, hasContent ->
+            nativeDoc.setTile(layer.id, tx, ty, sliceIndex, hasContent)
+        }
+        layer.tileMap.onOverviewTileStateChanged = { otx, oty, sliceIndex, hasContent ->
+            nativeDoc.setOverviewTile(layer.id, otx, oty, sliceIndex, hasContent)
+        }
+    }
+
     private fun createLayerInstance(name: String): Layer {
         val id = nextLayerId++
         val layerCacheDir = cacheBaseDir?.resolve("layer_$id")
         val tileMap = TileMap(cacheDir = layerCacheDir, maxResidentTiles = maxResidentTilesPerLayer)
-        return Layer(
+        val layer = Layer(
             id = id,
             initialName = name,
             initialOpacity = 1.0f,
             initialIsVisible = true,
             tileMap = tileMap
         )
+        bindLayerToNative(layer)
+        return layer
     }
 
     fun canAddLayer(): Boolean = _layers.size < maxLayers
@@ -102,6 +117,7 @@ class LayerManager(
         val index = _layers.indexOf(layerToDelete)
 
         _layers.remove(layerToDelete)
+        nativeDoc.removeLayer(layerId)
         layerToDelete.tileMap.releaseAll()
 
         if (activeLayerId == layerId) {
@@ -118,6 +134,7 @@ class LayerManager(
         val layerToDelete = _layers.find { it.id == layerId } ?: return null
         val index = _layers.indexOf(layerToDelete)
         _layers.remove(layerToDelete)
+        nativeDoc.removeLayer(layerId)
         if (activeLayerId == layerId && _layers.isNotEmpty()) {
             val newActiveIndex = index.coerceAtMost(_layers.size - 1)
             activeLayerId = _layers[newActiveIndex].id
@@ -144,6 +161,7 @@ class LayerManager(
             tileMap = tileMap
         )
         layer.thumbnailBitmap = thumbnail
+        bindLayerToNative(layer)
         val insertIdx = storageIndex.coerceIn(0, _layers.size)
         _layers.add(insertIdx, layer)
         if (id >= nextLayerId) {
@@ -167,12 +185,15 @@ class LayerManager(
     fun setLayerVisibility(layerId: Long, isVisible: Boolean) {
         val layer = _layers.find { it.id == layerId } ?: return
         layer.isVisible = isVisible
+        nativeDoc.setLayerVisible(layerId, isVisible)
         notifyChanged()
     }
 
     fun setLayerOpacity(layerId: Long, opacity: Float) {
         val layer = _layers.find { it.id == layerId } ?: return
-        layer.opacity = opacity.coerceIn(0f, 1f)
+        val clamped = opacity.coerceIn(0f, 1f)
+        layer.opacity = clamped
+        nativeDoc.setLayerOpacity(layerId, clamped)
         notifyChanged()
     }
 
@@ -196,6 +217,7 @@ class LayerManager(
         }
         val layer = _layers.removeAt(fromIndex)
         _layers.add(toIndex, layer)
+        nativeDoc.reorderLayers(_layers.map { it.id }.toLongArray())
         structuralRevision++
         notifyChanged()
         return true
@@ -211,6 +233,7 @@ class LayerManager(
         if (newLayers.size != _layers.size) return false
         _layers.clear()
         _layers.addAll(newLayers)
+        nativeDoc.reorderLayers(_layers.map { it.id }.toLongArray())
         structuralRevision++
         notifyChanged()
         return true
@@ -304,6 +327,7 @@ class LayerManager(
             layer.tileMap.releaseAll()
         }
         _layers.clear()
+        nativeDoc.close()
         cacheBaseDir?.deleteRecursively()
     }
 

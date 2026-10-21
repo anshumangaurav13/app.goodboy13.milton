@@ -25,6 +25,26 @@ class TileMap(
     // Downsampled directly on the GPU using hardware bilinear filtering via glBlitFramebuffer
     private val overviewTiles = ConcurrentHashMap<Long, RasterTile>()
 
+    var onTileStateChanged: ((tx: Int, ty: Int, sliceIndex: Int, hasContent: Boolean) -> Unit)? = null
+        set(value) {
+            field = value
+            if (value != null) {
+                for (tile in tiles.values) {
+                    value(tile.coord.tx, tile.coord.ty, tile.sliceIndex, tile.hasContent)
+                }
+            }
+        }
+
+    var onOverviewTileStateChanged: ((otx: Int, oty: Int, sliceIndex: Int, hasContent: Boolean) -> Unit)? = null
+        set(value) {
+            field = value
+            if (value != null) {
+                for (tile in overviewTiles.values) {
+                    value(tile.coord.tx, tile.coord.ty, tile.sliceIndex, tile.hasContent)
+                }
+            }
+        }
+
     @Volatile
     var hasPendingRestores: Boolean = false
         private set
@@ -44,7 +64,9 @@ class TileMap(
     fun getOrCreateOverviewTile(otx: Int, oty: Int): RasterTile {
         val key = TileCoord.pack(otx, oty)
         return overviewTiles.computeIfAbsent(key) {
-            RasterTile(TileCoord(otx, oty))
+            RasterTile(TileCoord(otx, oty)) { tile ->
+                onOverviewTileStateChanged?.invoke(tile.coord.tx, tile.coord.ty, tile.sliceIndex, tile.hasContent)
+            }
         }
     }
 
@@ -141,7 +163,9 @@ class TileMap(
     fun getOrCreateTile(tx: Int, ty: Int): RasterTile {
         val key = TileCoord.pack(tx, ty)
         val tile = tiles.computeIfAbsent(key) {
-            RasterTile(TileCoord(tx, ty))
+            RasterTile(TileCoord(tx, ty)) { t ->
+                onTileStateChanged?.invoke(t.coord.tx, t.coord.ty, t.sliceIndex, t.hasContent)
+            }
         }
         tile.lastAccessTime = System.nanoTime()
         return tile
@@ -149,7 +173,11 @@ class TileMap(
 
     fun getOrCreateTile(packed: Long): RasterTile {
         val tile = tiles.computeIfAbsent(packed) {
-            RasterTile(TileCoord(TileCoord.unpackTx(packed), TileCoord.unpackTy(packed)))
+            val tx = TileCoord.unpackTx(packed)
+            val ty = TileCoord.unpackTy(packed)
+            RasterTile(TileCoord(tx, ty)) { t ->
+                onTileStateChanged?.invoke(t.coord.tx, t.coord.ty, t.sliceIndex, t.hasContent)
+            }
         }
         tile.lastAccessTime = System.nanoTime()
         return tile

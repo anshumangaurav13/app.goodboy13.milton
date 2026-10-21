@@ -105,6 +105,47 @@ impl MiltonDocument {
         }
     }
 
+    pub fn set_layer_opacity(&mut self, id: i64, opacity: f32) {
+        if let Some(layer) = self.get_layer_mut(id) {
+            layer.opacity = opacity.clamp(0.0, 1.0);
+        }
+    }
+
+    pub fn set_layer_visible(&mut self, id: i64, visible: bool) {
+        if let Some(layer) = self.get_layer_mut(id) {
+            layer.visible = visible;
+        }
+    }
+
+    pub fn reorder_layers(&mut self, layer_ids: &[i64]) {
+        let mut new_layers = Vec::with_capacity(self.layers.len());
+        for &id in layer_ids {
+            if let Some(pos) = self.layers.iter().position(|l| l.id == id) {
+                new_layers.push(self.layers.remove(pos));
+            }
+        }
+        new_layers.append(&mut self.layers);
+        self.layers = new_layers;
+    }
+
+    pub fn clear_layer(&mut self, id: i64) {
+        if let Some(layer) = self.get_layer_mut(id) {
+            layer.clear();
+        }
+    }
+
+    pub fn set_tile(&mut self, layer_id: i64, tx: i32, ty: i32, slice_index: i32, has_content: bool) {
+        if let Some(layer) = self.get_layer_mut(layer_id) {
+            layer.set_tile(tx, ty, slice_index, has_content);
+        }
+    }
+
+    pub fn set_overview_tile(&mut self, layer_id: i64, otx: i32, oty: i32, slice_index: i32, has_content: bool) {
+        if let Some(layer) = self.get_layer_mut(layer_id) {
+            layer.set_overview_tile(otx, oty, slice_index, has_content);
+        }
+    }
+
     pub fn get_layer_mut(&mut self, id: i64) -> Option<&mut MiltonLayer> {
         self.layers.iter_mut().find(|l| l.id == id)
     }
@@ -145,6 +186,7 @@ impl MiltonDocument {
 
     /// Generates flat float stream: [world_x, world_y, world_tile_size, slice_index, opacity]
     /// directly into the out_slice for hardware instanced rendering.
+    /// Excludes tiles in `exclude_rect` for `exclude_layer_id` (e.g. active liquify / transform).
     /// Returns the number of quad instances generated.
     pub fn generate_render_packet(
         &self,
@@ -154,16 +196,24 @@ impl MiltonDocument {
         view_bottom: f32,
         zoom: f32,
         force_overview: bool,
+        exclude_layer_id: i64,
+        exclude_left: f32,
+        exclude_top: f32,
+        exclude_right: f32,
+        exclude_bottom: f32,
         out_slice: &mut [f32],
     ) -> usize {
         let use_overview = force_overview || zoom < 0.35;
         let max_instances = out_slice.len() / FLOATS_PER_INSTANCE;
         let mut instance_count = 0;
+        let has_exclusion = exclude_layer_id != 0 && exclude_left < exclude_right && exclude_top < exclude_bottom;
 
         for layer in &self.layers {
             if !layer.visible || layer.opacity <= 0.001 {
                 continue;
             }
+
+            let check_exclude = has_exclusion && layer.id == exclude_layer_id;
 
             if use_overview && !layer.overview_tiles.is_empty() {
                 // Overview Level 1
@@ -175,6 +225,16 @@ impl MiltonDocument {
                 for tile in layer.overview_tiles.values() {
                     if tile.tx >= min_otx && tile.tx <= max_otx && tile.ty >= min_oty && tile.ty <= max_oty {
                         if tile.has_content && tile.slice_index >= 0 {
+                            if check_exclude {
+                                let t_left = tile.tx as f32 * OVERVIEW_TILE_SIZE;
+                                let t_top = tile.ty as f32 * OVERVIEW_TILE_SIZE;
+                                let t_right = t_left + OVERVIEW_TILE_SIZE;
+                                let t_bottom = t_top + OVERVIEW_TILE_SIZE;
+                                if t_left < exclude_right && t_right > exclude_left && t_top < exclude_bottom && t_bottom > exclude_top {
+                                    continue;
+                                }
+                            }
+
                             if instance_count >= max_instances {
                                 return instance_count;
                             }
@@ -198,6 +258,16 @@ impl MiltonDocument {
                 for tile in layer.tiles.values() {
                     if tile.tx >= min_tx && tile.tx <= max_tx && tile.ty >= min_ty && tile.ty <= max_ty {
                         if tile.has_content && tile.slice_index >= 0 {
+                            if check_exclude {
+                                let t_left = tile.tx as f32 * TILE_SIZE;
+                                let t_top = tile.ty as f32 * TILE_SIZE;
+                                let t_right = t_left + TILE_SIZE;
+                                let t_bottom = t_top + TILE_SIZE;
+                                if t_left < exclude_right && t_right > exclude_left && t_top < exclude_bottom && t_bottom > exclude_top {
+                                    continue;
+                                }
+                            }
+
                             if instance_count >= max_instances {
                                 return instance_count;
                             }
@@ -266,12 +336,24 @@ mod tests {
 
         let mut packet_buf = vec![0.0f32; 100];
         // View covers (0, 0) to (1000, 500)
-        let count = doc.generate_render_packet(0.0, 0.0, 1000.0, 500.0, 1.0, false, &mut packet_buf);
+        let count = doc.generate_render_packet(
+            0.0, 0.0, 1000.0, 500.0, 1.0, false,
+            0, 0.0, 0.0, 0.0, 0.0,
+            &mut packet_buf
+        );
 
         assert_eq!(count, 2);
         // Check first instance
         assert_eq!(packet_buf[2], 512.0); // Tile size
         assert_eq!(packet_buf[4], 1.0);   // Layer opacity
+
+        // Test exclusion
+        let count_excluded = doc.generate_render_packet(
+            0.0, 0.0, 1000.0, 500.0, 1.0, false,
+            1, 0.0, 0.0, 512.0, 512.0, // Exclude tile (0, 0)
+            &mut packet_buf
+        );
+        assert_eq!(count_excluded, 1);
     }
 
     #[test]

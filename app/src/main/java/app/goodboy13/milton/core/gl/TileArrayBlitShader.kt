@@ -271,6 +271,20 @@ class TileArrayBlitShader {
         GLES30.glDrawArraysInstanced(GLES30.GL_TRIANGLES, 0, 6, count)
     }
 
+    /**
+     * Instanced draw call directly using native Rust-generated Flat Render Packet buffer.
+     * Bypasses all JVM looping, FloatBuffer puts, and object iterations.
+     */
+    fun renderPacketDirect(directBuf: ByteBuffer, count: Int) {
+        if (count <= 0 || !isReady) return
+        ensureCapacity(count)
+        directBuf.position(0)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, instanceVboId)
+        GLES30.glBufferSubData(GLES30.GL_ARRAY_BUFFER, 0, count * BYTES_PER_INSTANCE, directBuf)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
+        GLES30.glDrawArraysInstanced(GLES30.GL_TRIANGLES, 0, 6, count)
+    }
+
     fun end() {
         if (!isReady) return
         GLES30.glBindVertexArray(0)

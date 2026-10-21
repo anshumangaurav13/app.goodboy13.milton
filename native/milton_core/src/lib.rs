@@ -8,7 +8,7 @@ pub mod selection;
 pub mod constants;
 
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JByteBuffer, JClass, JFloatArray, JIntArray, JString};
+use jni::objects::{JByteArray, JByteBuffer, JClass, JFloatArray, JIntArray, JLongArray, JString};
 use jni::sys::{jboolean, jfloat, jint, jlong, JNI_FALSE, JNI_TRUE};
 
 // ============================================================================
@@ -1118,6 +1118,63 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_docume
 }
 
 #[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentSetLayerOpacity<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    layer_id: jlong,
+    opacity: jfloat,
+) {
+    if doc_ptr == 0 { return; }
+    let doc = unsafe { &mut *(doc_ptr as *mut document::MiltonDocument) };
+    doc.set_layer_opacity(layer_id, opacity);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentSetLayerVisible<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    layer_id: jlong,
+    visible: jboolean,
+) {
+    if doc_ptr == 0 { return; }
+    let doc = unsafe { &mut *(doc_ptr as *mut document::MiltonDocument) };
+    doc.set_layer_visible(layer_id, visible == JNI_TRUE);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentReorderLayers<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    layer_ids: JLongArray<'local>,
+) {
+    if doc_ptr == 0 { return; }
+    let len = match env.get_array_length(&layer_ids) {
+        Ok(l) => l as usize,
+        Err(_) => return,
+    };
+    let mut ids = vec![0i64; len];
+    if env.get_long_array_region(&layer_ids, 0, &mut ids).is_ok() {
+        let doc = unsafe { &mut *(doc_ptr as *mut document::MiltonDocument) };
+        doc.reorder_layers(&ids);
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentClearLayer<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    layer_id: jlong,
+) {
+    if doc_ptr == 0 { return; }
+    let doc = unsafe { &mut *(doc_ptr as *mut document::MiltonDocument) };
+    doc.clear_layer(layer_id);
+}
+
+#[no_mangle]
 pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentSetTile<'local>(
     _env: JNIEnv<'local>,
     _class: JClass<'local>,
@@ -1130,9 +1187,23 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_docume
 ) {
     if doc_ptr == 0 { return; }
     let doc = unsafe { &mut *(doc_ptr as *mut document::MiltonDocument) };
-    if let Some(layer) = doc.get_layer_mut(layer_id) {
-        layer.set_tile(tx, ty, slice_index, has_content == JNI_TRUE);
-    }
+    doc.set_tile(layer_id, tx, ty, slice_index, has_content == JNI_TRUE);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentSetOverviewTile<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    layer_id: jlong,
+    otx: jint,
+    oty: jint,
+    slice_index: jint,
+    has_content: jboolean,
+) {
+    if doc_ptr == 0 { return; }
+    let doc = unsafe { &mut *(doc_ptr as *mut document::MiltonDocument) };
+    doc.set_overview_tile(layer_id, otx, oty, slice_index, has_content == JNI_TRUE);
 }
 
 #[no_mangle]
@@ -1146,6 +1217,11 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_docume
     view_bottom: jfloat,
     zoom: jfloat,
     force_overview: jboolean,
+    exclude_layer_id: jlong,
+    exclude_left: jfloat,
+    exclude_top: jfloat,
+    exclude_right: jfloat,
+    exclude_bottom: jfloat,
     out_direct_buf: JByteBuffer<'local>,
 ) -> jint {
     if doc_ptr == 0 { return 0; }
@@ -1172,6 +1248,11 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_docume
         view_bottom,
         zoom,
         force_overview == JNI_TRUE,
+        exclude_layer_id,
+        exclude_left,
+        exclude_top,
+        exclude_right,
+        exclude_bottom,
         out_slice,
     );
 

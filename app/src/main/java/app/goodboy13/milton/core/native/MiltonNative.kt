@@ -272,7 +272,22 @@ object MiltonNative {
     external fun documentRemoveLayer(docPtr: Long, layerId: Long): Boolean
 
     @JvmStatic
+    external fun documentSetLayerOpacity(docPtr: Long, layerId: Long, opacity: Float)
+
+    @JvmStatic
+    external fun documentSetLayerVisible(docPtr: Long, layerId: Long, visible: Boolean)
+
+    @JvmStatic
+    external fun documentReorderLayers(docPtr: Long, layerIds: LongArray)
+
+    @JvmStatic
+    external fun documentClearLayer(docPtr: Long, layerId: Long)
+
+    @JvmStatic
     external fun documentSetTile(docPtr: Long, layerId: Long, tx: Int, ty: Int, sliceIndex: Int, hasContent: Boolean)
+
+    @JvmStatic
+    external fun documentSetOverviewTile(docPtr: Long, layerId: Long, otx: Int, oty: Int, sliceIndex: Int, hasContent: Boolean)
 
     @JvmStatic
     external fun documentGenerateRenderPacket(
@@ -283,6 +298,11 @@ object MiltonNative {
         viewBottom: Float,
         zoom: Float,
         forceOverview: Boolean,
+        excludeLayerId: Long = 0L,
+        excludeLeft: Float = 0f,
+        excludeTop: Float = 0f,
+        excludeRight: Float = 0f,
+        excludeBottom: Float = 0f,
         outDirectBuf: java.nio.ByteBuffer
     ): Int
 

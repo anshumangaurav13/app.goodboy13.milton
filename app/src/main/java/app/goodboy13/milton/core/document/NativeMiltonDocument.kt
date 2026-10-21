@@ -38,9 +38,34 @@ class NativeMiltonDocument : Closeable {
         return MiltonNative.documentRemoveLayer(docPtr, layerId)
     }
 
+    fun setLayerOpacity(layerId: Long, opacity: Float) {
+        if (!isValid) return
+        MiltonNative.documentSetLayerOpacity(docPtr, layerId, opacity)
+    }
+
+    fun setLayerVisible(layerId: Long, visible: Boolean) {
+        if (!isValid) return
+        MiltonNative.documentSetLayerVisible(docPtr, layerId, visible)
+    }
+
+    fun reorderLayers(layerIds: LongArray) {
+        if (!isValid) return
+        MiltonNative.documentReorderLayers(docPtr, layerIds)
+    }
+
+    fun clearLayer(layerId: Long) {
+        if (!isValid) return
+        MiltonNative.documentClearLayer(docPtr, layerId)
+    }
+
     fun setTile(layerId: Long, tx: Int, ty: Int, sliceIndex: Int, hasContent: Boolean) {
         if (!isValid) return
         MiltonNative.documentSetTile(docPtr, layerId, tx, ty, sliceIndex, hasContent)
+    }
+
+    fun setOverviewTile(layerId: Long, otx: Int, oty: Int, sliceIndex: Int, hasContent: Boolean) {
+        if (!isValid) return
+        MiltonNative.documentSetOverviewTile(docPtr, layerId, otx, oty, sliceIndex, hasContent)
     }
 
     fun generateRenderPacket(
@@ -50,6 +75,11 @@ class NativeMiltonDocument : Closeable {
         viewBottom: Float,
         zoom: Float,
         forceOverview: Boolean,
+        excludeLayerId: Long = 0L,
+        excludeLeft: Float = 0f,
+        excludeTop: Float = 0f,
+        excludeRight: Float = 0f,
+        excludeBottom: Float = 0f,
         outDirectBuf: ByteBuffer
     ): Int {
         if (!isValid) return 0
@@ -61,6 +91,11 @@ class NativeMiltonDocument : Closeable {
             viewBottom,
             zoom,
             forceOverview,
+            excludeLayerId,
+            excludeLeft,
+            excludeTop,
+            excludeRight,
+            excludeBottom,
             outDirectBuf
         )
     }

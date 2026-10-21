@@ -60,6 +60,7 @@ class GlSceneRenderer {
     private val reusableBatchTiles = ArrayList<RasterTile>()
     private val reusableFallbackTiles = ArrayList<RasterTile>()
     private val reusableAffectedTiles = mutableListOf<RasterTile>()
+    private val packetDirectBuffer = ByteBuffer.allocateDirect(2048 * 20).order(ByteOrder.nativeOrder())
     private val tileDabsBucketMap = HashMap<Long, TileDabBucket>()
     private val bucketPool = ArrayList<TileDabBucket>()
     private val activeBuckets = ArrayList<TileDabBucket>()
@@ -290,7 +291,8 @@ class GlSceneRenderer {
         bufferInfo: BufferInfo,
         transform: FloatArray,
         viewport: Viewport,
-        selectionState: app.goodboy13.milton.core.selection.SelectionState? = null
+        selectionState: app.goodboy13.milton.core.selection.SelectionState? = null,
+        nativeDoc: app.goodboy13.milton.core.document.NativeMiltonDocument? = null
     ) {
         var drawCallCounter = 0
         val showBorders = app.goodboy13.milton.core.telemetry.TelemetryManager.cvarShowTileBorders
@@ -304,93 +306,160 @@ class GlSceneRenderer {
         if (useArrayBlit) {
             tileArrayBlitShader.begin(mvp, true, textureArrayId, showBorders)
 
-            for (layer in layers) {
-                if (!layer.isVisible || layer.opacity <= 0.001f) continue
+            val useNativePacket = nativeDoc != null && nativeDoc.isValid
+            if (useNativePacket) {
+                val liquifyState = selectionState as? app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify
+                val exLayerId = if (liquifyState != null && liquifyState.session.targetLayerIds.isNotEmpty()) {
+                    liquifyState.session.targetLayerIds.first()
+                } else 0L
+                val exBounds = liquifyState?.session?.srcBounds
+                val exLeft = exBounds?.left ?: 0f
+                val exTop = exBounds?.top ?: 0f
+                val exRight = exBounds?.right ?: 0f
+                val exBottom = exBounds?.bottom ?: 0f
 
-                val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds, reusableVisibleTiles)
-                if (visibleTiles.isNotEmpty()) {
-                    val isLayerLiquifying = selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify &&
-                        selectionState.session.targetLayerIds.contains(layer.id)
-                    val liquifyMinTx = if (isLayerLiquifying) {
-                        floor(selectionState.session.srcBounds.left / TileCoord.TILE_SIZE).toInt()
-                    } else Int.MAX_VALUE
-                    val liquifyMaxTx = if (isLayerLiquifying) {
-                        floor((selectionState.session.srcBounds.right - 1f) / TileCoord.TILE_SIZE).toInt()
-                    } else Int.MIN_VALUE
-                    val liquifyMinTy = if (isLayerLiquifying) {
-                        floor(selectionState.session.srcBounds.top / TileCoord.TILE_SIZE).toInt()
-                    } else Int.MAX_VALUE
-                    val liquifyMaxTy = if (isLayerLiquifying) {
-                        floor((selectionState.session.srcBounds.bottom - 1f) / TileCoord.TILE_SIZE).toInt()
-                    } else Int.MIN_VALUE
+                val packetCount = nativeDoc.generateRenderPacket(
+                    viewLeft = visibleBounds.left,
+                    viewTop = visibleBounds.top,
+                    viewRight = visibleBounds.right,
+                    viewBottom = visibleBounds.bottom,
+                    zoom = viewport.zoom,
+                    forceOverview = forceOverview,
+                    excludeLayerId = exLayerId,
+                    excludeLeft = exLeft,
+                    excludeTop = exTop,
+                    excludeRight = exRight,
+                    excludeBottom = exBottom,
+                    outDirectBuf = packetDirectBuffer
+                )
 
-                    reusableBatchTiles.clear()
-                    reusableFallbackTiles.clear()
-                    for (tile in visibleTiles) {
-                        if (!tile.isInitialized && tile.isOnDisk) {
-                            tile.ensureResident(layer.tileMap.cacheDir)
-                        }
-                        if (!tile.isInitialized || !tile.hasContent) continue
-                        if (isLayerLiquifying &&
-                            tile.coord.tx in liquifyMinTx..liquifyMaxTx &&
-                            tile.coord.ty in liquifyMinTy..liquifyMaxTy
-                        ) {
-                            continue
-                        }
-                        if (tile.sliceIndex >= 0) {
-                            reusableBatchTiles.add(tile)
-                        } else {
-                            reusableFallbackTiles.add(tile)
-                        }
-                    }
-
-                    if (reusableBatchTiles.isNotEmpty()) {
-                        tileArrayBlitShader.renderTilesBatch(reusableBatchTiles, layer.opacity, TileCoord.TILE_SIZE.toFloat()); drawCallCounter++
-                    }
-                    if (reusableFallbackTiles.isNotEmpty()) {
-                        tileArrayBlitShader.end()
-                        tileBlitShader.begin(mvp, true, backgroundColorRgb = 0, showBorders = showBorders)
-                        tileBlitShader.setOpacity(layer.opacity)
-                        for (tile in reusableFallbackTiles) {
-                            tileBlitShader.renderTile(
-                                worldLeft = tile.coord.worldLeft,
-                                worldTop = tile.coord.worldTop,
-                                textureId = tile.textureId
-                            ); drawCallCounter++
-                        }
-                        tileBlitShader.end()
-                        tileArrayBlitShader.begin(mvp, true, textureArrayId, showBorders)
-                    }
+                if (packetCount > 0) {
+                    tileArrayBlitShader.renderPacketDirect(packetDirectBuffer, packetCount)
+                    drawCallCounter++
                 }
 
-                // Render patch for this layer if active in transform or liquify session
-                if (selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveTransform &&
-                    selectionState.session.targetLayerIds.contains(layer.id)
-                ) {
-                    val patch = selectionState.session.layerPatches[layer.id]
-                    if (patch != null && patch.glTextureId != 0) {
-                        tileArrayBlitShader.end()
-                        patchBlitShader.renderTransformPatch(
-                            session = selectionState.session,
-                            patch = patch,
-                            layerOpacity = layer.opacity,
-                            mvpMatrix = mvp
-                        ); drawCallCounter++
-                        tileArrayBlitShader.begin(mvp, true, textureArrayId)
+                // Render active transform or liquify mesh overlay
+                for (layer in layers) {
+                    if (!layer.isVisible || layer.opacity <= 0.001f) continue
+                    if (selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveTransform &&
+                        selectionState.session.targetLayerIds.contains(layer.id)
+                    ) {
+                        val patch = selectionState.session.layerPatches[layer.id]
+                        if (patch != null && patch.glTextureId != 0) {
+                            tileArrayBlitShader.end()
+                            patchBlitShader.renderTransformPatch(
+                                session = selectionState.session,
+                                patch = patch,
+                                layerOpacity = layer.opacity,
+                                mvpMatrix = mvp
+                            ); drawCallCounter++
+                            tileArrayBlitShader.begin(mvp, true, textureArrayId, showBorders)
+                        }
+                    } else if (selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify &&
+                        selectionState.session.targetLayerIds.contains(layer.id)
+                    ) {
+                        val patch = selectionState.session.layerPatches[layer.id]
+                        if (patch != null && patch.glTextureId != 0) {
+                            tileArrayBlitShader.end()
+                            patchBlitShader.renderLiquifyMesh(
+                                session = selectionState.session,
+                                patch = patch,
+                                layerOpacity = layer.opacity,
+                                mvpMatrix = mvp
+                            ); drawCallCounter++
+                            tileArrayBlitShader.begin(mvp, true, textureArrayId, showBorders)
+                        }
                     }
-                } else if (selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify &&
-                    selectionState.session.targetLayerIds.contains(layer.id)
-                ) {
-                    val patch = selectionState.session.layerPatches[layer.id]
-                    if (patch != null && patch.glTextureId != 0) {
-                        tileArrayBlitShader.end()
-                        patchBlitShader.renderLiquifyMesh(
-                            session = selectionState.session,
-                            patch = patch,
-                            layerOpacity = layer.opacity,
-                            mvpMatrix = mvp
-                        ); drawCallCounter++
-                        tileArrayBlitShader.begin(mvp, true, textureArrayId)
+                }
+            } else {
+                for (layer in layers) {
+                    if (!layer.isVisible || layer.opacity <= 0.001f) continue
+
+                    val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds, reusableVisibleTiles)
+                    if (visibleTiles.isNotEmpty()) {
+                        val isLayerLiquifying = selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify &&
+                            selectionState.session.targetLayerIds.contains(layer.id)
+                        val liquifyMinTx = if (isLayerLiquifying) {
+                            floor(selectionState.session.srcBounds.left / TileCoord.TILE_SIZE).toInt()
+                        } else Int.MAX_VALUE
+                        val liquifyMaxTx = if (isLayerLiquifying) {
+                            floor((selectionState.session.srcBounds.right - 1f) / TileCoord.TILE_SIZE).toInt()
+                        } else Int.MIN_VALUE
+                        val liquifyMinTy = if (isLayerLiquifying) {
+                            floor(selectionState.session.srcBounds.top / TileCoord.TILE_SIZE).toInt()
+                        } else Int.MAX_VALUE
+                        val liquifyMaxTy = if (isLayerLiquifying) {
+                            floor((selectionState.session.srcBounds.bottom - 1f) / TileCoord.TILE_SIZE).toInt()
+                        } else Int.MIN_VALUE
+
+                        reusableBatchTiles.clear()
+                        reusableFallbackTiles.clear()
+                        for (tile in visibleTiles) {
+                            if (!tile.isInitialized && tile.isOnDisk) {
+                                tile.ensureResident(layer.tileMap.cacheDir)
+                            }
+                            if (!tile.isInitialized || !tile.hasContent) continue
+                            if (isLayerLiquifying &&
+                                tile.coord.tx in liquifyMinTx..liquifyMaxTx &&
+                                tile.coord.ty in liquifyMinTy..liquifyMaxTy
+                            ) {
+                                continue
+                            }
+                            if (tile.sliceIndex >= 0) {
+                                reusableBatchTiles.add(tile)
+                            } else {
+                                reusableFallbackTiles.add(tile)
+                            }
+                        }
+
+                        if (reusableBatchTiles.isNotEmpty()) {
+                            tileArrayBlitShader.renderTilesBatch(reusableBatchTiles, layer.opacity, TileCoord.TILE_SIZE.toFloat()); drawCallCounter++
+                        }
+                        if (reusableFallbackTiles.isNotEmpty()) {
+                            tileArrayBlitShader.end()
+                            tileBlitShader.begin(mvp, true, backgroundColorRgb = 0, showBorders = showBorders)
+                            tileBlitShader.setOpacity(layer.opacity)
+                            for (tile in reusableFallbackTiles) {
+                                tileBlitShader.renderTile(
+                                    worldLeft = tile.coord.worldLeft,
+                                    worldTop = tile.coord.worldTop,
+                                    textureId = tile.textureId
+                                ); drawCallCounter++
+                            }
+                            tileBlitShader.end()
+                            tileArrayBlitShader.begin(mvp, true, textureArrayId, showBorders)
+                        }
+                    }
+
+                    // Render patch for this layer if active in transform or liquify session
+                    if (selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveTransform &&
+                        selectionState.session.targetLayerIds.contains(layer.id)
+                    ) {
+                        val patch = selectionState.session.layerPatches[layer.id]
+                        if (patch != null && patch.glTextureId != 0) {
+                            tileArrayBlitShader.end()
+                            patchBlitShader.renderTransformPatch(
+                                session = selectionState.session,
+                                patch = patch,
+                                layerOpacity = layer.opacity,
+                                mvpMatrix = mvp
+                            ); drawCallCounter++
+                            tileArrayBlitShader.begin(mvp, true, textureArrayId)
+                        }
+                    } else if (selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify &&
+                        selectionState.session.targetLayerIds.contains(layer.id)
+                    ) {
+                        val patch = selectionState.session.layerPatches[layer.id]
+                        if (patch != null && patch.glTextureId != 0) {
+                            tileArrayBlitShader.end()
+                            patchBlitShader.renderLiquifyMesh(
+                                session = selectionState.session,
+                                patch = patch,
+                                layerOpacity = layer.opacity,
+                                mvpMatrix = mvp
+                            ); drawCallCounter++
+                            tileArrayBlitShader.begin(mvp, true, textureArrayId)
+                        }
                     }
                 }
             }

@@ -269,7 +269,8 @@ class CanvasEngine(
             bufferInfo = bufferInfo,
             transform = transform,
             viewport = viewport,
-            selectionState = selState
+            selectionState = selState,
+            nativeDoc = layerManager.nativeDoc
         )
 
         // Progressive streaming: if visible tiles on disk are pending restoration,
