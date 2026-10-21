@@ -21,9 +21,18 @@ import kotlin.math.roundToInt
 data class DabPacket(
     val dabs: List<BrushDab> = emptyList(),
     val ringBuffer: NativeDabRingBuffer? = null,
-    val ringStartIndex: Int = 0,
+    val ringStartHead: Long = 0L,
     val ringCount: Int = 0
-)
+) {
+    constructor(
+        dabs: List<BrushDab> = emptyList(),
+        ringBuffer: NativeDabRingBuffer? = null,
+        ringStartIndex: Int,
+        ringCount: Int
+    ) : this(dabs, ringBuffer, ringStartIndex.toLong(), ringCount)
+
+    val ringStartIndex: Int get() = ringStartHead.toInt()
+}
 
 /**
  * High-level bridge and facade implementing [GLFrontBufferedRenderer.Callback].
@@ -89,8 +98,12 @@ class MiltonCanvasRenderer(
         engine.enqueueCommand(GlRenderCommand.SubmitDabs(dabs, false))
     }
 
+    fun queueRingDabs(ringBuffer: NativeDabRingBuffer, startHead: Long, count: Int) {
+        engine.enqueueCommand(GlRenderCommand.SubmitRingDabs(ringBuffer, startHead, count, false))
+    }
+
     fun queueRingDabs(ringBuffer: NativeDabRingBuffer, startIndex: Int, count: Int) {
-        engine.enqueueCommand(GlRenderCommand.SubmitRingDabs(ringBuffer, startIndex, count, false))
+        queueRingDabs(ringBuffer, startIndex.toLong(), count)
     }
 
     fun clearPendingDabs() {
@@ -150,7 +163,7 @@ class MiltonCanvasRenderer(
     ) {
         val t0 = System.nanoTime()
         if (param.ringBuffer != null && param.ringCount > 0) {
-            engine.renderFrontBuffer(param.ringBuffer, param.ringStartIndex, param.ringCount, bufferInfo, transform)
+            engine.renderFrontBuffer(param.ringBuffer, param.ringStartHead, param.ringCount, bufferInfo, transform)
         } else {
             engine.renderFrontBuffer(param.dabs, bufferInfo, transform)
         }

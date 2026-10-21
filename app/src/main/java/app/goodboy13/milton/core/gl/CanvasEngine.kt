@@ -100,7 +100,7 @@ class CanvasEngine(
      */
     fun renderFrontBuffer(
         ringBuffer: NativeDabRingBuffer,
-        startIndex: Int,
+        startHead: Long,
         count: Int,
         bufferInfo: BufferInfo,
         transform: FloatArray
@@ -113,13 +113,23 @@ class CanvasEngine(
 
         sceneRenderer.renderFrontBufferRingDabs(
             ringBuffer = ringBuffer,
-            startIndex = startIndex,
+            startHead = startHead,
             count = count,
             activeLayerOpacity = activeLayer.opacity,
             bufferInfo = bufferInfo,
             transform = transform,
             viewport = viewport
         )
+    }
+
+    fun renderFrontBuffer(
+        ringBuffer: NativeDabRingBuffer,
+        startIndex: Int,
+        count: Int,
+        bufferInfo: BufferInfo,
+        transform: FloatArray
+    ) {
+        renderFrontBuffer(ringBuffer, startIndex.toLong(), count, bufferInfo, transform)
     }
 
     /**
@@ -210,7 +220,7 @@ class CanvasEngine(
                 sceneRenderer.stampRingDabsIntoTiles(
                     targetTileMap = activeLayer.tileMap,
                     ringBuffer = cmd.ringBuffer,
-                    startIndex = cmd.startIndex,
+                    startHead = cmd.startHead,
                     count = cmd.count,
                     onTilesResolved = { affectedTiles ->
                         undoManager.capturePreStrokeTiles(activeLayer.id, affectedTiles)

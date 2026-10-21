@@ -24,10 +24,19 @@ sealed interface GlRenderCommand {
      */
     data class SubmitRingDabs(
         val ringBuffer: NativeDabRingBuffer,
-        val startIndex: Int,
+        val startHead: Long,
         val count: Int,
         val isStrokeFinished: Boolean = false
-    ) : GlRenderCommand
+    ) : GlRenderCommand {
+        constructor(
+            ringBuffer: NativeDabRingBuffer,
+            startIndex: Int,
+            count: Int,
+            isStrokeFinished: Boolean = false
+        ) : this(ringBuffer, startIndex.toLong(), count, isStrokeFinished)
+
+        val startIndex: Int get() = startHead.toInt()
+    }
 
     /**
      * Request an undo step on the active layer stack.

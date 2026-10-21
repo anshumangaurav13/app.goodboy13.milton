@@ -203,7 +203,7 @@ class GlSceneRenderer {
      */
     fun renderFrontBufferRingDabs(
         ringBuffer: NativeDabRingBuffer,
-        startIndex: Int,
+        startHead: Long,
         count: Int,
         activeLayerOpacity: Float,
         bufferInfo: BufferInfo,
@@ -228,7 +228,7 @@ class GlSceneRenderer {
         }
 
         val mvp = computeFinalMvpMatrix(viewport, bufferInfo, transform)
-        ringBuffer.forEachDab(startIndex, startIndex + count) { _, x, y, radius, alpha, colorRgb, hardness, brushMode, pressure, _, isEraser ->
+        ringBuffer.forEachDab(startHead, count) { _, x, y, radius, alpha, colorRgb, hardness, brushMode, pressure, _, isEraser ->
             if (!isEraser) {
                 dabShader.renderDab(
                     centerX = x,
@@ -249,9 +249,18 @@ class GlSceneRenderer {
         }
     }
 
-    /**
-     * Clears the back buffer with the background paper color.
-     */
+    fun renderFrontBufferRingDabs(
+        ringBuffer: NativeDabRingBuffer,
+        startIndex: Int,
+        count: Int,
+        activeLayerOpacity: Float,
+        bufferInfo: BufferInfo,
+        transform: FloatArray,
+        viewport: Viewport
+    ) {
+        renderFrontBufferRingDabs(ringBuffer, startIndex.toLong(), count, activeLayerOpacity, bufferInfo, transform, viewport)
+    }
+
     fun clearScreen(bufferInfo: BufferInfo, backgroundColorRgb: Int) {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, bufferInfo.frameBufferId)
         GLES30.glViewport(0, 0, bufferInfo.width, bufferInfo.height)
@@ -311,6 +320,9 @@ class GlSceneRenderer {
 
                     reusableBatchTiles.clear()
                     for (tile in visibleTiles) {
+                        if (!tile.isInitialized && tile.isOnDisk) {
+                            tile.ensureResident(layer.tileMap.cacheDir)
+                        }
                         if (!tile.isInitialized || !tile.hasContent || tile.sliceIndex < 0) continue
                         if (isLayerLiquifying &&
                             tile.coord.tx in liquifyMinTx..liquifyMaxTx &&
@@ -581,7 +593,7 @@ class GlSceneRenderer {
     fun stampRingDabsIntoTiles(
         targetTileMap: TileMap,
         ringBuffer: NativeDabRingBuffer,
-        startIndex: Int,
+        startHead: Long,
         count: Int,
         onTilesResolved: ((List<RasterTile>) -> Unit)? = null
     ) {
@@ -595,7 +607,7 @@ class GlSceneRenderer {
         reusableAffectedTiles.clear()
 
         val tileSize = TileCoord.TILE_SIZE.toFloat()
-        ringBuffer.forEachDab(startIndex, startIndex + count) { idx, x, y, radius, _, _, _, _, _, _, isEraser ->
+        ringBuffer.forEachDab(startHead, count) { slot, x, y, radius, _, _, _, _, _, _, isEraser ->
             val reach = radius + 2.0f
             val minTx = floor((x - reach) / tileSize).toInt()
             val maxTx = floor((x + reach) / tileSize).toInt()
@@ -615,9 +627,9 @@ class GlSceneRenderer {
                         reusableAffectedTiles.add(tile)
                     }
                     if (isEraser) {
-                        bucket.addEraserIndex(idx)
+                        bucket.addEraserIndex(slot)
                     } else {
-                        bucket.addBrushIndex(idx)
+                        bucket.addBrushIndex(slot)
                     }
                 }
             }
@@ -647,18 +659,18 @@ class GlSceneRenderer {
                 }
 
                 for (k in 0 until bucket.eraserCount) {
-                    val dabIdx = bucket.eraserIndices[k]
-                    val localX = ringBuffer.getX(dabIdx) - (tx * tileSize)
-                    val localY = ringBuffer.getY(dabIdx) - (ty * tileSize)
+                    val slot = bucket.eraserIndices[k]
+                    val localX = ringBuffer.getXBySlot(slot) - (tx * tileSize)
+                    val localY = ringBuffer.getYBySlot(slot) - (ty * tileSize)
                     dabShader.renderDab(
                         centerX = localX,
                         centerY = localY,
-                        radius = ringBuffer.getRadius(dabIdx),
+                        radius = ringBuffer.getRadiusBySlot(slot),
                         colorRgb = 0,
-                        alpha = ringBuffer.getAlpha(dabIdx),
-                        hardness = ringBuffer.getHardness(dabIdx),
-                        brushMode = ringBuffer.getBrushMode(dabIdx),
-                        pressure = ringBuffer.getPressure(dabIdx),
+                        alpha = ringBuffer.getAlphaBySlot(slot),
+                        hardness = ringBuffer.getHardnessBySlot(slot),
+                        brushMode = ringBuffer.getBrushModeBySlot(slot),
+                        pressure = ringBuffer.getPressureBySlot(slot),
                         worldOffsetX = tx * tileSize,
                         worldOffsetY = ty * tileSize,
                         projectionMatrix = tileOrthoMatrix,
@@ -686,18 +698,18 @@ class GlSceneRenderer {
                 }
 
                 for (k in 0 until bucket.brushCount) {
-                    val dabIdx = bucket.brushIndices[k]
-                    val localX = ringBuffer.getX(dabIdx) - (tx * tileSize)
-                    val localY = ringBuffer.getY(dabIdx) - (ty * tileSize)
+                    val slot = bucket.brushIndices[k]
+                    val localX = ringBuffer.getXBySlot(slot) - (tx * tileSize)
+                    val localY = ringBuffer.getYBySlot(slot) - (ty * tileSize)
                     dabShader.renderDab(
                         centerX = localX,
                         centerY = localY,
-                        radius = ringBuffer.getRadius(dabIdx),
-                        colorRgb = ringBuffer.getColorRgb(dabIdx),
-                        alpha = ringBuffer.getAlpha(dabIdx),
-                        hardness = ringBuffer.getHardness(dabIdx),
-                        brushMode = ringBuffer.getBrushMode(dabIdx),
-                        pressure = ringBuffer.getPressure(dabIdx),
+                        radius = ringBuffer.getRadiusBySlot(slot),
+                        colorRgb = ringBuffer.getColorRgbBySlot(slot),
+                        alpha = ringBuffer.getAlphaBySlot(slot),
+                        hardness = ringBuffer.getHardnessBySlot(slot),
+                        brushMode = ringBuffer.getBrushModeBySlot(slot),
+                        pressure = ringBuffer.getPressureBySlot(slot),
                         worldOffsetX = tx * tileSize,
                         worldOffsetY = ty * tileSize,
                         projectionMatrix = tileOrthoMatrix,
@@ -709,15 +721,23 @@ class GlSceneRenderer {
                     GLES30.glEnable(GLES30.GL_BLEND)
                 }
 
+                // Pass 2: Composite the scratch stroke ribbon onto destination tile FBO in a single pass
                 tile.bindFboDirect()
                 strokeCompositeShader.render(strokeTextureId = scratchTextureId)
             }
         }
     }
 
-    /**
-     * Captures a layer thumbnail offscreen.
-     */
+    fun stampRingDabsIntoTiles(
+        targetTileMap: TileMap,
+        ringBuffer: NativeDabRingBuffer,
+        startIndex: Int,
+        count: Int,
+        onTilesResolved: ((List<RasterTile>) -> Unit)? = null
+    ) {
+        stampRingDabsIntoTiles(targetTileMap, ringBuffer, startIndex.toLong(), count, onTilesResolved)
+    }
+
     fun captureThumbnail(
         layer: Layer,
         visibleBounds: WorldRect,

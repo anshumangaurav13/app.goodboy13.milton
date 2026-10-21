@@ -167,7 +167,7 @@ class TileMap(
         return tile
     }
 
-    fun getVisibleTiles(bounds: WorldRect, outTiles: MutableList<RasterTile>, maxRestores: Int = CanvasConstants.MAX_TILE_RESTORES_PER_FRAME): List<RasterTile> {
+    fun getVisibleTiles(bounds: WorldRect, outTiles: MutableList<RasterTile>, maxRestores: Int = Int.MAX_VALUE): List<RasterTile> {
         val minTx = floor(bounds.left / TileCoord.TILE_SIZE.toFloat()).toInt()
         val maxTx = floor(bounds.right / TileCoord.TILE_SIZE.toFloat()).toInt()
         val minTy = floor(bounds.top / TileCoord.TILE_SIZE.toFloat()).toInt()
@@ -200,7 +200,7 @@ class TileMap(
         return outTiles
     }
 
-    fun getVisibleTiles(bounds: WorldRect, maxRestores: Int = 4): List<RasterTile> {
+    fun getVisibleTiles(bounds: WorldRect, maxRestores: Int = Int.MAX_VALUE): List<RasterTile> {
         return getVisibleTiles(bounds, mutableListOf(), maxRestores)
     }
 

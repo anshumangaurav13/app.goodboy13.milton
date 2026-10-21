@@ -881,20 +881,21 @@ class MiltonCanvasView @JvmOverloads constructor(
 
         when (action) {
             MotionEvent.ACTION_DOWN -> {
-                strokeRingBuffer.reset()
                 brushEngine.properties.isEraser = isEraserMode || isHardwareEraser
                 val isEraser = brushEngine.properties.isEraser
                 Log.i(TAG, "Stylus DOWN at screen=($sx, $sy), world=(${worldPos.x}, ${worldPos.y}), pressure=$pressure, tilt=$tilt, isEraser=$isEraser")
+                val startHead = strokeRingBuffer.headIndex
                 brushEngine.startStroke(worldPos.x, worldPos.y, pressure, event.eventTime, tilt, strokeRingBuffer)
                 app.goodboy13.milton.core.telemetry.TelemetryManager.recordTouchLatency((android.os.SystemClock.uptimeMillis() - event.eventTime).toFloat())
-                if (strokeRingBuffer.isNotEmpty) {
-                    app.goodboy13.milton.core.telemetry.TelemetryManager.recordDabs(strokeRingBuffer.count)
-                    renderer.queueRingDabs(strokeRingBuffer, 0, strokeRingBuffer.count)
+                val addedCount = (strokeRingBuffer.headIndex - startHead).toInt()
+                if (addedCount > 0) {
+                    app.goodboy13.milton.core.telemetry.TelemetryManager.recordDabs(addedCount)
+                    renderer.queueRingDabs(strokeRingBuffer, startHead, addedCount)
                     if (isEraser) {
                         frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
                     } else {
                         frontBufferedRenderer?.renderFrontBufferedLayer(
-                            DabPacket(ringBuffer = strokeRingBuffer, ringStartIndex = 0, ringCount = strokeRingBuffer.count)
+                            DabPacket(ringBuffer = strokeRingBuffer, ringStartHead = startHead, ringCount = addedCount)
                         )
                     }
                 }
@@ -902,7 +903,7 @@ class MiltonCanvasView @JvmOverloads constructor(
 
             MotionEvent.ACTION_MOVE -> {
                 val isEraser = brushEngine.properties.isEraser
-                val startIdx = strokeRingBuffer.count
+                val startHead = strokeRingBuffer.headIndex
 
                 // Unpack sub-frame historical points for maximum curve smoothness without heap churn
                 val historySize = event.historySize
@@ -921,16 +922,16 @@ class MiltonCanvasView @JvmOverloads constructor(
                 // Add current point
                 brushEngine.addPoint(worldPos.x, worldPos.y, pressure, event.eventTime, tilt, strokeRingBuffer)
 
-                val addedCount = strokeRingBuffer.count - startIdx
+                val addedCount = (strokeRingBuffer.headIndex - startHead).toInt()
                 app.goodboy13.milton.core.telemetry.TelemetryManager.recordTouchLatency((android.os.SystemClock.uptimeMillis() - event.eventTime).toFloat())
                 if (addedCount > 0) {
                     app.goodboy13.milton.core.telemetry.TelemetryManager.recordDabs(addedCount)
-                    renderer.queueRingDabs(strokeRingBuffer, startIdx, addedCount)
+                    renderer.queueRingDabs(strokeRingBuffer, startHead, addedCount)
                     if (isEraser) {
                         frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
                     } else {
                         frontBufferedRenderer?.renderFrontBufferedLayer(
-                            DabPacket(ringBuffer = strokeRingBuffer, ringStartIndex = startIdx, ringCount = addedCount)
+                            DabPacket(ringBuffer = strokeRingBuffer, ringStartHead = startHead, ringCount = addedCount)
                         )
                     }
                 }
@@ -939,13 +940,13 @@ class MiltonCanvasView @JvmOverloads constructor(
             MotionEvent.ACTION_UP -> {
                 Log.i(TAG, "Stylus UP at screen=($sx, $sy)")
                 val isEraser = brushEngine.properties.isEraser
-                val startIdx = strokeRingBuffer.count
+                val startHead = strokeRingBuffer.headIndex
                 brushEngine.endStroke(strokeRingBuffer)
-                val addedCount = strokeRingBuffer.count - startIdx
+                val addedCount = (strokeRingBuffer.headIndex - startHead).toInt()
                 app.goodboy13.milton.core.telemetry.TelemetryManager.recordTouchLatency((android.os.SystemClock.uptimeMillis() - event.eventTime).toFloat())
                 if (addedCount > 0) {
                     app.goodboy13.milton.core.telemetry.TelemetryManager.recordDabs(addedCount)
-                    renderer.queueRingDabs(strokeRingBuffer, startIdx, addedCount)
+                    renderer.queueRingDabs(strokeRingBuffer, startHead, addedCount)
                 }
                 renderer.markStrokeFinished()
                 frontBufferedRenderer?.commit()
@@ -959,7 +960,6 @@ class MiltonCanvasView @JvmOverloads constructor(
             MotionEvent.ACTION_CANCEL -> {
                 Log.i(TAG, "Stylus CANCEL")
                 brushEngine.endStroke()
-                strokeRingBuffer.reset()
                 renderer.clearPendingDabs()
                 frontBufferedRenderer?.cancel()
                 brushEngine.properties.isEraser = isEraserMode

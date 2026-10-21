@@ -86,8 +86,8 @@ class NativeDabRingBufferTest {
 
         var iteratedCount = 0
         ring.forEachDab(startIndex = 2, endIndex = 7) { idx, x, y, _, _, _, _, _, _, _, _ ->
-            assertEquals(idx * 10f, x, 0.001f)
-            assertEquals(idx * 20f, y, 0.001f)
+            assertEquals((iteratedCount + 2) * 10f, x, 0.001f)
+            assertEquals((iteratedCount + 2) * 20f, y, 0.001f)
             iteratedCount++
         }
         assertEquals(5, iteratedCount)
@@ -104,12 +104,19 @@ class NativeDabRingBufferTest {
     }
 
     @Test
-    fun testCapacityClamp() {
-        val ring = NativeDabRingBuffer(capacity = 3)
-        assertTrue(ring.pushDab(1f, 1f, 1f, 1f, 1))
-        assertTrue(ring.pushDab(2f, 2f, 2f, 2f, 2))
-        assertTrue(ring.pushDab(3f, 3f, 3f, 3f, 3))
-        assertFalse("Pushing beyond capacity should return false", ring.pushDab(4f, 4f, 4f, 4f, 4))
-        assertEquals(3, ring.count)
+    fun testCircularWrapping() {
+        val ring = NativeDabRingBuffer(capacity = 4)
+        ring.pushDab(10f, 10f, 1f, 1f, 1)
+        ring.pushDab(20f, 20f, 2f, 2f, 2)
+        ring.pushDab(30f, 30f, 3f, 3f, 3)
+        ring.pushDab(40f, 40f, 4f, 4f, 4)
+        assertEquals(4, ring.count)
+        assertEquals(4L, ring.headIndex)
+
+        // Push 5th dab: wraps to slot 0
+        ring.pushDab(50f, 50f, 5f, 5f, 5)
+        assertEquals(4, ring.count)
+        assertEquals(5L, ring.headIndex)
+        assertEquals(50f, ring.getX(4L), 0.001f)
     }
 }

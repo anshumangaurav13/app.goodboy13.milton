@@ -7,9 +7,16 @@ import java.nio.FloatBuffer
 import java.nio.IntBuffer
 
 /**
- * Pre-allocated off-heap direct buffer for stroke dabs in flight.
+ * Pre-allocated off-heap direct circular buffer for stroke dabs in flight.
  * Eliminates Kotlin heap churn and young-generation Android ART GC pauses
  * during active 120Hz/240Hz stylus sketching.
+ *
+ * Implements a true monotonic circular ring buffer:
+ * - Writes advance [headIndex] monotonically without resetting or zeroing off-heap memory.
+ * - Readers consume explicit monotonic ranges [startHead, startHead + count).
+ * - Slots map via modulo arithmetic (or bitwise AND when capacity is a power of 2).
+ * - Asynchronous frames on the GL render thread never experience race conditions with
+ *   subsequent strokes starting on the UI thread.
  *
  * Stride (10 ints/floats = 40 bytes per dab):
  * [0] x: Float
@@ -28,21 +35,38 @@ class NativeDabRingBuffer(val capacity: Int = DEFAULT_CAPACITY) {
     companion object {
         const val STRIDE_FLOATS = 10
         const val STRIDE_BYTES = STRIDE_FLOATS * 4
-        const val DEFAULT_CAPACITY = 16384 // 16k dabs = 640 KB direct off-heap memory
+        const val DEFAULT_CAPACITY = 65536 // 64k dabs = 2.56 MB direct off-heap memory
     }
 
     val byteBuffer: ByteBuffer = ByteBuffer.allocateDirect(capacity * STRIDE_BYTES).order(ByteOrder.nativeOrder())
     val floatBuffer: FloatBuffer = byteBuffer.asFloatBuffer()
     val intBuffer: IntBuffer = byteBuffer.asIntBuffer()
 
-    var count: Int = 0
+    val isPowerOfTwo: Boolean = (capacity > 0) && ((capacity and (capacity - 1)) == 0)
+    val mask: Long = (capacity - 1).toLong()
+
+    /** Monotonic sequence counter of all dabs written. Only incremented by producer. */
+    var headIndex: Long = 0L
         private set
 
-    val isEmpty: Boolean get() = count == 0
-    val isNotEmpty: Boolean get() = count > 0
+    /** Total count of resident dabs available (clamped to capacity). */
+    val count: Int get() = minOf(headIndex, capacity.toLong()).toInt()
+
+    val isEmpty: Boolean get() = headIndex == 0L
+    val isNotEmpty: Boolean get() = headIndex > 0L
+
+    @PublishedApi
+    internal fun slotOf(seq: Long): Int {
+        return if (isPowerOfTwo) {
+            (seq and mask).toInt()
+        } else {
+            (seq % capacity.toLong()).toInt()
+        }
+    }
 
     /**
-     * Appends a new dab directly into off-heap memory without any object instantiation.
+     * Appends a new dab directly into circular off-heap memory without any object instantiation.
+     * Advances the monotonic [headIndex].
      */
     fun pushDab(
         x: Float,
@@ -56,8 +80,8 @@ class NativeDabRingBuffer(val capacity: Int = DEFAULT_CAPACITY) {
         tilt: Float = 0.0f,
         isEraser: Boolean = false
     ): Boolean {
-        if (count >= capacity) return false
-        val offset = count * STRIDE_FLOATS
+        val slot = slotOf(headIndex)
+        val offset = slot * STRIDE_FLOATS
         floatBuffer.put(offset + 0, x)
         floatBuffer.put(offset + 1, y)
         floatBuffer.put(offset + 2, radius)
@@ -68,7 +92,7 @@ class NativeDabRingBuffer(val capacity: Int = DEFAULT_CAPACITY) {
         floatBuffer.put(offset + 7, pressure)
         floatBuffer.put(offset + 8, tilt)
         intBuffer.put(offset + 9, if (isEraser) 1 else 0)
-        count++
+        headIndex++
         return true
     }
 
@@ -87,19 +111,85 @@ class NativeDabRingBuffer(val capacity: Int = DEFAULT_CAPACITY) {
         )
     }
 
-    inline fun getX(index: Int): Float = floatBuffer.get(index * STRIDE_FLOATS + 0)
-    inline fun getY(index: Int): Float = floatBuffer.get(index * STRIDE_FLOATS + 1)
-    inline fun getRadius(index: Int): Float = floatBuffer.get(index * STRIDE_FLOATS + 2)
-    inline fun getAlpha(index: Int): Float = floatBuffer.get(index * STRIDE_FLOATS + 3)
-    inline fun getColorRgb(index: Int): Int = intBuffer.get(index * STRIDE_FLOATS + 4)
-    inline fun getHardness(index: Int): Float = floatBuffer.get(index * STRIDE_FLOATS + 5)
-    inline fun getBrushMode(index: Int): Int = intBuffer.get(index * STRIDE_FLOATS + 6)
-    inline fun getPressure(index: Int): Float = floatBuffer.get(index * STRIDE_FLOATS + 7)
-    inline fun getTilt(index: Int): Float = floatBuffer.get(index * STRIDE_FLOATS + 8)
-    inline fun isEraser(index: Int): Boolean = intBuffer.get(index * STRIDE_FLOATS + 9) == 1
+    // Direct slot accessors
+    inline fun getXBySlot(slot: Int): Float = floatBuffer.get(slot * STRIDE_FLOATS + 0)
+    inline fun getYBySlot(slot: Int): Float = floatBuffer.get(slot * STRIDE_FLOATS + 1)
+    inline fun getRadiusBySlot(slot: Int): Float = floatBuffer.get(slot * STRIDE_FLOATS + 2)
+    inline fun getAlphaBySlot(slot: Int): Float = floatBuffer.get(slot * STRIDE_FLOATS + 3)
+    inline fun getColorRgbBySlot(slot: Int): Int = intBuffer.get(slot * STRIDE_FLOATS + 4)
+    inline fun getHardnessBySlot(slot: Int): Float = floatBuffer.get(slot * STRIDE_FLOATS + 5)
+    inline fun getBrushModeBySlot(slot: Int): Int = intBuffer.get(slot * STRIDE_FLOATS + 6)
+    inline fun getPressureBySlot(slot: Int): Float = floatBuffer.get(slot * STRIDE_FLOATS + 7)
+    inline fun getTiltBySlot(slot: Int): Float = floatBuffer.get(slot * STRIDE_FLOATS + 8)
+    inline fun isEraserBySlot(slot: Int): Boolean = intBuffer.get(slot * STRIDE_FLOATS + 9) == 1
+
+    // Monotonic sequence accessors
+    inline fun getX(seq: Long): Float = getXBySlot(slotOf(seq))
+    inline fun getY(seq: Long): Float = getYBySlot(slotOf(seq))
+    inline fun getRadius(seq: Long): Float = getRadiusBySlot(slotOf(seq))
+    inline fun getAlpha(seq: Long): Float = getAlphaBySlot(slotOf(seq))
+    inline fun getColorRgb(seq: Long): Int = getColorRgbBySlot(slotOf(seq))
+    inline fun getHardness(seq: Long): Float = getHardnessBySlot(slotOf(seq))
+    inline fun getBrushMode(seq: Long): Int = getBrushModeBySlot(slotOf(seq))
+    inline fun getPressure(seq: Long): Float = getPressureBySlot(slotOf(seq))
+    inline fun getTilt(seq: Long): Float = getTiltBySlot(slotOf(seq))
+    inline fun isEraser(seq: Long): Boolean = isEraserBySlot(slotOf(seq))
+
+    // Int sequence overload for legacy compatibility
+    inline fun getX(index: Int): Float = getX(index.toLong())
+    inline fun getY(index: Int): Float = getY(index.toLong())
+    inline fun getRadius(index: Int): Float = getRadius(index.toLong())
+    inline fun getAlpha(index: Int): Float = getAlpha(index.toLong())
+    inline fun getColorRgb(index: Int): Int = getColorRgb(index.toLong())
+    inline fun getHardness(index: Int): Float = getHardness(index.toLong())
+    inline fun getBrushMode(index: Int): Int = getBrushMode(index.toLong())
+    inline fun getPressure(index: Int): Float = getPressure(index.toLong())
+    inline fun getTilt(index: Int): Float = getTilt(index.toLong())
+    inline fun isEraser(index: Int): Boolean = isEraser(index.toLong())
 
     /**
-     * Iterates over all active dabs with an inlined zero-allocation callback.
+     * Iterates over a monotonic range [startSeq, startSeq + count) with an inlined zero-allocation callback.
+     * Passes the buffer slot index along with all extracted dab fields.
+     */
+    inline fun forEachDab(
+        startSeq: Long,
+        count: Int,
+        action: (
+            slot: Int,
+            x: Float,
+            y: Float,
+            radius: Float,
+            alpha: Float,
+            colorRgb: Int,
+            hardness: Float,
+            brushMode: Int,
+            pressure: Float,
+            tilt: Float,
+            isEraser: Boolean
+        ) -> Unit
+    ) {
+        for (i in 0 until count) {
+            val seq = startSeq + i
+            val slot = slotOf(seq)
+            val offset = slot * STRIDE_FLOATS
+            action(
+                slot,
+                floatBuffer.get(offset + 0),
+                floatBuffer.get(offset + 1),
+                floatBuffer.get(offset + 2),
+                floatBuffer.get(offset + 3),
+                intBuffer.get(offset + 4),
+                floatBuffer.get(offset + 5),
+                intBuffer.get(offset + 6),
+                floatBuffer.get(offset + 7),
+                floatBuffer.get(offset + 8),
+                intBuffer.get(offset + 9) == 1
+            )
+        }
+    }
+
+    /**
+     * Legacy slice iterator for unit tests and backwards compatibility.
      */
     inline fun forEachDab(
         startIndex: Int = 0,
@@ -118,44 +208,29 @@ class NativeDabRingBuffer(val capacity: Int = DEFAULT_CAPACITY) {
             isEraser: Boolean
         ) -> Unit
     ) {
-        val end = endIndex.coerceAtMost(count)
-        for (i in startIndex until end) {
-            val offset = i * STRIDE_FLOATS
-            action(
-                i,
-                floatBuffer.get(offset + 0),
-                floatBuffer.get(offset + 1),
-                floatBuffer.get(offset + 2),
-                floatBuffer.get(offset + 3),
-                intBuffer.get(offset + 4),
-                floatBuffer.get(offset + 5),
-                intBuffer.get(offset + 6),
-                floatBuffer.get(offset + 7),
-                floatBuffer.get(offset + 8),
-                intBuffer.get(offset + 9) == 1
-            )
+        val total = (endIndex - startIndex).coerceAtLeast(0)
+        forEachDab(startIndex.toLong(), total) { _, x, y, r, a, c, h, m, p, t, e ->
+            action(startIndex, x, y, r, a, c, h, m, p, t, e)
         }
     }
 
     /**
      * Converts dabs into a list for legacy callers, recycling the target list.
      */
-    fun populateList(outList: MutableList<BrushDab>, startIndex: Int = 0, endIndex: Int = count) {
-        val end = endIndex.coerceAtMost(count)
-        for (i in startIndex until end) {
-            val offset = i * STRIDE_FLOATS
+    fun populateList(outList: MutableList<BrushDab>, startSeq: Long = 0L, count: Int = this.count) {
+        forEachDab(startSeq, count) { _, x, y, radius, alpha, colorRgb, hardness, brushMode, pressure, tilt, isEraser ->
             outList.add(
                 BrushDab(
-                    x = floatBuffer.get(offset + 0),
-                    y = floatBuffer.get(offset + 1),
-                    radius = floatBuffer.get(offset + 2),
-                    alpha = floatBuffer.get(offset + 3),
-                    colorRgb = intBuffer.get(offset + 4),
-                    hardness = floatBuffer.get(offset + 5),
-                    brushMode = intBuffer.get(offset + 6),
-                    pressure = floatBuffer.get(offset + 7),
-                    tilt = floatBuffer.get(offset + 8),
-                    isEraser = intBuffer.get(offset + 9) == 1
+                    x = x,
+                    y = y,
+                    radius = radius,
+                    alpha = alpha,
+                    colorRgb = colorRgb,
+                    hardness = hardness,
+                    brushMode = brushMode,
+                    pressure = pressure,
+                    tilt = tilt,
+                    isEraser = isEraser
                 )
             )
         }
@@ -163,9 +238,10 @@ class NativeDabRingBuffer(val capacity: Int = DEFAULT_CAPACITY) {
 
     /**
      * Fast O(1) buffer reset without reallocating off-heap storage.
+     * Should only be used when closing or resetting the canvas document.
      */
     fun reset() {
-        count = 0
+        headIndex = 0L
         byteBuffer.clear()
         floatBuffer.clear()
         intBuffer.clear()

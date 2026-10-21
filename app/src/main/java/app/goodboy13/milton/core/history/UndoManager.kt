@@ -86,9 +86,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
     // 1. Direct raw byte snapshots (e.g. from Liquify or Selection transformations)
     private val pendingPreStrokeRaw = mutableMapOf<Pair<Long, TileCoord>, ByteArray?>()
 
-    // 2. GPU snapshots acquired during active stroke: (layerId to coord) -> PooledEntry?
-    // A null value indicates the tile was empty/uninitialized before the stroke.
-    private val pendingPreStrokeGpu = mutableMapOf<Pair<Long, TileCoord>, GlTexturePool.PooledEntry?>()
+
 
     var onStateChangedListener: (() -> Unit)? = null
     var onTilesCommittedListener: ((List<TileDelta>) -> Unit)? = null
@@ -101,39 +99,16 @@ class UndoManager(val maxHistorySize: Int = 30) {
      * Operates completely in GPU VRAM via glBlitFramebuffer, eliminating in-stroke CPU stalls.
      */
     fun capturePreStrokeTiles(layerId: Long, tiles: Collection<RasterTile>) {
-        var hasSavedFbo = false
-        val prevReadFbo = IntArray(1)
-        val prevDrawFbo = IntArray(1)
-
         for (tile in tiles) {
             val key = layerId to tile.coord
-            if (pendingPreStrokeRaw.containsKey(key) || pendingPreStrokeGpu.containsKey(key)) {
+            if (pendingPreStrokeRaw.containsKey(key)) {
                 continue
             }
             if (tile.isInitialized && tile.hasContent) {
-                if (!hasSavedFbo) {
-                    GLES30.glGetIntegerv(GLES30.GL_READ_FRAMEBUFFER_BINDING, prevReadFbo, 0)
-                    GLES30.glGetIntegerv(GLES30.GL_DRAW_FRAMEBUFFER_BINDING, prevDrawFbo, 0)
-                    hasSavedFbo = true
-                }
-                val snapshotEntry = GlTexturePool.acquire()
-                GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, tile.fboId)
-                GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, snapshotEntry.fboId)
-                GLES30.glBlitFramebuffer(
-                    0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
-                    0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
-                    GLES30.GL_COLOR_BUFFER_BIT,
-                    GLES30.GL_NEAREST
-                )
-                pendingPreStrokeGpu[key] = snapshotEntry
+                pendingPreStrokeRaw[key] = tile.readPixels()
             } else {
-                pendingPreStrokeGpu[key] = null
+                pendingPreStrokeRaw[key] = null
             }
-        }
-
-        if (hasSavedFbo) {
-            GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, prevReadFbo[0])
-            GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, prevDrawFbo[0])
         }
     }
 
@@ -146,7 +121,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
      */
     fun registerPreModifiedTile(layerId: Long, coord: TileCoord, rawBytes: ByteArray?) {
         val key = layerId to coord
-        if (!pendingPreStrokeRaw.containsKey(key) && !pendingPreStrokeGpu.containsKey(key)) {
+        if (!pendingPreStrokeRaw.containsKey(key)) {
             pendingPreStrokeRaw[key] = rawBytes
         }
     }
@@ -155,12 +130,6 @@ class UndoManager(val maxHistorySize: Int = 30) {
      * Clears and recycles all pending pre-stroke snapshots without pushing to undo stack.
      */
     fun clearPending() {
-        for ((_, entry) in pendingPreStrokeGpu) {
-            if (entry != null) {
-                GlTexturePool.release(entry)
-            }
-        }
-        pendingPreStrokeGpu.clear()
         pendingPreStrokeRaw.clear()
     }
 
@@ -168,144 +137,12 @@ class UndoManager(val maxHistorySize: Int = 30) {
      * Call after stamping stroke dabs or committing a multi-layer action to finalize the stroke command into the undo stack.
      */
     fun commitMultiLayerStroke(layers: Collection<Pair<Long, TileMap>>) {
-        if (pendingPreStrokeRaw.isEmpty() && pendingPreStrokeGpu.isEmpty()) return
+        if (pendingPreStrokeRaw.isEmpty()) return
 
         val layerMap = layers.associate { it.first to it.second }
         val deltas = mutableListOf<TileDelta>()
 
-        val prevFbo = IntArray(1)
-        var fboSaved = false
-
         try {
-            // 1. Process GPU snapshots acquired during brush drawing
-            if (pendingPreStrokeGpu.isNotEmpty()) {
-                val hasGpuSnapshots = pendingPreStrokeGpu.values.any { it != null }
-                if (hasGpuSnapshots) {
-                    GLES30.glGetIntegerv(GLES30.GL_FRAMEBUFFER_BINDING, prevFbo, 0)
-                    fboSaved = true
-                }
-
-                val gpuIter = pendingPreStrokeGpu.iterator()
-                while (gpuIter.hasNext()) {
-                    val entry = gpuIter.next()
-                    val (entryLayerId, coord) = entry.key
-                    val snapshotEntry = entry.value
-                    val tileMap = layerMap[entryLayerId]
-                    val tile = tileMap?.getExistingTile(coord.tx, coord.ty)
-
-                    val hasBefore = snapshotEntry != null
-                    val hasAfter = tile != null && tile.isInitialized && tile.hasContent
-
-                    if (hasBefore && hasAfter) {
-                        DirectBufferPool.useBuffer { beforeBuf ->
-                            DirectBufferPool.useBuffer { afterBuf ->
-                                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, snapshotEntry!!.fboId)
-                                GLES30.glReadPixels(
-                                    0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
-                                    GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, beforeBuf
-                                )
-                                beforeBuf.rewind()
-
-                                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, tile!!.fboId)
-                                GLES30.glReadPixels(
-                                    0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
-                                    GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, afterBuf
-                                )
-                                afterBuf.rewind()
-
-                                GlTexturePool.release(snapshotEntry)
-
-                                val dirtyRect = if (MiltonNative.isLoaded) {
-                                    MiltonNative.computeDirtyRectDirect(beforeBuf, afterBuf)
-                                } else null
-
-                                if (dirtyRect != null && dirtyRect.size == 4) {
-                                    val minX = dirtyRect[0]
-                                    val minY = dirtyRect[1]
-                                    val width = dirtyRect[2]
-                                    val height = dirtyRect[3]
-
-                                    if (width > 0 && height > 0) {
-                                        val beforePatch = MiltonNative.createSubTilePatchDirect(
-                                            beforeBuf, minX, minY, width, height
-                                        )
-                                        val afterPatch = MiltonNative.createSubTilePatchDirect(
-                                            afterBuf, minX, minY, width, height
-                                        )
-                                        val fullAfter = compress(afterBuf)
-                                        deltas.add(
-                                            TileDelta(
-                                                layerId = entryLayerId,
-                                                coord = coord,
-                                                beforeCompressed = beforePatch,
-                                                afterCompressed = afterPatch,
-                                                minX = minX,
-                                                minY = minY,
-                                                patchWidth = width,
-                                                patchHeight = height,
-                                                fullAfterForAutosave = fullAfter
-                                            )
-                                        )
-                                    }
-                                } else {
-                                    val beforeFull = compress(beforeBuf)
-                                    val afterFull = compress(afterBuf)
-                                    deltas.add(
-                                        TileDelta(
-                                            layerId = entryLayerId,
-                                            coord = coord,
-                                            beforeCompressed = beforeFull,
-                                            afterCompressed = afterFull,
-                                            fullAfterForAutosave = afterFull
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                    } else if (!hasBefore && hasAfter) {
-                        DirectBufferPool.useBuffer { afterBuf ->
-                            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, tile!!.fboId)
-                            GLES30.glReadPixels(
-                                0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
-                                GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, afterBuf
-                            )
-                            afterBuf.rewind()
-                            val fullAfter = compress(afterBuf)
-                            deltas.add(
-                                TileDelta(
-                                    layerId = entryLayerId,
-                                    coord = coord,
-                                    beforeCompressed = null,
-                                    afterCompressed = fullAfter,
-                                    fullAfterForAutosave = fullAfter
-                                )
-                            )
-                        }
-                    } else if (hasBefore && !hasAfter) {
-                        DirectBufferPool.useBuffer { beforeBuf ->
-                            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, snapshotEntry!!.fboId)
-                            GLES30.glReadPixels(
-                                0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
-                                GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, beforeBuf
-                            )
-                            beforeBuf.rewind()
-                            val fullBefore = compress(beforeBuf)
-                            deltas.add(
-                                TileDelta(
-                                    layerId = entryLayerId,
-                                    coord = coord,
-                                    beforeCompressed = fullBefore,
-                                    afterCompressed = null,
-                                    fullAfterForAutosave = null
-                                )
-                            )
-                        }
-                        GlTexturePool.release(snapshotEntry!!)
-                    }
-                    gpuIter.remove()
-                }
-            }
-
             // 2. Process direct byte snapshots (from Liquify / SelectionTransform)
             if (pendingPreStrokeRaw.isNotEmpty()) {
                 val rawIter = pendingPreStrokeRaw.iterator()
@@ -395,16 +232,6 @@ class UndoManager(val maxHistorySize: Int = 30) {
                 }
             }
         } finally {
-            if (fboSaved) {
-                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, prevFbo[0])
-            }
-            // Safely release any lingering GPU entries if an exception occurred
-            for ((_, entry) in pendingPreStrokeGpu) {
-                if (entry != null) {
-                    GlTexturePool.release(entry)
-                }
-            }
-            pendingPreStrokeGpu.clear()
             pendingPreStrokeRaw.clear()
         }
 
