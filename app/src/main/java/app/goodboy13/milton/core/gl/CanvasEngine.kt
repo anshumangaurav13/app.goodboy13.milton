@@ -9,6 +9,7 @@ import app.goodboy13.milton.core.history.StrokeCommand
 import app.goodboy13.milton.core.history.TileDelta
 import app.goodboy13.milton.core.history.UndoManager
 import app.goodboy13.milton.core.layer.LayerManager
+import app.goodboy13.milton.core.memory.NativeDabRingBuffer
 import app.goodboy13.milton.core.tile.RasterTile
 import app.goodboy13.milton.core.tile.TileCoord
 import app.goodboy13.milton.core.viewport.Viewport
@@ -36,8 +37,8 @@ class CanvasEngine(
         val canRedo: Boolean = false
     )
 
-    private val _undoRedoState = kotlinx.coroutines.flow.MutableStateFlow(UndoRedoState())
-    val undoRedoState: kotlinx.coroutines.flow.StateFlow<UndoRedoState> = _undoRedoState.asStateFlow()
+    private val _undoRedoState = MutableStateFlow(UndoRedoState())
+    val undoRedoState: StateFlow<UndoRedoState> = _undoRedoState.asStateFlow()
 
     init {
         undoManager.onStateChangedListener = {
@@ -59,9 +60,16 @@ class CanvasEngine(
     private val pendingStrokeFinished = AtomicBoolean(false)
     private val pendingTrimBudget = AtomicBoolean(false)
     private val dabsToCommit = mutableListOf<BrushDab>()
+    private val ringDabsToCommit = mutableListOf<GlRenderCommand.SubmitRingDabs>()
 
     fun enqueueCommand(command: GlRenderCommand) {
         commandQueue.enqueue(command)
+    }
+
+    fun clear() {
+        commandQueue.clear()
+        dabsToCommit.clear()
+        ringDabsToCommit.clear()
     }
 
     /**
@@ -88,6 +96,33 @@ class CanvasEngine(
     }
 
     /**
+     * Zero-allocation front-buffer immediate overlay rendering directly from [NativeDabRingBuffer].
+     */
+    fun renderFrontBuffer(
+        ringBuffer: NativeDabRingBuffer,
+        startIndex: Int,
+        count: Int,
+        bufferInfo: BufferInfo,
+        transform: FloatArray
+    ) {
+        sceneRenderer.ensureGlInitialized()
+        if (count <= 0) return
+
+        val activeLayer = layerManager.activeLayer
+        if (!activeLayer.isVisible || activeLayer.opacity <= 0.001f) return
+
+        sceneRenderer.renderFrontBufferRingDabs(
+            ringBuffer = ringBuffer,
+            startIndex = startIndex,
+            count = count,
+            activeLayerOpacity = activeLayer.opacity,
+            bufferInfo = bufferInfo,
+            transform = transform,
+            viewport = viewport
+        )
+    }
+
+    /**
      * Drains command queue, stamps accumulated dabs, updates undo history,
      * clears and blits visible scene, captures thumbnails, and samples color.
      * Called strictly on the GL render thread during multi-buffered frames.
@@ -102,6 +137,7 @@ class CanvasEngine(
         var hadUndo = false
         var hadRedo = false
         dabsToCommit.clear()
+        ringDabsToCommit.clear()
         var isStrokeDone = false
         var hasPickPoint = false
         var pickX = 0f
@@ -127,6 +163,12 @@ class CanvasEngine(
                 }
                 is GlRenderCommand.SubmitDabs -> {
                     dabsToCommit.addAll(cmd.dabs)
+                    if (cmd.isStrokeFinished) {
+                        isStrokeDone = true
+                    }
+                }
+                is GlRenderCommand.SubmitRingDabs -> {
+                    ringDabsToCommit.add(cmd)
                     if (cmd.isStrokeFinished) {
                         isStrokeDone = true
                     }
@@ -160,7 +202,27 @@ class CanvasEngine(
         }
 
         // 2. Commit dabs into active layer tile FBOs
-        if (dabsToCommit.isNotEmpty()) {
+        if (ringDabsToCommit.isNotEmpty()) {
+            val activeLayer = layerManager.activeLayer
+            capturedLayerId = activeLayer.id
+
+            for (cmd in ringDabsToCommit) {
+                sceneRenderer.stampRingDabsIntoTiles(
+                    targetTileMap = activeLayer.tileMap,
+                    ringBuffer = cmd.ringBuffer,
+                    startIndex = cmd.startIndex,
+                    count = cmd.count,
+                    onTilesResolved = { affectedTiles ->
+                        undoManager.capturePreStrokeTiles(activeLayer.id, affectedTiles)
+                    }
+                )
+            }
+
+            if (isStrokeDone) {
+                undoManager.commitStroke(activeLayer.id, activeLayer.tileMap)
+                pendingTrimBudget.set(true)
+            }
+        } else if (dabsToCommit.isNotEmpty()) {
             val activeLayer = layerManager.activeLayer
             capturedLayerId = activeLayer.id
 

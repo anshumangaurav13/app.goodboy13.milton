@@ -8,6 +8,8 @@ import kotlin.math.floor
 
 /**
  * Manages the sparse 2D collection of RasterTiles on the infinite plane.
+ * Uses primitive 64-bit Long packed keys (TileCoord.pack(tx, ty)) to completely
+ * eliminate temporary TileCoord object allocations on the heap during hot spatial lookups.
  * Enforces an LRU VRAM memory budget (default 256 tiles = ~256MB) by paging
  * cold, non-visible tiles to compressed disk swap storage.
  */
@@ -15,7 +17,8 @@ class TileMap(
     val cacheDir: File? = null,
     val maxResidentTiles: Int = CanvasConstants.DEFAULT_MAX_RESIDENT_TILES
 ) {
-    private val tiles = ConcurrentHashMap<TileCoord, RasterTile>()
+    // Key: 64-bit packed Long ((tx.toLong() shl 32) or (ty.toLong() and 0xFFFFFFFFL))
+    private val tiles = ConcurrentHashMap<Long, RasterTile>()
 
     @Volatile
     var hasPendingRestores: Boolean = false
@@ -34,16 +37,30 @@ class TileMap(
     }
 
     fun getOrCreateTile(tx: Int, ty: Int): RasterTile {
-        val coord = TileCoord(tx, ty)
-        val tile = tiles.computeIfAbsent(coord) {
-            RasterTile(coord)
+        val key = TileCoord.pack(tx, ty)
+        val tile = tiles.computeIfAbsent(key) {
+            RasterTile(TileCoord(tx, ty))
+        }
+        tile.lastAccessTime = System.nanoTime()
+        return tile
+    }
+
+    fun getOrCreateTile(packed: Long): RasterTile {
+        val tile = tiles.computeIfAbsent(packed) {
+            RasterTile(TileCoord(TileCoord.unpackTx(packed), TileCoord.unpackTy(packed)))
         }
         tile.lastAccessTime = System.nanoTime()
         return tile
     }
 
     fun getExistingTile(tx: Int, ty: Int): RasterTile? {
-        val tile = tiles[TileCoord(tx, ty)]
+        val tile = tiles[TileCoord.pack(tx, ty)]
+        tile?.lastAccessTime = System.nanoTime()
+        return tile
+    }
+
+    fun getExistingTile(packed: Long): RasterTile? {
+        val tile = tiles[packed]
         tile?.lastAccessTime = System.nanoTime()
         return tile
     }

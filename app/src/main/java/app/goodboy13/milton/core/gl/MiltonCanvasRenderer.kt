@@ -7,6 +7,7 @@ import androidx.graphics.lowlatency.BufferInfo
 import androidx.graphics.lowlatency.GLFrontBufferedRenderer
 import androidx.graphics.opengl.egl.EGLManager
 import app.goodboy13.milton.core.brush.BrushDab
+import app.goodboy13.milton.core.memory.NativeDabRingBuffer
 import app.goodboy13.milton.core.history.UndoManager
 import app.goodboy13.milton.core.layer.LayerManager
 import app.goodboy13.milton.core.memory.DirectBufferPool
@@ -18,7 +19,10 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
 data class DabPacket(
-    val dabs: List<BrushDab> = emptyList()
+    val dabs: List<BrushDab> = emptyList(),
+    val ringBuffer: NativeDabRingBuffer? = null,
+    val ringStartIndex: Int = 0,
+    val ringCount: Int = 0
 )
 
 /**
@@ -84,6 +88,10 @@ class MiltonCanvasRenderer(
         engine.enqueueCommand(GlRenderCommand.SubmitDabs(dabs, false))
     }
 
+    fun queueRingDabs(ringBuffer: NativeDabRingBuffer, startIndex: Int, count: Int) {
+        engine.enqueueCommand(GlRenderCommand.SubmitRingDabs(ringBuffer, startIndex, count, false))
+    }
+
     fun clearPendingDabs() {
         engine.commandQueue.clear()
     }
@@ -139,7 +147,11 @@ class MiltonCanvasRenderer(
         transform: FloatArray,
         param: DabPacket
     ) {
-        engine.renderFrontBuffer(param.dabs, bufferInfo, transform)
+        if (param.ringBuffer != null && param.ringCount > 0) {
+            engine.renderFrontBuffer(param.ringBuffer, param.ringStartIndex, param.ringCount, bufferInfo, transform)
+        } else {
+            engine.renderFrontBuffer(param.dabs, bufferInfo, transform)
+        }
     }
 
     override fun onDrawMultiBufferedLayer(

@@ -7,6 +7,7 @@ import android.opengl.Matrix
 import android.util.Log
 import androidx.graphics.lowlatency.BufferInfo
 import app.goodboy13.milton.core.brush.BrushDab
+import app.goodboy13.milton.core.memory.NativeDabRingBuffer
 import app.goodboy13.milton.core.layer.Layer
 import app.goodboy13.milton.core.model.WorldRect
 import app.goodboy13.milton.core.tile.RasterTile
@@ -185,6 +186,57 @@ class GlSceneRenderer {
                 projectionMatrix = mvp,
                 isEraser = false
             )
+        }
+        if (dabShader.usesFramebufferFetch) {
+            GLES30.glEnable(GLES30.GL_BLEND)
+        }
+    }
+
+    /**
+     * Zero-allocation front-buffer overlay rendering directly reading from [NativeDabRingBuffer].
+     */
+    fun renderFrontBufferRingDabs(
+        ringBuffer: NativeDabRingBuffer,
+        startIndex: Int,
+        count: Int,
+        activeLayerOpacity: Float,
+        bufferInfo: BufferInfo,
+        transform: FloatArray,
+        viewport: Viewport
+    ) {
+        if (count <= 0) return
+
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, bufferInfo.frameBufferId)
+        GLES30.glViewport(0, 0, bufferInfo.width, bufferInfo.height)
+
+        if (dabShader.usesFramebufferFetch) {
+            GLES30.glDisable(GLES30.GL_BLEND)
+        } else {
+            GLES30.glEnable(GLES30.GL_BLEND)
+            GLES30.glBlendFuncSeparate(
+                GLES30.GL_ONE,
+                GLES30.GL_ONE_MINUS_SRC_ALPHA,
+                GLES30.GL_ONE,
+                GLES30.GL_ONE_MINUS_SRC_ALPHA
+            )
+        }
+
+        val mvp = computeFinalMvpMatrix(viewport, bufferInfo, transform)
+        ringBuffer.forEachDab(startIndex, startIndex + count) { _, x, y, radius, alpha, colorRgb, hardness, brushMode, pressure, _, isEraser ->
+            if (!isEraser) {
+                dabShader.renderDab(
+                    centerX = x,
+                    centerY = y,
+                    radius = radius,
+                    colorRgb = colorRgb,
+                    alpha = alpha * activeLayerOpacity,
+                    hardness = hardness,
+                    brushMode = brushMode,
+                    pressure = pressure,
+                    projectionMatrix = mvp,
+                    isEraser = false
+                )
+            }
         }
         if (dabShader.usesFramebufferFetch) {
             GLES30.glEnable(GLES30.GL_BLEND)
@@ -436,6 +488,146 @@ class GlSceneRenderer {
     }
 
     /**
+     * Zero-allocation tile stamping directly from [NativeDabRingBuffer].
+     */
+    fun stampRingDabsIntoTiles(
+        targetTileMap: TileMap,
+        ringBuffer: NativeDabRingBuffer,
+        startIndex: Int,
+        count: Int,
+        onTilesResolved: ((List<RasterTile>) -> Unit)? = null
+    ) {
+        if (count <= 0) return
+
+        tileDabsBucketMap.clear()
+        for (i in activeBuckets.indices) {
+            bucketPool.add(activeBuckets[i])
+        }
+        activeBuckets.clear()
+        reusableAffectedTiles.clear()
+
+        val tileSize = TileCoord.TILE_SIZE.toFloat()
+        ringBuffer.forEachDab(startIndex, startIndex + count) { idx, x, y, radius, _, _, _, _, _, _, isEraser ->
+            val reach = radius + 2.0f
+            val minTx = floor((x - reach) / tileSize).toInt()
+            val maxTx = floor((x + reach) / tileSize).toInt()
+            val minTy = floor((y - reach) / tileSize).toInt()
+            val maxTy = floor((y + reach) / tileSize).toInt()
+            for (ty in minTy..maxTy) {
+                for (tx in minTx..maxTx) {
+                    val key = packTileCoord(tx, ty)
+                    var bucket = tileDabsBucketMap[key]
+                    if (bucket == null) {
+                        val tile = targetTileMap.getOrCreateTile(tx, ty)
+                        tile.ensureResident(targetTileMap.cacheDir)
+                        bucket = if (bucketPool.isNotEmpty()) bucketPool.removeAt(bucketPool.size - 1) else TileDabBucket()
+                        bucket.reset(tx, ty, tile)
+                        tileDabsBucketMap[key] = bucket
+                        activeBuckets.add(bucket)
+                        reusableAffectedTiles.add(tile)
+                    }
+                    if (isEraser) {
+                        bucket.addEraserIndex(idx)
+                    } else {
+                        bucket.addBrushIndex(idx)
+                    }
+                }
+            }
+        }
+
+        onTilesResolved?.invoke(reusableAffectedTiles)
+
+        for (i in activeBuckets.indices) {
+            val bucket = activeBuckets[i]
+            val tx = bucket.tx
+            val ty = bucket.ty
+            val tile = bucket.tile ?: continue
+
+            if (bucket.brushCount > 0) {
+                tile.hasContent = true
+            }
+
+            // 1. Eraser dabs directly attenuate the tile FBO
+            if (bucket.eraserCount > 0) {
+                tile.bindFboDirect()
+                if (dabShader.usesFramebufferFetch) {
+                    GLES30.glDisable(GLES30.GL_BLEND)
+                } else {
+                    GLES30.glEnable(GLES30.GL_BLEND)
+                    GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
+                    GLES30.glBlendFunc(GLES30.GL_ZERO, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+                }
+
+                for (k in 0 until bucket.eraserCount) {
+                    val dabIdx = bucket.eraserIndices[k]
+                    val localX = ringBuffer.getX(dabIdx) - (tx * tileSize)
+                    val localY = ringBuffer.getY(dabIdx) - (ty * tileSize)
+                    dabShader.renderDab(
+                        centerX = localX,
+                        centerY = localY,
+                        radius = ringBuffer.getRadius(dabIdx),
+                        colorRgb = 0,
+                        alpha = ringBuffer.getAlpha(dabIdx),
+                        hardness = ringBuffer.getHardness(dabIdx),
+                        brushMode = ringBuffer.getBrushMode(dabIdx),
+                        pressure = ringBuffer.getPressure(dabIdx),
+                        worldOffsetX = tx * tileSize,
+                        worldOffsetY = ty * tileSize,
+                        projectionMatrix = tileOrthoMatrix,
+                        isEraser = true
+                    )
+                }
+                if (dabShader.usesFramebufferFetch) {
+                    GLES30.glEnable(GLES30.GL_BLEND)
+                }
+            }
+
+            // 2. Brush dabs: Two-pass scratch composition
+            if (bucket.brushCount > 0) {
+                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, scratchFboId)
+                GLES30.glViewport(0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE)
+                GLES30.glClearColor(0f, 0f, 0f, 0f)
+                GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+
+                if (dabShader.usesFramebufferFetch) {
+                    GLES30.glDisable(GLES30.GL_BLEND)
+                } else {
+                    GLES30.glEnable(GLES30.GL_BLEND)
+                    GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
+                    GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+                }
+
+                for (k in 0 until bucket.brushCount) {
+                    val dabIdx = bucket.brushIndices[k]
+                    val localX = ringBuffer.getX(dabIdx) - (tx * tileSize)
+                    val localY = ringBuffer.getY(dabIdx) - (ty * tileSize)
+                    dabShader.renderDab(
+                        centerX = localX,
+                        centerY = localY,
+                        radius = ringBuffer.getRadius(dabIdx),
+                        colorRgb = ringBuffer.getColorRgb(dabIdx),
+                        alpha = ringBuffer.getAlpha(dabIdx),
+                        hardness = ringBuffer.getHardness(dabIdx),
+                        brushMode = ringBuffer.getBrushMode(dabIdx),
+                        pressure = ringBuffer.getPressure(dabIdx),
+                        worldOffsetX = tx * tileSize,
+                        worldOffsetY = ty * tileSize,
+                        projectionMatrix = tileOrthoMatrix,
+                        isEraser = false
+                    )
+                }
+
+                if (dabShader.usesFramebufferFetch) {
+                    GLES30.glEnable(GLES30.GL_BLEND)
+                }
+
+                tile.bindFboDirect()
+                strokeCompositeShader.render(strokeTextureId = scratchTextureId)
+            }
+        }
+    }
+
+    /**
      * Captures a layer thumbnail offscreen.
      */
     fun captureThumbnail(
@@ -646,11 +838,33 @@ class TileDabBucket(
     val eraserDabs = mutableListOf<BrushDab>()
     val brushDabs = mutableListOf<BrushDab>()
 
+    var eraserIndices = IntArray(64)
+    var eraserCount = 0
+
+    var brushIndices = IntArray(128)
+    var brushCount = 0
+
+    fun addEraserIndex(idx: Int) {
+        if (eraserCount >= eraserIndices.size) {
+            eraserIndices = eraserIndices.copyOf(eraserIndices.size * 2)
+        }
+        eraserIndices[eraserCount++] = idx
+    }
+
+    fun addBrushIndex(idx: Int) {
+        if (brushCount >= brushIndices.size) {
+            brushIndices = brushIndices.copyOf(brushIndices.size * 2)
+        }
+        brushIndices[brushCount++] = idx
+    }
+
     fun reset(tx: Int, ty: Int, tile: RasterTile) {
         this.tx = tx
         this.ty = ty
         this.tile = tile
         eraserDabs.clear()
         brushDabs.clear()
+        eraserCount = 0
+        brushCount = 0
     }
 }

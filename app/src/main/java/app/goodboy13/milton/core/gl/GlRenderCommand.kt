@@ -1,6 +1,7 @@
 package app.goodboy13.milton.core.gl
 
 import app.goodboy13.milton.core.brush.BrushDab
+import app.goodboy13.milton.core.memory.NativeDabRingBuffer
 import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
@@ -15,6 +16,16 @@ sealed interface GlRenderCommand {
      */
     data class SubmitDabs(
         val dabs: List<BrushDab>,
+        val isStrokeFinished: Boolean = false
+    ) : GlRenderCommand
+
+    /**
+     * Zero-allocation submission of brush dabs via [NativeDabRingBuffer].
+     */
+    data class SubmitRingDabs(
+        val ringBuffer: NativeDabRingBuffer,
+        val startIndex: Int,
+        val count: Int,
         val isStrokeFinished: Boolean = false
     ) : GlRenderCommand
 

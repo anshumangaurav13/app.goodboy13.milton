@@ -10,9 +10,21 @@ data class TileCoord(val tx: Int, val ty: Int) {
     val worldRight: Float get() = (tx + 1) * TILE_SIZE.toFloat()
     val worldBottom: Float get() = (ty + 1) * TILE_SIZE.toFloat()
 
+    val packed: Long get() = pack(tx, ty)
+
     companion object {
         const val TILE_SIZE = CanvasConstants.TILE_SIZE
         const val BYTES_PER_PIXEL = CanvasConstants.BYTES_PER_PIXEL
+
+        /**
+         * Packs 32-bit (tx, ty) coordinates into a single primitive 64-bit Long.
+         * Eliminates temporary TileCoord heap allocations in hot hash lookups.
+         */
+        inline fun pack(tx: Int, ty: Int): Long = (tx.toLong() shl 32) or (ty.toLong() and 0xFFFFFFFFL)
+
+        inline fun unpackTx(packed: Long): Int = (packed shr 32).toInt()
+
+        inline fun unpackTy(packed: Long): Int = packed.toInt()
 
         fun fromWorld(wx: Float, wy: Float): TileCoord {
             val tx = floor(wx / TILE_SIZE.toFloat()).toInt()

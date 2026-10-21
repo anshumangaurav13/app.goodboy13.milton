@@ -56,6 +56,7 @@ class MiltonCanvasView @JvmOverloads constructor(
     private var frontBufferedRenderer: GLFrontBufferedRenderer<DabPacket>? = null
     private var lastViewportPostTime: Long = 0L
     private val touchCoords = FloatArray(2)
+    private val strokeRingBuffer = app.goodboy13.milton.core.memory.NativeDabRingBuffer(app.goodboy13.milton.core.memory.NativeDabRingBuffer.DEFAULT_CAPACITY)
 
     init {
         brushEngine.properties.applyPreset(app.goodboy13.milton.core.brush.BrushType.PENCIL)
@@ -880,24 +881,26 @@ class MiltonCanvasView @JvmOverloads constructor(
 
         when (action) {
             MotionEvent.ACTION_DOWN -> {
+                strokeRingBuffer.reset()
                 brushEngine.properties.isEraser = isEraserMode || isHardwareEraser
                 val isEraser = brushEngine.properties.isEraser
                 Log.i(TAG, "Stylus DOWN at screen=($sx, $sy), world=(${worldPos.x}, ${worldPos.y}), pressure=$pressure, tilt=$tilt, isEraser=$isEraser")
-                val initialDabs = mutableListOf<BrushDab>()
-                brushEngine.startStroke(worldPos.x, worldPos.y, pressure, event.eventTime, tilt, initialDabs)
-                if (initialDabs.isNotEmpty()) {
-                    renderer.queueDabs(initialDabs)
+                brushEngine.startStroke(worldPos.x, worldPos.y, pressure, event.eventTime, tilt, strokeRingBuffer)
+                if (strokeRingBuffer.isNotEmpty) {
+                    renderer.queueRingDabs(strokeRingBuffer, 0, strokeRingBuffer.count)
                     if (isEraser) {
                         frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
                     } else {
-                        frontBufferedRenderer?.renderFrontBufferedLayer(DabPacket(initialDabs))
+                        frontBufferedRenderer?.renderFrontBufferedLayer(
+                            DabPacket(ringBuffer = strokeRingBuffer, ringStartIndex = 0, ringCount = strokeRingBuffer.count)
+                        )
                     }
                 }
             }
 
             MotionEvent.ACTION_MOVE -> {
                 val isEraser = brushEngine.properties.isEraser
-                val dabs = mutableListOf<BrushDab>()
+                val startIdx = strokeRingBuffer.count
 
                 // Unpack sub-frame historical points for maximum curve smoothness without heap churn
                 val historySize = event.historySize
@@ -910,18 +913,21 @@ class MiltonCanvasView @JvmOverloads constructor(
                     renderer.viewport.screenToWorld(hx, hy, touchCoords)
                     val htiltRaw = event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, stylusIndex, h)
                     val htilt = if (htiltRaw > 0.05f) (htiltRaw / 1.5707963f).coerceIn(0f, 1f) else tilt
-                    brushEngine.addPoint(touchCoords[0], touchCoords[1], hp, ht, htilt, dabs)
+                    brushEngine.addPoint(touchCoords[0], touchCoords[1], hp, ht, htilt, strokeRingBuffer)
                 }
 
                 // Add current point
-                brushEngine.addPoint(worldPos.x, worldPos.y, pressure, event.eventTime, tilt, dabs)
+                brushEngine.addPoint(worldPos.x, worldPos.y, pressure, event.eventTime, tilt, strokeRingBuffer)
 
-                if (dabs.isNotEmpty()) {
-                    renderer.queueDabs(dabs)
+                val addedCount = strokeRingBuffer.count - startIdx
+                if (addedCount > 0) {
+                    renderer.queueRingDabs(strokeRingBuffer, startIdx, addedCount)
                     if (isEraser) {
                         frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
                     } else {
-                        frontBufferedRenderer?.renderFrontBufferedLayer(DabPacket(dabs))
+                        frontBufferedRenderer?.renderFrontBufferedLayer(
+                            DabPacket(ringBuffer = strokeRingBuffer, ringStartIndex = startIdx, ringCount = addedCount)
+                        )
                     }
                 }
             }
@@ -929,10 +935,11 @@ class MiltonCanvasView @JvmOverloads constructor(
             MotionEvent.ACTION_UP -> {
                 Log.i(TAG, "Stylus UP at screen=($sx, $sy)")
                 val isEraser = brushEngine.properties.isEraser
-                val endDabs = mutableListOf<BrushDab>()
-                brushEngine.endStroke(endDabs)
-                if (endDabs.isNotEmpty()) {
-                    renderer.queueDabs(endDabs)
+                val startIdx = strokeRingBuffer.count
+                brushEngine.endStroke(strokeRingBuffer)
+                val addedCount = strokeRingBuffer.count - startIdx
+                if (addedCount > 0) {
+                    renderer.queueRingDabs(strokeRingBuffer, startIdx, addedCount)
                 }
                 renderer.markStrokeFinished()
                 frontBufferedRenderer?.commit()
@@ -946,6 +953,7 @@ class MiltonCanvasView @JvmOverloads constructor(
             MotionEvent.ACTION_CANCEL -> {
                 Log.i(TAG, "Stylus CANCEL")
                 brushEngine.endStroke()
+                strokeRingBuffer.reset()
                 renderer.clearPendingDabs()
                 frontBufferedRenderer?.cancel()
                 brushEngine.properties.isEraser = isEraserMode
