@@ -281,6 +281,50 @@ $GRAPHITE_PHYSICS_GLSL
         }
     }
 
+    fun beginBatch(projectionMatrix: FloatArray) {
+        if (programId == 0) return
+        GLES30.glUseProgram(programId)
+        GLES30.glUniformMatrix4fv(uProjectionLoc, 1, false, projectionMatrix, 0)
+        GLES30.glBindVertexArray(vaoId)
+    }
+
+    fun renderDabFast(
+        centerX: Float,
+        centerY: Float,
+        radius: Float,
+        colorRgb: Int,
+        alpha: Float,
+        hardness: Float,
+        brushMode: Int = 0,
+        pressure: Float = 0.5f,
+        worldOffsetX: Float = 0f,
+        worldOffsetY: Float = 0f,
+        isEraser: Boolean = false
+    ) {
+        if (programId == 0) return
+
+        GLES30.glUniform2f(uCenterLoc, centerX, centerY)
+        GLES30.glUniform1f(uRadiusLoc, radius)
+        GLES30.glUniform2f(uWorldOffsetLoc, worldOffsetX, worldOffsetY)
+
+        val red = ((colorRgb shr 16) and 0xFF) / 255.0f
+        val green = ((colorRgb shr 8) and 0xFF) / 255.0f
+        val blue = (colorRgb and 0xFF) / 255.0f
+        GLES30.glUniform4f(uColorLoc, red, green, blue, alpha)
+        GLES30.glUniform1f(uHardnessLoc, hardness.coerceIn(0.01f, 0.99f))
+        GLES30.glUniform1i(uBrushModeLoc, brushMode)
+        GLES30.glUniform1f(uPressureLoc, pressure.coerceIn(0.01f, 1.0f))
+        if (uIsEraserLoc != -1) {
+            GLES30.glUniform1i(uIsEraserLoc, if (isEraser) 1 else 0)
+        }
+
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)
+    }
+
+    fun endBatch() {
+        GLES30.glBindVertexArray(0)
+    }
+
     fun renderDab(
         centerX: Float,
         centerY: Float,
@@ -297,27 +341,21 @@ $GRAPHITE_PHYSICS_GLSL
     ) {
         if (programId == 0) return
 
-        GLES30.glUseProgram(programId)
-
-        GLES30.glUniformMatrix4fv(uProjectionLoc, 1, false, projectionMatrix, 0)
-        GLES30.glUniform2f(uCenterLoc, centerX, centerY)
-        GLES30.glUniform1f(uRadiusLoc, radius)
-        GLES30.glUniform2f(uWorldOffsetLoc, worldOffsetX, worldOffsetY)
-
-        val red = ((colorRgb shr 16) and 0xFF) / 255.0f
-        val green = ((colorRgb shr 8) and 0xFF) / 255.0f
-        val blue = (colorRgb and 0xFF) / 255.0f
-        GLES30.glUniform4f(uColorLoc, red, green, blue, alpha)
-        GLES30.glUniform1f(uHardnessLoc, hardness.coerceIn(0.01f, 0.99f))
-        GLES30.glUniform1i(uBrushModeLoc, brushMode)
-        GLES30.glUniform1f(uPressureLoc, pressure.coerceIn(0.01f, 1.0f))
-        if (uIsEraserLoc != -1) {
-            GLES30.glUniform1i(uIsEraserLoc, if (isEraser) 1 else 0)
-        }
-
-        GLES30.glBindVertexArray(vaoId)
-        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)
-        GLES30.glBindVertexArray(0)
+        beginBatch(projectionMatrix)
+        renderDabFast(
+            centerX = centerX,
+            centerY = centerY,
+            radius = radius,
+            colorRgb = colorRgb,
+            alpha = alpha,
+            hardness = hardness,
+            brushMode = brushMode,
+            pressure = pressure,
+            worldOffsetX = worldOffsetX,
+            worldOffsetY = worldOffsetY,
+            isEraser = isEraser
+        )
+        endBatch()
     }
 
     fun releaseGl() {

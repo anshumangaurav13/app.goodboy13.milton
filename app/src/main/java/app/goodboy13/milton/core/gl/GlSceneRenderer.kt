@@ -196,10 +196,11 @@ class GlSceneRenderer {
         }
 
         val mvp = computeFinalMvpMatrix(viewport, bufferInfo, transform)
+        dabShader.beginBatch(mvp)
         for (dab in dabs) {
             if (dab.isEraser || dab.brushMode == 3) continue // Eraser and Smudge are never drawn into front buffer overlay
 
-            dabShader.renderDab(
+            dabShader.renderDabFast(
                 centerX = dab.x,
                 centerY = dab.y,
                 radius = dab.radius,
@@ -208,10 +209,10 @@ class GlSceneRenderer {
                 hardness = dab.hardness,
                 brushMode = dab.brushMode,
                 pressure = dab.pressure,
-                projectionMatrix = mvp,
                 isEraser = false
             )
         }
+        dabShader.endBatch()
         if (dabShader.usesFramebufferFetch) {
             GLES30.glEnable(GLES30.GL_BLEND)
         }
@@ -247,9 +248,10 @@ class GlSceneRenderer {
         }
 
         val mvp = computeFinalMvpMatrix(viewport, bufferInfo, transform)
+        dabShader.beginBatch(mvp)
         ringBuffer.forEachDab(startHead, count) { _, x, y, radius, alpha, colorRgb, hardness, brushMode, pressure, _, isEraser ->
             if (!isEraser && brushMode != 3) {
-                dabShader.renderDab(
+                dabShader.renderDabFast(
                     centerX = x,
                     centerY = y,
                     radius = radius,
@@ -258,11 +260,11 @@ class GlSceneRenderer {
                     hardness = hardness,
                     brushMode = brushMode,
                     pressure = pressure,
-                    projectionMatrix = mvp,
                     isEraser = false
                 )
             }
         }
+        dabShader.endBatch()
         if (dabShader.usesFramebufferFetch) {
             GLES30.glEnable(GLES30.GL_BLEND)
         }
@@ -557,10 +559,11 @@ class GlSceneRenderer {
                     GLES30.glBlendFunc(GLES30.GL_ZERO, GLES30.GL_ONE_MINUS_SRC_ALPHA)
                 }
 
+                dabShader.beginBatch(tileOrthoMatrix)
                 for (dab in eraserDabs) {
                     val localX = dab.x - (tx * tileSize)
                     val localY = dab.y - (ty * tileSize)
-                    dabShader.renderDab(
+                    dabShader.renderDabFast(
                         centerX = localX,
                         centerY = localY,
                         radius = dab.radius,
@@ -571,10 +574,10 @@ class GlSceneRenderer {
                         pressure = dab.pressure,
                         worldOffsetX = tx * tileSize,
                         worldOffsetY = ty * tileSize,
-                        projectionMatrix = tileOrthoMatrix,
                         isEraser = true
                     )
                 }
+                dabShader.endBatch()
                 if (dabShader.usesFramebufferFetch) {
                     GLES30.glEnable(GLES30.GL_BLEND)
                 }
@@ -596,10 +599,11 @@ class GlSceneRenderer {
                     GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
                 }
 
+                dabShader.beginBatch(tileOrthoMatrix)
                 for (dab in brushDabs) {
                     val localX = dab.x - (tx * tileSize)
                     val localY = dab.y - (ty * tileSize)
-                    dabShader.renderDab(
+                    dabShader.renderDabFast(
                         centerX = localX,
                         centerY = localY,
                         radius = dab.radius,
@@ -610,10 +614,10 @@ class GlSceneRenderer {
                         pressure = dab.pressure,
                         worldOffsetX = tx * tileSize,
                         worldOffsetY = ty * tileSize,
-                        projectionMatrix = tileOrthoMatrix,
                         isEraser = false
                     )
                 }
+                dabShader.endBatch()
 
                 if (dabShader.usesFramebufferFetch) {
                     GLES30.glEnable(GLES30.GL_BLEND)
@@ -697,11 +701,12 @@ class GlSceneRenderer {
                     GLES30.glBlendFunc(GLES30.GL_ZERO, GLES30.GL_ONE_MINUS_SRC_ALPHA)
                 }
 
+                dabShader.beginBatch(tileOrthoMatrix)
                 for (k in 0 until bucket.eraserCount) {
                     val slot = bucket.eraserIndices[k]
                     val localX = ringBuffer.getXBySlot(slot) - (tx * tileSize)
                     val localY = ringBuffer.getYBySlot(slot) - (ty * tileSize)
-                    dabShader.renderDab(
+                    dabShader.renderDabFast(
                         centerX = localX,
                         centerY = localY,
                         radius = ringBuffer.getRadiusBySlot(slot),
@@ -712,10 +717,10 @@ class GlSceneRenderer {
                         pressure = ringBuffer.getPressureBySlot(slot),
                         worldOffsetX = tx * tileSize,
                         worldOffsetY = ty * tileSize,
-                        projectionMatrix = tileOrthoMatrix,
                         isEraser = true
                     )
                 }
+                dabShader.endBatch()
                 if (dabShader.usesFramebufferFetch) {
                     GLES30.glEnable(GLES30.GL_BLEND)
                 }
@@ -736,11 +741,12 @@ class GlSceneRenderer {
                     GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
                 }
 
+                dabShader.beginBatch(tileOrthoMatrix)
                 for (k in 0 until bucket.brushCount) {
                     val slot = bucket.brushIndices[k]
                     val localX = ringBuffer.getXBySlot(slot) - (tx * tileSize)
                     val localY = ringBuffer.getYBySlot(slot) - (ty * tileSize)
-                    dabShader.renderDab(
+                    dabShader.renderDabFast(
                         centerX = localX,
                         centerY = localY,
                         radius = ringBuffer.getRadiusBySlot(slot),
@@ -751,10 +757,10 @@ class GlSceneRenderer {
                         pressure = ringBuffer.getPressureBySlot(slot),
                         worldOffsetX = tx * tileSize,
                         worldOffsetY = ty * tileSize,
-                        projectionMatrix = tileOrthoMatrix,
                         isEraser = false
                     )
                 }
+                dabShader.endBatch()
 
                 if (dabShader.usesFramebufferFetch) {
                     GLES30.glEnable(GLES30.GL_BLEND)
