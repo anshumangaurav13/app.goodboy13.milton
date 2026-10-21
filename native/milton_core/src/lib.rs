@@ -1,3 +1,4 @@
+pub mod document;
 pub mod compression;
 pub mod archive;
 pub mod tile_swap;
@@ -1058,3 +1059,140 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_select
 }
 
 
+
+// ============================================================================
+// #5 HEADLESS DOCUMENT CORE & FLAT RENDER PACKET GENERATOR
+// ============================================================================
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_createDocument<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jlong {
+    let doc = Box::new(document::MiltonDocument::new());
+    Box::into_raw(doc) as jlong
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_destroyDocument<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+) {
+    if doc_ptr != 0 {
+        unsafe {
+            let _ = Box::from_raw(doc_ptr as *mut document::MiltonDocument);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentAddLayer<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    layer_id: jlong,
+    name: JString<'local>,
+    opacity: jfloat,
+    visible: jboolean,
+) {
+    if doc_ptr == 0 { return; }
+    let doc = unsafe { &mut *(doc_ptr as *mut document::MiltonDocument) };
+    let name_str: String = match env.get_string(&name) {
+        Ok(s) => s.into(),
+        Err(_) => "Layer".to_string(),
+    };
+    doc.add_layer(layer_id, name_str, opacity, visible == JNI_TRUE);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentRemoveLayer<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    layer_id: jlong,
+) -> jboolean {
+    if doc_ptr == 0 { return JNI_FALSE; }
+    let doc = unsafe { &mut *(doc_ptr as *mut document::MiltonDocument) };
+    if doc.remove_layer(layer_id) { JNI_TRUE } else { JNI_FALSE }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentSetTile<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    layer_id: jlong,
+    tx: jint,
+    ty: jint,
+    slice_index: jint,
+    has_content: jboolean,
+) {
+    if doc_ptr == 0 { return; }
+    let doc = unsafe { &mut *(doc_ptr as *mut document::MiltonDocument) };
+    if let Some(layer) = doc.get_layer_mut(layer_id) {
+        layer.set_tile(tx, ty, slice_index, has_content == JNI_TRUE);
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentGenerateRenderPacket<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    view_left: jfloat,
+    view_top: jfloat,
+    view_right: jfloat,
+    view_bottom: jfloat,
+    zoom: jfloat,
+    force_overview: jboolean,
+    out_direct_buf: JByteBuffer<'local>,
+) -> jint {
+    if doc_ptr == 0 { return 0; }
+    let doc = unsafe { &*(doc_ptr as *const document::MiltonDocument) };
+
+    let ptr = match env.get_direct_buffer_address(&out_direct_buf) {
+        Ok(p) => p as *mut f32,
+        Err(_) => return 0,
+    };
+    let cap_bytes = match env.get_direct_buffer_capacity(&out_direct_buf) {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    let float_cap = cap_bytes / std::mem::size_of::<f32>();
+    if ptr.is_null() || float_cap < document::FLOATS_PER_INSTANCE {
+        return 0;
+    }
+
+    let out_slice = unsafe { std::slice::from_raw_parts_mut(ptr, float_cap) };
+    let count = doc.generate_render_packet(
+        view_left,
+        view_top,
+        view_right,
+        view_bottom,
+        zoom,
+        force_overview == JNI_TRUE,
+        out_slice,
+    );
+
+    count as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentGetBounds<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    out_bounds: JFloatArray<'local>,
+) -> jboolean {
+    if doc_ptr == 0 { return JNI_FALSE; }
+    let doc = unsafe { &*(doc_ptr as *const document::MiltonDocument) };
+
+    if let Some((min_x, min_y, max_x, max_y)) = doc.get_bounds() {
+        let bounds = [min_x, min_y, max_x, max_y];
+        if env.set_float_array_region(&out_bounds, 0, &bounds).is_ok() {
+            return JNI_TRUE;
+        }
+    }
+    JNI_FALSE
+}

@@ -254,4 +254,38 @@ object MiltonNative {
 
     @JvmStatic
     external fun selectionSessionEnd()
+
+    // ========================================================================
+    // #5 HEADLESS DOCUMENT CORE & FLAT RENDER PACKET GENERATOR
+    // ========================================================================
+
+    @JvmStatic
+    external fun createDocument(): Long
+
+    @JvmStatic
+    external fun destroyDocument(docPtr: Long)
+
+    @JvmStatic
+    external fun documentAddLayer(docPtr: Long, layerId: Long, name: String, opacity: Float, visible: Boolean)
+
+    @JvmStatic
+    external fun documentRemoveLayer(docPtr: Long, layerId: Long): Boolean
+
+    @JvmStatic
+    external fun documentSetTile(docPtr: Long, layerId: Long, tx: Int, ty: Int, sliceIndex: Int, hasContent: Boolean)
+
+    @JvmStatic
+    external fun documentGenerateRenderPacket(
+        docPtr: Long,
+        viewLeft: Float,
+        viewTop: Float,
+        viewRight: Float,
+        viewBottom: Float,
+        zoom: Float,
+        forceOverview: Boolean,
+        outDirectBuf: java.nio.ByteBuffer
+    ): Int
+
+    @JvmStatic
+    external fun documentGetBounds(docPtr: Long, outBounds: FloatArray): Boolean
 }
