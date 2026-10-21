@@ -179,6 +179,59 @@ fun PaintbrushIcon(tint: Color, modifier: Modifier = Modifier) {
 }
 
 /**
+ * Custom vector icon for Smudge Tool:
+ * Features an artist's blending finger with dynamic pigment advection wisps.
+ */
+@Composable
+fun SmudgeIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(24.dp)) {
+        val w = size.width
+        val scale = w / 24f
+        fun pt(x: Float, y: Float) = Offset(x * scale, y * scale)
+
+        // Pointing blending index finger
+        val fingerPath = Path().apply {
+            moveTo(6.5f * scale, 17.5f * scale)
+            cubicTo(5.5f * scale, 15f * scale, 6f * scale, 10f * scale, 10f * scale, 5.5f * scale)
+            cubicTo(11.5f * scale, 3.8f * scale, 14f * scale, 4.2f * scale, 14.8f * scale, 6f * scale)
+            cubicTo(15.5f * scale, 7.5f * scale, 14.5f * scale, 10f * scale, 13f * scale, 12f * scale)
+            lineTo(17f * scale, 14.5f * scale)
+            cubicTo(18.5f * scale, 15.5f * scale, 18.5f * scale, 18f * scale, 16.5f * scale, 19.5f * scale)
+            lineTo(9.5f * scale, 19.5f * scale)
+            close()
+        }
+        drawPath(fingerPath, color = tint)
+
+        // Pigment smearing wisps / streaks
+        val streak1 = Path().apply {
+            moveTo(3f * scale, 12f * scale)
+            cubicTo(4.5f * scale, 10.5f * scale, 6f * scale, 10.5f * scale, 7f * scale, 11f * scale)
+        }
+        drawPath(
+            streak1,
+            color = tint.copy(alpha = 0.6f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = 1.6f * scale,
+                cap = StrokeCap.Round
+            )
+        )
+
+        val streak2 = Path().apply {
+            moveTo(2f * scale, 16f * scale)
+            cubicTo(3.5f * scale, 14.5f * scale, 5f * scale, 14.5f * scale, 6f * scale, 15f * scale)
+        }
+        drawPath(
+            streak2,
+            color = tint.copy(alpha = 0.4f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = 1.4f * scale,
+                cap = StrokeCap.Round
+            )
+        )
+    }
+}
+
+/**
  * Custom vector icon for Art Eraser:
  * Features a beveled rubber wedge with front chisel angle and paper wrapper sleeve.
  */

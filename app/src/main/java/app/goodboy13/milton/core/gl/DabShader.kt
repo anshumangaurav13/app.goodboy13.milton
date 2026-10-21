@@ -77,31 +77,30 @@ class DabShader {
 $GRAPHITE_HASH_FUNCTIONS_GLSL
 
             void main() {
-                float dist = 0.0;
                 vec2 pixelCoord = floor(vWorldPos + vec2(0.01));
-
-                float dabAlpha = 0.0;
+                float dist = length(vLocalCoord);
                 if (uBrushMode == 1) {
                     vec2 pixelCenter = pixelCoord + vec2(0.5);
                     dist = length(pixelCenter - vDabCenter) / vRadius;
-                    if (dist > 1.0) {
-                        discard;
-                    }
+                }
+                if (dist > 1.0) {
+                    discard;
+                }
+
+                float dabAlpha = 0.0;
+                if (uBrushMode == 1) {
+
 
 $GRAPHITE_PHYSICS_GLSL
                 } else if (uBrushMode == 2) {
-                    dist = length(vLocalCoord);
-                    if (dist > 1.0) {
-                        discard;
-                    }
                     // Paintbrush: soft feathered edge
                     float edge = smoothstep(1.0, uHardness, dist);
                     dabAlpha = edge * uColor.a;
+                } else if (uBrushMode == 3) {
+                    // Smudge tool: smooth quadratic/Gaussian pigment advection profile
+                    float edge = smoothstep(1.0, uHardness, dist);
+                    dabAlpha = edge * uColor.a * uPressure;
                 } else {
-                    dist = length(vLocalCoord);
-                    if (dist > 1.0) {
-                        discard;
-                    }
                     // Pen / Eraser: firm anti-aliased edge
                     dabAlpha = smoothstep(1.0, uHardness, dist) * uColor.a;
                 }
@@ -118,7 +117,38 @@ $GRAPHITE_PHYSICS_GLSL
                     return;
                 }
 
+                // BrushMode 3: Pigment Advection Smudge with Leonardo's linear photometric blending (linearHack)
+                if (uBrushMode == 3) {
+                    if (dst.a <= 0.002) {
+                        // Empty tile / background: deposit carried pigment with pressure falloff
+                        vec3 srcLinear = pow(clamp(uColor.rgb, 0.0, 1.0), vec3(2.2));
+                        vec3 outSrgb = pow(srcLinear, vec3(1.0 / 2.2));
+                        float depositA = dabAlpha * 0.40;
+                        fragColor = vec4(outSrgb * depositA, depositA);
+                        return;
+                    }
+
+                    // Convert destination and carried pigment to linear photometric space
+                    vec3 dstUnpremul = dst.rgb / max(dst.a, 0.001);
+                    vec3 dstLinear = pow(clamp(dstUnpremul, 0.0, 1.0), vec3(2.2));
+                    vec3 srcLinear = pow(clamp(uColor.rgb, 0.0, 1.0), vec3(2.2));
+
+                    // Advect & physically mix pigments
+                    float blendWeight = clamp(dabAlpha * 0.65, 0.0, 0.95);
+                    vec3 mixedLinear = mix(dstLinear, srcLinear, blendWeight);
+                    vec3 outSrgb = pow(clamp(mixedLinear, 0.0, 1.0), vec3(1.0 / 2.2));
+
+                    float outA = clamp(dst.a + (uColor.a - dst.a) * dabAlpha * 0.25, 0.0, 1.0);
+                    fragColor = vec4(outSrgb * outA, outA);
+                    return;
+                }
+
                 vec3 srcColor = uColor.rgb;
+                if (uBrushMode == 1) {
+                    // Soften harsh ink-black into natural matte charcoal/graphite pencil grey
+                    vec3 graphiteTone = vec3(0.25, 0.26, 0.28);
+                    srcColor = mix(srcColor, max(srcColor, graphiteTone), 0.70);
+                }
 
                 // Empty tile / front-buffer pixel: direct premultiplied stamp
                 if (dst.a <= 0.002) {
@@ -165,30 +195,28 @@ $GRAPHITE_PHYSICS_GLSL
 $GRAPHITE_HASH_FUNCTIONS_GLSL
 
             void main() {
-                float dist = 0.0;
                 vec2 pixelCoord = floor(vWorldPos + vec2(0.01));
-
-                float dabAlpha = 0.0;
+                float dist = length(vLocalCoord);
                 if (uBrushMode == 1) {
                     vec2 pixelCenter = pixelCoord + vec2(0.5);
                     dist = length(pixelCenter - vDabCenter) / vRadius;
-                    if (dist > 1.0) {
-                        discard;
-                    }
+                }
+                if (dist > 1.0) {
+                    discard;
+                }
+
+                float dabAlpha = 0.0;
+                if (uBrushMode == 1) {
+
 
 $GRAPHITE_PHYSICS_GLSL
                 } else if (uBrushMode == 2) {
-                    dist = length(vLocalCoord);
-                    if (dist > 1.0) {
-                        discard;
-                    }
                     float edge = smoothstep(1.0, uHardness, dist);
                     dabAlpha = edge * uColor.a;
+                } else if (uBrushMode == 3) {
+                    float edge = smoothstep(1.0, uHardness, dist);
+                    dabAlpha = edge * uColor.a * uPressure;
                 } else {
-                    dist = length(vLocalCoord);
-                    if (dist > 1.0) {
-                        discard;
-                    }
                     dabAlpha = smoothstep(1.0, uHardness, dist) * uColor.a;
                 }
 
@@ -196,7 +224,13 @@ $GRAPHITE_PHYSICS_GLSL
                     discard;
                 }
 
-                fragColor = vec4(uColor.rgb * dabAlpha, dabAlpha);
+                vec3 srcColor = uColor.rgb;
+                if (uBrushMode == 1) {
+                    vec3 graphiteTone = vec3(0.25, 0.26, 0.28);
+                    srcColor = mix(srcColor, max(srcColor, graphiteTone), 0.70);
+                }
+
+                fragColor = vec4(srcColor * dabAlpha, dabAlpha);
             }
         """.trimIndent()
 
@@ -258,6 +292,50 @@ $GRAPHITE_PHYSICS_GLSL
         }
     }
 
+    fun beginBatch(projectionMatrix: FloatArray) {
+        if (programId == 0) return
+        GLES30.glUseProgram(programId)
+        GLES30.glUniformMatrix4fv(uProjectionLoc, 1, false, projectionMatrix, 0)
+        GLES30.glBindVertexArray(vaoId)
+    }
+
+    fun renderDabFast(
+        centerX: Float,
+        centerY: Float,
+        radius: Float,
+        colorRgb: Int,
+        alpha: Float,
+        hardness: Float,
+        brushMode: Int = 0,
+        pressure: Float = 0.5f,
+        worldOffsetX: Float = 0f,
+        worldOffsetY: Float = 0f,
+        isEraser: Boolean = false
+    ) {
+        if (programId == 0) return
+
+        GLES30.glUniform2f(uCenterLoc, centerX, centerY)
+        GLES30.glUniform1f(uRadiusLoc, radius)
+        GLES30.glUniform2f(uWorldOffsetLoc, worldOffsetX, worldOffsetY)
+
+        val red = ((colorRgb shr 16) and 0xFF) / 255.0f
+        val green = ((colorRgb shr 8) and 0xFF) / 255.0f
+        val blue = (colorRgb and 0xFF) / 255.0f
+        GLES30.glUniform4f(uColorLoc, red, green, blue, alpha)
+        GLES30.glUniform1f(uHardnessLoc, hardness.coerceIn(0.01f, 0.99f))
+        GLES30.glUniform1i(uBrushModeLoc, brushMode)
+        GLES30.glUniform1f(uPressureLoc, pressure.coerceIn(0.01f, 1.0f))
+        if (uIsEraserLoc != -1) {
+            GLES30.glUniform1i(uIsEraserLoc, if (isEraser) 1 else 0)
+        }
+
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)
+    }
+
+    fun endBatch() {
+        GLES30.glBindVertexArray(0)
+    }
+
     fun renderDab(
         centerX: Float,
         centerY: Float,
@@ -274,27 +352,21 @@ $GRAPHITE_PHYSICS_GLSL
     ) {
         if (programId == 0) return
 
-        GLES30.glUseProgram(programId)
-
-        GLES30.glUniformMatrix4fv(uProjectionLoc, 1, false, projectionMatrix, 0)
-        GLES30.glUniform2f(uCenterLoc, centerX, centerY)
-        GLES30.glUniform1f(uRadiusLoc, radius)
-        GLES30.glUniform2f(uWorldOffsetLoc, worldOffsetX, worldOffsetY)
-
-        val red = ((colorRgb shr 16) and 0xFF) / 255.0f
-        val green = ((colorRgb shr 8) and 0xFF) / 255.0f
-        val blue = (colorRgb and 0xFF) / 255.0f
-        GLES30.glUniform4f(uColorLoc, red, green, blue, alpha)
-        GLES30.glUniform1f(uHardnessLoc, hardness.coerceIn(0.01f, 0.99f))
-        GLES30.glUniform1i(uBrushModeLoc, brushMode)
-        GLES30.glUniform1f(uPressureLoc, pressure.coerceIn(0.01f, 1.0f))
-        if (uIsEraserLoc != -1) {
-            GLES30.glUniform1i(uIsEraserLoc, if (isEraser) 1 else 0)
-        }
-
-        GLES30.glBindVertexArray(vaoId)
-        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)
-        GLES30.glBindVertexArray(0)
+        beginBatch(projectionMatrix)
+        renderDabFast(
+            centerX = centerX,
+            centerY = centerY,
+            radius = radius,
+            colorRgb = colorRgb,
+            alpha = alpha,
+            hardness = hardness,
+            brushMode = brushMode,
+            pressure = pressure,
+            worldOffsetX = worldOffsetX,
+            worldOffsetY = worldOffsetY,
+            isEraser = isEraser
+        )
+        endBatch()
     }
 
     fun releaseGl() {
@@ -333,32 +405,25 @@ $GRAPHITE_PHYSICS_GLSL
         """
 
         private const val GRAPHITE_PHYSICS_GLSL = """
-                    // 1. Effective graphite hardness modulated by stylus pressure (Graphite Lab physics)
-                    float effHardness = uHardness * (0.6 + 0.4 * uPressure);
+                    // 1. Soft lead contact edge falloff (smooth feathering instead of harsh cutoff)
+                    float leadEdge = smoothstep(1.0, 0.50, dist);
 
-                    // 2. Micro-particle deposition density per dab stamp
-                    float pRand = particleHash(pixelCoord, vDabCenter);
-                    float particleDensity = clamp(0.286 * (0.6 + effHardness), 0.15, 0.70);
-                    if (pRand > particleDensity) {
-                        discard;
-                    }
-
-                    // 3. Persistent paper tooth test:
-                    // Graphite catches on paper fiber peaks. At higher pressure/softness, graphite reaches deeper into tooth valleys.
+                    // 2. Paper tooth texture (microscopic paper fiber peaks and valleys)
                     float tooth = paperTooth(pixelCoord);
-                    float toothThreshold = max(0.05, 1.0 - (0.55 + 0.42 * effHardness));
-                    if (tooth < toothThreshold) {
-                        discard;
-                    }
+                    float pRand = particleHash(pixelCoord, vDabCenter);
 
-                    // 4. Natural linear radial falloff from lead contact center
-                    float falloff = clamp(1.0 - dist, 0.0, 1.0);
+                    // 3. Pressure modulates paper fiber penetration:
+                    // Low pressure: graphite catches mostly on fiber peaks (distinct visible tooth texture)
+                    // High pressure: graphite compresses into the tooth valleys for rich solid shading
+                    float pressureNorm = clamp(uPressure, 0.0, 1.0);
+                    float toothCoverage = mix(0.38 + 0.62 * tooth, 0.72 + 0.28 * tooth, pressureNorm);
 
-                    // 5. Rich carbon deposit opacity with microscopic grain variance
-                    float grainRand = fract(pRand * 13.37 + tooth * 7.19);
-                    float alphaDeposit = (0.16 + 0.36 * grainRand) * (0.35 + 0.65 * falloff) * effHardness;
+                    // 4. Delicate micro-particle grain variance (±12% analog roughness)
+                    float microGrain = 0.88 + 0.24 * pRand;
 
-                    dabAlpha = alphaDeposit * uColor.a;
+                    // 5. Dense, continuous graphite deposition (responsive to lead hardness & stylus pressure)
+                    float leadDensity = (0.24 + 0.36 * pressureNorm);
+                    dabAlpha = clamp(leadEdge * toothCoverage * microGrain * leadDensity * uColor.a, 0.0, 1.0);
         """
     }
 }

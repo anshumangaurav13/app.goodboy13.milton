@@ -92,6 +92,7 @@ fun MiltonTabletUi(
     var showToolParametersWindow by remember { mutableStateOf(false) }
     var showKeyboardShortcutsDialog by remember { mutableStateOf(false) }
 
+
     // Preserve window open/closed states across fullscreen (Zen mode) toggles
     var preZenToolParams by remember { mutableStateOf(false) }
     var preZenColorPalette by remember { mutableStateOf(false) }
@@ -166,6 +167,7 @@ fun MiltonTabletUi(
                 onAddReferenceImage = { imagePickerLauncher.launch("image/*") },
                 onClearReferenceImages = { referenceImages = emptyList() },
                 onShowKeyboardShortcuts = { showKeyboardShortcutsDialog = true },
+                onOpenTelemetry = {},
                 onIsEditingTitleChange = actions.document.onTextInputActiveChanged
             )
         }
@@ -382,6 +384,8 @@ fun MiltonTabletUi(
                 onDismissRequest = { showKeyboardShortcutsDialog = false }
             )
         }
+
+
     }
 }
 

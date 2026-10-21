@@ -25,6 +25,7 @@ class TileBlitShader {
     private var uFlipYLoc: Int = -1
     private var uOpacityLoc: Int = -1
     private var uBackgroundColorLoc: Int = -1
+    private var uShowBordersLoc: Int = -1
 
     var usesFramebufferFetch: Boolean = false
         private set
@@ -38,9 +39,11 @@ class TileBlitShader {
             uniform float uTileSize;
             uniform int uFlipY;
             out vec2 vTexCoord;
+            out vec2 vUnitPos;
             void main() {
                 float ty = (uFlipY == 1) ? (1.0 - aPosition.y) : aPosition.y;
                 vTexCoord = vec2(aPosition.x, ty);
+                vUnitPos = aPosition;
                 vec2 worldPos = uTilePos + aPosition * uTileSize;
                 gl_Position = uMvpMatrix * vec4(worldPos, 0.0, 1.0);
             }
@@ -51,14 +54,22 @@ class TileBlitShader {
             #extension GL_EXT_shader_framebuffer_fetch : require
             precision highp float;
             in vec2 vTexCoord;
+            in vec2 vUnitPos;
             uniform sampler2D uTexture;
             uniform float uOpacity;
             uniform vec3 uBackgroundColor;
+            uniform int uShowBorders;
 
             layout(location = 0) inout vec4 fragColor;
 
-
             void main() {
+                if (uShowBorders == 1) {
+                    if (vUnitPos.x < 0.008 || vUnitPos.x > 0.992 || vUnitPos.y < 0.008 || vUnitPos.y > 0.992) {
+                        fragColor = vec4(0.0, 0.9, 1.0, 1.0);
+                        return;
+                    }
+                }
+
                 vec4 tex = texture(uTexture, vTexCoord);
                 float alpha = tex.a * uOpacity;
                 if (alpha <= 0.001) {
@@ -68,9 +79,8 @@ class TileBlitShader {
                 vec3 srcColor = tex.rgb / max(tex.a, 0.001);
                 vec4 dst = fragColor;
 
-                // Multi-layer compositing:
-                // Layers in the canvas composite cleanly onto the screen over the background paper.
-                // Standard layer blending prevents inter-layer distortion across tools.
+                // Multi-layer compositing matching front-buffer display overlay:
+                // Standard Porter-Duff Over prevents any opacity shift when lifting the stylus.
                 vec3 mixed = mix(dst.rgb, srcColor, alpha);
                 fragColor = vec4(mixed, 1.0);
             }
@@ -80,10 +90,19 @@ class TileBlitShader {
             #version 300 es
             precision mediump float;
             in vec2 vTexCoord;
+            in vec2 vUnitPos;
             uniform sampler2D uTexture;
             uniform float uOpacity;
+            uniform int uShowBorders;
             out vec4 fragColor;
             void main() {
+                if (uShowBorders == 1) {
+                    if (vUnitPos.x < 0.008 || vUnitPos.x > 0.992 || vUnitPos.y < 0.008 || vUnitPos.y > 0.992) {
+                        fragColor = vec4(0.0, 0.9, 1.0, 1.0);
+                        return;
+                    }
+                }
+
                 vec4 tex = texture(uTexture, vTexCoord);
                 if (tex.a <= 0.001) {
                     discard;
@@ -109,6 +128,7 @@ class TileBlitShader {
         uFlipYLoc = GLES30.glGetUniformLocation(programId, "uFlipY")
         uOpacityLoc = GLES30.glGetUniformLocation(programId, "uOpacity")
         uBackgroundColorLoc = GLES30.glGetUniformLocation(programId, "uBackgroundColor")
+        uShowBordersLoc = GLES30.glGetUniformLocation(programId, "uShowBorders")
 
         // Setup static Unit Quad in VBO + VAO
         val vaos = IntArray(1)
@@ -148,7 +168,7 @@ class TileBlitShader {
         }
     }
 
-    fun begin(mvpMatrix: FloatArray, flipY: Boolean = true, backgroundColorRgb: Int = 0xFFF6F4ED.toInt()) {
+    fun begin(mvpMatrix: FloatArray, flipY: Boolean = true, backgroundColorRgb: Int = 0xFFF6F4ED.toInt(), showBorders: Boolean = false) {
         if (programId == 0) return
         GLES30.glUseProgram(programId)
         GLES30.glUniformMatrix4fv(uMvpMatrixLoc, 1, false, mvpMatrix, 0)
@@ -156,6 +176,7 @@ class TileBlitShader {
         GLES30.glUniform1f(uTileSizeLoc, TileCoord.TILE_SIZE.toFloat())
         GLES30.glUniform1i(uFlipYLoc, if (flipY) 1 else 0)
         GLES30.glUniform1f(uOpacityLoc, 1.0f)
+        GLES30.glUniform1i(uShowBordersLoc, if (showBorders) 1 else 0)
 
         if (uBackgroundColorLoc != -1) {
             val r = ((backgroundColorRgb shr 16) and 0xFF) / 255.0f
@@ -187,6 +208,8 @@ class TileBlitShader {
 
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)
     }
 

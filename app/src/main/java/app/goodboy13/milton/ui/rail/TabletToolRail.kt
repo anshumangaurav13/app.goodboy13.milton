@@ -43,6 +43,7 @@ import app.goodboy13.milton.ui.components.EraserIcon
 import app.goodboy13.milton.ui.components.LassoIcon
 import app.goodboy13.milton.ui.components.LiquifyIcon
 import app.goodboy13.milton.ui.components.PaintbrushIcon
+import app.goodboy13.milton.ui.components.SmudgeIcon
 import app.goodboy13.milton.ui.components.PenIcon
 import app.goodboy13.milton.ui.components.PencilIcon
 import java.util.Locale
@@ -137,6 +138,7 @@ fun TabletToolRail(
                 onSelect = { onSelectBrush(BrushType.PAINTBRUSH) },
                 onOpenMenu = onOpenToolParameters
             )
+
             ToolButton(
                 brushType = BrushType.ERASER,
                 isSelected = activeBrush == BrushType.ERASER,

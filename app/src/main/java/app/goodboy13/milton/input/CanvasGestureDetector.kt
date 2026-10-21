@@ -3,6 +3,7 @@ package app.goodboy13.milton.input
 import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.VelocityTracker
+import app.goodboy13.milton.core.native.MiltonNative
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.hypot
@@ -47,6 +48,8 @@ class CanvasGestureDetector(
     // Fling inertia animation
     private var flingVx: Float = 0f
     private var flingVy: Float = 0f
+    private val flingVelocities = FloatArray(2)
+    private val flingDeltas = FloatArray(2)
     private var isFlinging: Boolean = false
     private val choreographer = Choreographer.getInstance()
     private val flingCallback = object : Choreographer.FrameCallback {
@@ -57,18 +60,31 @@ class CanvasGestureDetector(
 
             if (lastFrameTimeNs > 0L) {
                 val dt = ((frameTimeNs - lastFrameTimeNs) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
-                val decay = Math.pow(0.0001, dt.toDouble()).toFloat()
-                flingVx *= decay
-                flingVy *= decay
+                if (MiltonNative.isNativeAvailable()) {
+                    flingVelocities[0] = flingVx
+                    flingVelocities[1] = flingVy
+                    val isStopped = MiltonNative.viewportStepFling(dt, flingVelocities, flingDeltas)
+                    flingVx = flingVelocities[0]
+                    flingVy = flingVelocities[1]
+                    if (isStopped) {
+                        stopFling()
+                        return
+                    }
+                    listener.onPanZoomRotate(0f, 0f, flingDeltas[0], flingDeltas[1], 1.0f, 0f)
+                } else {
+                    val decay = Math.pow(0.0001, dt.toDouble()).toFloat()
+                    flingVx *= decay
+                    flingVy *= decay
 
-                if (abs(flingVx) < 35f && abs(flingVy) < 35f) {
-                    stopFling()
-                    return
+                    if (abs(flingVx) < 35f && abs(flingVy) < 35f) {
+                        stopFling()
+                        return
+                    }
+
+                    val dx = flingVx * dt
+                    val dy = flingVy * dt
+                    listener.onPanZoomRotate(0f, 0f, dx, dy, 1.0f, 0f)
                 }
-
-                val dx = flingVx * dt
-                val dy = flingVy * dt
-                listener.onPanZoomRotate(0f, 0f, dx, dy, 1.0f, 0f)
             }
             lastFrameTimeNs = frameTimeNs
             if (isFlinging) {

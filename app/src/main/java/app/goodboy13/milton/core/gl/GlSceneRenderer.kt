@@ -7,8 +7,10 @@ import android.opengl.Matrix
 import android.util.Log
 import androidx.graphics.lowlatency.BufferInfo
 import app.goodboy13.milton.core.brush.BrushDab
+import app.goodboy13.milton.core.memory.NativeDabRingBuffer
 import app.goodboy13.milton.core.layer.Layer
 import app.goodboy13.milton.core.model.WorldRect
+import app.goodboy13.milton.core.native.MiltonNative
 import app.goodboy13.milton.core.tile.RasterTile
 import app.goodboy13.milton.core.tile.TileCoord
 import app.goodboy13.milton.core.tile.TileMap
@@ -32,9 +34,15 @@ class GlSceneRenderer {
 
     val dabShader = DabShader()
     val tileBlitShader = TileBlitShader()
+    val tileArrayBlitShader = TileArrayBlitShader()
     val thumbnailRenderer = LayerThumbnailRenderer()
     val strokeCompositeShader = StrokeCompositeShader()
     val patchBlitShader = PatchBlitShader()
+
+
+    fun resetSmudgeCarrier() {
+        // Maintained for backward compatibility; GPU SmudgeShader advects tile pixels directly
+    }
 
     private var scratchFboId: Int = 0
     private var scratchTextureId: Int = 0
@@ -45,10 +53,16 @@ class GlSceneRenderer {
     private val screenProjectionMatrix = FloatArray(16)
     private val worldToViewMatrix = FloatArray(16)
     private val finalMvpMatrix = FloatArray(16)
+    private val identityMatrix = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
 
     // Reusable buffers on GL render thread to eliminate frame-rate GC allocations
     private val reusableVisibleTiles = mutableListOf<RasterTile>()
+    var lastDrawCalls: Int = 0
+        private set
+    private val reusableBatchTiles = ArrayList<RasterTile>()
+    private val reusableFallbackTiles = ArrayList<RasterTile>()
     private val reusableAffectedTiles = mutableListOf<RasterTile>()
+    private val packetDirectBuffer = ByteBuffer.allocateDirect(2048 * 20).order(ByteOrder.nativeOrder())
     private val tileDabsBucketMap = HashMap<Long, TileDabBucket>()
     private val bucketPool = ArrayList<TileDabBucket>()
     private val activeBuckets = ArrayList<TileDabBucket>()
@@ -70,8 +84,10 @@ class GlSceneRenderer {
 
     fun ensureGlInitialized() {
         if (!isGlInitialized) {
+            GlTexturePool.ensureGlInitialized()
             dabShader.initGl()
             tileBlitShader.initGl()
+            tileArrayBlitShader.initGl()
             thumbnailRenderer.initGl()
             strokeCompositeShader.initGl()
             patchBlitShader.initGl()
@@ -113,6 +129,16 @@ class GlSceneRenderer {
     }
 
     fun computeFinalMvpMatrix(viewport: Viewport, bufferInfo: BufferInfo, transform: FloatArray): FloatArray {
+        if (viewport.nativePtr != 0L) {
+            MiltonNative.viewportComputeFinalMvp(
+                viewport.nativePtr,
+                bufferInfo.width.toFloat(),
+                bufferInfo.height.toFloat(),
+                transform,
+                finalMvpMatrix
+            )
+            return finalMvpMatrix
+        }
         // 1. screenOrthoMatrix: maps buffer pixels [0..bufW, 0..bufH] to buffer NDC [-1, 1]
         Matrix.orthoM(
             screenOrthoMatrix, 0,
@@ -170,10 +196,11 @@ class GlSceneRenderer {
         }
 
         val mvp = computeFinalMvpMatrix(viewport, bufferInfo, transform)
+        dabShader.beginBatch(mvp)
         for (dab in dabs) {
-            if (dab.isEraser) continue // Eraser is never drawn into the front buffer overlay
+            if (dab.isEraser || dab.brushMode == 3) continue // Eraser and Smudge are never drawn into front buffer overlay
 
-            dabShader.renderDab(
+            dabShader.renderDabFast(
                 centerX = dab.x,
                 centerY = dab.y,
                 radius = dab.radius,
@@ -182,18 +209,79 @@ class GlSceneRenderer {
                 hardness = dab.hardness,
                 brushMode = dab.brushMode,
                 pressure = dab.pressure,
-                projectionMatrix = mvp,
                 isEraser = false
             )
         }
+        dabShader.endBatch()
         if (dabShader.usesFramebufferFetch) {
             GLES30.glEnable(GLES30.GL_BLEND)
         }
     }
 
     /**
-     * Clears the back buffer with the background paper color.
+     * Zero-allocation front-buffer overlay rendering directly reading from [NativeDabRingBuffer].
      */
+    fun renderFrontBufferRingDabs(
+        ringBuffer: NativeDabRingBuffer,
+        startHead: Long,
+        count: Int,
+        activeLayerOpacity: Float,
+        bufferInfo: BufferInfo,
+        transform: FloatArray,
+        viewport: Viewport
+    ) {
+        if (count <= 0) return
+
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, bufferInfo.frameBufferId)
+        GLES30.glViewport(0, 0, bufferInfo.width, bufferInfo.height)
+
+        if (dabShader.usesFramebufferFetch) {
+            GLES30.glDisable(GLES30.GL_BLEND)
+        } else {
+            GLES30.glEnable(GLES30.GL_BLEND)
+            GLES30.glBlendFuncSeparate(
+                GLES30.GL_ONE,
+                GLES30.GL_ONE_MINUS_SRC_ALPHA,
+                GLES30.GL_ONE,
+                GLES30.GL_ONE_MINUS_SRC_ALPHA
+            )
+        }
+
+        val mvp = computeFinalMvpMatrix(viewport, bufferInfo, transform)
+        dabShader.beginBatch(mvp)
+        ringBuffer.forEachDab(startHead, count) { _, x, y, radius, alpha, colorRgb, hardness, brushMode, pressure, _, isEraser ->
+            if (!isEraser && brushMode != 3) {
+                dabShader.renderDabFast(
+                    centerX = x,
+                    centerY = y,
+                    radius = radius,
+                    colorRgb = colorRgb,
+                    alpha = alpha * activeLayerOpacity,
+                    hardness = hardness,
+                    brushMode = brushMode,
+                    pressure = pressure,
+                    isEraser = false
+                )
+            }
+        }
+        dabShader.endBatch()
+        if (dabShader.usesFramebufferFetch) {
+            GLES30.glEnable(GLES30.GL_BLEND)
+        }
+    }
+
+    fun renderFrontBufferRingDabs(
+        ringBuffer: NativeDabRingBuffer,
+        startIndex: Int,
+        count: Int,
+        activeLayerOpacity: Float,
+        bufferInfo: BufferInfo,
+        transform: FloatArray,
+        viewport: Viewport
+    ) {
+        renderFrontBufferRingDabs(ringBuffer, startIndex.toLong(), count, activeLayerOpacity, bufferInfo, transform, viewport)
+    }
+
     fun clearScreen(bufferInfo: BufferInfo, backgroundColorRgb: Int) {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, bufferInfo.frameBufferId)
         GLES30.glViewport(0, 0, bufferInfo.width, bufferInfo.height)
@@ -217,79 +305,184 @@ class GlSceneRenderer {
         bufferInfo: BufferInfo,
         transform: FloatArray,
         viewport: Viewport,
-        selectionState: app.goodboy13.milton.core.selection.SelectionState? = null
+        selectionState: app.goodboy13.milton.core.selection.SelectionState? = null,
+        nativeDoc: app.goodboy13.milton.core.document.NativeMiltonDocument? = null
     ) {
+        var drawCallCounter = 0
+        val showBorders = false
+        val forceOverview = false
+        val allowArrayBlit = true
+
         val mvp = computeFinalMvpMatrix(viewport, bufferInfo, transform)
-        tileBlitShader.begin(mvp, true, backgroundColorRgb)
+        val textureArrayId = GlTexturePool.textureArrayId
+        val useArrayBlit = allowArrayBlit && GlTexturePool.usesTextureArray && tileArrayBlitShader.isReady && textureArrayId != 0
 
-        for (layer in layers) {
-            if (!layer.isVisible || layer.opacity <= 0.001f) continue
-            val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds, reusableVisibleTiles)
-            if (visibleTiles.isNotEmpty()) {
-                tileBlitShader.setOpacity(layer.opacity)
-                val isLayerLiquifying = selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify &&
-                    selectionState.session.targetLayerIds.contains(layer.id)
-                val liquifyMinTx = if (isLayerLiquifying) {
-                    floor(selectionState.session.srcBounds.left / TileCoord.TILE_SIZE).toInt()
-                } else Int.MAX_VALUE
-                val liquifyMaxTx = if (isLayerLiquifying) {
-                    floor((selectionState.session.srcBounds.right - 1f) / TileCoord.TILE_SIZE).toInt()
-                } else Int.MIN_VALUE
-                val liquifyMinTy = if (isLayerLiquifying) {
-                    floor(selectionState.session.srcBounds.top / TileCoord.TILE_SIZE).toInt()
-                } else Int.MAX_VALUE
-                val liquifyMaxTy = if (isLayerLiquifying) {
-                    floor((selectionState.session.srcBounds.bottom - 1f) / TileCoord.TILE_SIZE).toInt()
-                } else Int.MIN_VALUE
+        if (useArrayBlit) {
+            tileArrayBlitShader.begin(mvp, true, textureArrayId, showBorders)
 
-                for (tile in visibleTiles) {
-                    if (!tile.isInitialized || !tile.hasContent) continue
-                    if (isLayerLiquifying &&
-                        tile.coord.tx in liquifyMinTx..liquifyMaxTx &&
-                        tile.coord.ty in liquifyMinTy..liquifyMaxTy
-                    ) {
-                        continue
+            for (layer in layers) {
+                if (!layer.isVisible || layer.opacity <= 0.001f) continue
+
+                val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds, reusableVisibleTiles)
+                if (visibleTiles.isNotEmpty()) {
+                    val isLayerLiquifying = selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify &&
+                        selectionState.session.targetLayerIds.contains(layer.id)
+                    val liquifyMinTx = if (isLayerLiquifying) {
+                        floor(selectionState.session.srcBounds.left / TileCoord.TILE_SIZE).toInt()
+                    } else Int.MAX_VALUE
+                    val liquifyMaxTx = if (isLayerLiquifying) {
+                        floor((selectionState.session.srcBounds.right - 1f) / TileCoord.TILE_SIZE).toInt()
+                    } else Int.MIN_VALUE
+                    val liquifyMinTy = if (isLayerLiquifying) {
+                        floor(selectionState.session.srcBounds.top / TileCoord.TILE_SIZE).toInt()
+                    } else Int.MAX_VALUE
+                    val liquifyMaxTy = if (isLayerLiquifying) {
+                        floor((selectionState.session.srcBounds.bottom - 1f) / TileCoord.TILE_SIZE).toInt()
+                    } else Int.MIN_VALUE
+
+                    reusableBatchTiles.clear()
+                    reusableFallbackTiles.clear()
+                    for (tile in visibleTiles) {
+                        if (!tile.isInitialized && tile.isOnDisk) {
+                            tile.ensureResident(layer.tileMap.cacheDir)
+                        }
+                        if (!tile.isInitialized || !tile.hasContent) continue
+                        if (isLayerLiquifying &&
+                            tile.coord.tx in liquifyMinTx..liquifyMaxTx &&
+                            tile.coord.ty in liquifyMinTy..liquifyMaxTy
+                        ) {
+                            continue
+                        }
+                        if (tile.sliceIndex >= 0) {
+                            reusableBatchTiles.add(tile)
+                        } else {
+                            reusableFallbackTiles.add(tile)
+                        }
                     }
-                    tileBlitShader.renderTile(
-                        worldLeft = tile.coord.worldLeft,
-                        worldTop = tile.coord.worldTop,
-                        textureId = tile.textureId
-                    )
-                }
-            }
 
-            // Render patch for this layer if active in transform or liquify session
-            if (selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveTransform &&
-                selectionState.session.targetLayerIds.contains(layer.id)
-            ) {
-                val patch = selectionState.session.layerPatches[layer.id]
-                if (patch != null && patch.glTextureId != 0) {
-                    tileBlitShader.end()
-                    patchBlitShader.renderTransformPatch(
-                        session = selectionState.session,
-                        patch = patch,
-                        layerOpacity = layer.opacity,
-                        mvpMatrix = mvp
-                    )
-                    tileBlitShader.begin(mvp, true, backgroundColorRgb)
+                    if (reusableBatchTiles.isNotEmpty()) {
+                        tileArrayBlitShader.renderTilesBatch(reusableBatchTiles, layer.opacity, TileCoord.TILE_SIZE.toFloat()); drawCallCounter++
+                    }
+                    if (reusableFallbackTiles.isNotEmpty()) {
+                        tileArrayBlitShader.end()
+                        tileBlitShader.begin(mvp, true, backgroundColorRgb = 0, showBorders = showBorders)
+                        tileBlitShader.setOpacity(layer.opacity)
+                        for (tile in reusableFallbackTiles) {
+                            tileBlitShader.renderTile(
+                                worldLeft = tile.coord.worldLeft,
+                                worldTop = tile.coord.worldTop,
+                                textureId = tile.textureId
+                            ); drawCallCounter++
+                        }
+                        tileBlitShader.end()
+                        tileArrayBlitShader.begin(mvp, true, textureArrayId, showBorders)
+                    }
                 }
-            } else if (selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify &&
-                selectionState.session.targetLayerIds.contains(layer.id)
-            ) {
-                val patch = selectionState.session.layerPatches[layer.id]
-                if (patch != null && patch.glTextureId != 0) {
-                    tileBlitShader.end()
-                    patchBlitShader.renderLiquifyMesh(
-                        session = selectionState.session,
-                        patch = patch,
-                        layerOpacity = layer.opacity,
-                        mvpMatrix = mvp
-                    )
-                    tileBlitShader.begin(mvp, true, backgroundColorRgb)
+
+                // Render patch for this layer if active in transform or liquify session
+                if (selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveTransform &&
+                    selectionState.session.targetLayerIds.contains(layer.id)
+                ) {
+                    val patch = selectionState.session.layerPatches[layer.id]
+                    if (patch != null && patch.glTextureId != 0) {
+                        tileArrayBlitShader.end()
+                        patchBlitShader.renderTransformPatch(
+                            session = selectionState.session,
+                            patch = patch,
+                            layerOpacity = layer.opacity,
+                            mvpMatrix = mvp
+                        ); drawCallCounter++
+                        tileArrayBlitShader.begin(mvp, true, textureArrayId)
+                    }
+                } else if (selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify &&
+                    selectionState.session.targetLayerIds.contains(layer.id)
+                ) {
+                    val patch = selectionState.session.layerPatches[layer.id]
+                    if (patch != null && patch.glTextureId != 0) {
+                        tileArrayBlitShader.end()
+                        patchBlitShader.renderLiquifyMesh(
+                            session = selectionState.session,
+                            patch = patch,
+                            layerOpacity = layer.opacity,
+                            mvpMatrix = mvp
+                        ); drawCallCounter++
+                        tileArrayBlitShader.begin(mvp, true, textureArrayId)
+                    }
                 }
             }
+            tileArrayBlitShader.end()
+        } else {
+            tileBlitShader.begin(mvp, true, backgroundColorRgb, showBorders)
+
+            for (layer in layers) {
+                if (!layer.isVisible || layer.opacity <= 0.001f) continue
+                val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds, reusableVisibleTiles)
+                if (visibleTiles.isNotEmpty()) {
+                    tileBlitShader.setOpacity(layer.opacity)
+                    val isLayerLiquifying = selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify &&
+                        selectionState.session.targetLayerIds.contains(layer.id)
+                    val liquifyMinTx = if (isLayerLiquifying) {
+                        floor(selectionState.session.srcBounds.left / TileCoord.TILE_SIZE).toInt()
+                    } else Int.MAX_VALUE
+                    val liquifyMaxTx = if (isLayerLiquifying) {
+                        floor((selectionState.session.srcBounds.right - 1f) / TileCoord.TILE_SIZE).toInt()
+                    } else Int.MIN_VALUE
+                    val liquifyMinTy = if (isLayerLiquifying) {
+                        floor(selectionState.session.srcBounds.top / TileCoord.TILE_SIZE).toInt()
+                    } else Int.MAX_VALUE
+                    val liquifyMaxTy = if (isLayerLiquifying) {
+                        floor((selectionState.session.srcBounds.bottom - 1f) / TileCoord.TILE_SIZE).toInt()
+                    } else Int.MIN_VALUE
+
+                    for (tile in visibleTiles) {
+                        if (!tile.isInitialized || !tile.hasContent) continue
+                        if (isLayerLiquifying &&
+                            tile.coord.tx in liquifyMinTx..liquifyMaxTx &&
+                            tile.coord.ty in liquifyMinTy..liquifyMaxTy
+                        ) {
+                            continue
+                        }
+                        tileBlitShader.renderTile(
+                            worldLeft = tile.coord.worldLeft,
+                            worldTop = tile.coord.worldTop,
+                            textureId = tile.textureId
+                        )
+                    }
+                }
+
+                // Render patch for this layer if active in transform or liquify session
+                if (selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveTransform &&
+                    selectionState.session.targetLayerIds.contains(layer.id)
+                ) {
+                    val patch = selectionState.session.layerPatches[layer.id]
+                    if (patch != null && patch.glTextureId != 0) {
+                        tileBlitShader.end()
+                        patchBlitShader.renderTransformPatch(
+                            session = selectionState.session,
+                            patch = patch,
+                            layerOpacity = layer.opacity,
+                            mvpMatrix = mvp
+                        ); drawCallCounter++
+                        tileBlitShader.begin(mvp, true, backgroundColorRgb)
+                    }
+                } else if (selectionState is app.goodboy13.milton.core.selection.SelectionState.ActiveLiquify &&
+                    selectionState.session.targetLayerIds.contains(layer.id)
+                ) {
+                    val patch = selectionState.session.layerPatches[layer.id]
+                    if (patch != null && patch.glTextureId != 0) {
+                        tileBlitShader.end()
+                        patchBlitShader.renderLiquifyMesh(
+                            session = selectionState.session,
+                            patch = patch,
+                            layerOpacity = layer.opacity,
+                            mvpMatrix = mvp
+                        ); drawCallCounter++
+                        tileBlitShader.begin(mvp, true, backgroundColorRgb)
+                    }
+                }
+            }
+            tileBlitShader.end()
         }
-        tileBlitShader.end()
     }
 
     /**
@@ -366,10 +559,11 @@ class GlSceneRenderer {
                     GLES30.glBlendFunc(GLES30.GL_ZERO, GLES30.GL_ONE_MINUS_SRC_ALPHA)
                 }
 
+                dabShader.beginBatch(tileOrthoMatrix)
                 for (dab in eraserDabs) {
                     val localX = dab.x - (tx * tileSize)
                     val localY = dab.y - (ty * tileSize)
-                    dabShader.renderDab(
+                    dabShader.renderDabFast(
                         centerX = localX,
                         centerY = localY,
                         radius = dab.radius,
@@ -380,10 +574,10 @@ class GlSceneRenderer {
                         pressure = dab.pressure,
                         worldOffsetX = tx * tileSize,
                         worldOffsetY = ty * tileSize,
-                        projectionMatrix = tileOrthoMatrix,
                         isEraser = true
                     )
                 }
+                dabShader.endBatch()
                 if (dabShader.usesFramebufferFetch) {
                     GLES30.glEnable(GLES30.GL_BLEND)
                 }
@@ -405,10 +599,11 @@ class GlSceneRenderer {
                     GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
                 }
 
+                dabShader.beginBatch(tileOrthoMatrix)
                 for (dab in brushDabs) {
                     val localX = dab.x - (tx * tileSize)
                     val localY = dab.y - (ty * tileSize)
-                    dabShader.renderDab(
+                    dabShader.renderDabFast(
                         centerX = localX,
                         centerY = localY,
                         radius = dab.radius,
@@ -419,10 +614,10 @@ class GlSceneRenderer {
                         pressure = dab.pressure,
                         worldOffsetX = tx * tileSize,
                         worldOffsetY = ty * tileSize,
-                        projectionMatrix = tileOrthoMatrix,
                         isEraser = false
                     )
                 }
+                dabShader.endBatch()
 
                 if (dabShader.usesFramebufferFetch) {
                     GLES30.glEnable(GLES30.GL_BLEND)
@@ -436,8 +631,158 @@ class GlSceneRenderer {
     }
 
     /**
-     * Captures a layer thumbnail offscreen.
+     * Zero-allocation tile stamping directly from [NativeDabRingBuffer].
      */
+    fun stampRingDabsIntoTiles(
+        targetTileMap: TileMap,
+        ringBuffer: NativeDabRingBuffer,
+        startHead: Long,
+        count: Int,
+        onTilesResolved: ((List<RasterTile>) -> Unit)? = null
+    ) {
+        if (count <= 0) return
+
+        tileDabsBucketMap.clear()
+        for (i in activeBuckets.indices) {
+            bucketPool.add(activeBuckets[i])
+        }
+        activeBuckets.clear()
+        reusableAffectedTiles.clear()
+
+        val tileSize = TileCoord.TILE_SIZE.toFloat()
+        ringBuffer.forEachDab(startHead, count) { slot, x, y, radius, _, _, _, _, _, _, isEraser ->
+            val reach = radius + 2.0f
+            val minTx = floor((x - reach) / tileSize).toInt()
+            val maxTx = floor((x + reach) / tileSize).toInt()
+            val minTy = floor((y - reach) / tileSize).toInt()
+            val maxTy = floor((y + reach) / tileSize).toInt()
+            for (ty in minTy..maxTy) {
+                for (tx in minTx..maxTx) {
+                    val key = packTileCoord(tx, ty)
+                    var bucket = tileDabsBucketMap[key]
+                    if (bucket == null) {
+                        val tile = targetTileMap.getOrCreateTile(tx, ty)
+                        tile.ensureResident(targetTileMap.cacheDir)
+                        bucket = if (bucketPool.isNotEmpty()) bucketPool.removeAt(bucketPool.size - 1) else TileDabBucket()
+                        bucket.reset(tx, ty, tile)
+                        tileDabsBucketMap[key] = bucket
+                        activeBuckets.add(bucket)
+                        reusableAffectedTiles.add(tile)
+                    }
+                    if (isEraser) {
+                        bucket.addEraserIndex(slot)
+                    } else {
+                        bucket.addBrushIndex(slot)
+                    }
+                }
+            }
+        }
+
+        onTilesResolved?.invoke(reusableAffectedTiles)
+
+        for (i in activeBuckets.indices) {
+            val bucket = activeBuckets[i]
+            val tx = bucket.tx
+            val ty = bucket.ty
+            val tile = bucket.tile ?: continue
+
+            if (bucket.brushCount > 0) {
+                tile.hasContent = true
+            }
+
+            // 1. Eraser dabs directly attenuate the tile FBO
+            if (bucket.eraserCount > 0) {
+                tile.bindFboDirect()
+                if (dabShader.usesFramebufferFetch) {
+                    GLES30.glDisable(GLES30.GL_BLEND)
+                } else {
+                    GLES30.glEnable(GLES30.GL_BLEND)
+                    GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
+                    GLES30.glBlendFunc(GLES30.GL_ZERO, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+                }
+
+                dabShader.beginBatch(tileOrthoMatrix)
+                for (k in 0 until bucket.eraserCount) {
+                    val slot = bucket.eraserIndices[k]
+                    val localX = ringBuffer.getXBySlot(slot) - (tx * tileSize)
+                    val localY = ringBuffer.getYBySlot(slot) - (ty * tileSize)
+                    dabShader.renderDabFast(
+                        centerX = localX,
+                        centerY = localY,
+                        radius = ringBuffer.getRadiusBySlot(slot),
+                        colorRgb = 0,
+                        alpha = ringBuffer.getAlphaBySlot(slot),
+                        hardness = ringBuffer.getHardnessBySlot(slot),
+                        brushMode = ringBuffer.getBrushModeBySlot(slot),
+                        pressure = ringBuffer.getPressureBySlot(slot),
+                        worldOffsetX = tx * tileSize,
+                        worldOffsetY = ty * tileSize,
+                        isEraser = true
+                    )
+                }
+                dabShader.endBatch()
+                if (dabShader.usesFramebufferFetch) {
+                    GLES30.glEnable(GLES30.GL_BLEND)
+                }
+            }
+
+            // 3. Brush dabs: Two-pass scratch composition
+            if (bucket.brushCount > 0) {
+                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, scratchFboId)
+                GLES30.glViewport(0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE)
+                GLES30.glClearColor(0f, 0f, 0f, 0f)
+                GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+
+                if (dabShader.usesFramebufferFetch) {
+                    GLES30.glDisable(GLES30.GL_BLEND)
+                } else {
+                    GLES30.glEnable(GLES30.GL_BLEND)
+                    GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
+                    GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+                }
+
+                dabShader.beginBatch(tileOrthoMatrix)
+                for (k in 0 until bucket.brushCount) {
+                    val slot = bucket.brushIndices[k]
+                    val localX = ringBuffer.getXBySlot(slot) - (tx * tileSize)
+                    val localY = ringBuffer.getYBySlot(slot) - (ty * tileSize)
+                    dabShader.renderDabFast(
+                        centerX = localX,
+                        centerY = localY,
+                        radius = ringBuffer.getRadiusBySlot(slot),
+                        colorRgb = ringBuffer.getColorRgbBySlot(slot),
+                        alpha = ringBuffer.getAlphaBySlot(slot),
+                        hardness = ringBuffer.getHardnessBySlot(slot),
+                        brushMode = ringBuffer.getBrushModeBySlot(slot),
+                        pressure = ringBuffer.getPressureBySlot(slot),
+                        worldOffsetX = tx * tileSize,
+                        worldOffsetY = ty * tileSize,
+                        isEraser = false
+                    )
+                }
+                dabShader.endBatch()
+
+                if (dabShader.usesFramebufferFetch) {
+                    GLES30.glEnable(GLES30.GL_BLEND)
+                }
+
+                // Pass 2: Composite the scratch stroke ribbon onto destination tile FBO in a single pass
+                tile.bindFboDirect()
+                strokeCompositeShader.render(strokeTextureId = scratchTextureId)
+            }
+        }
+    }
+
+    fun stampRingDabsIntoTiles(
+        targetTileMap: TileMap,
+        ringBuffer: NativeDabRingBuffer,
+        startIndex: Int,
+        count: Int,
+        onTilesResolved: ((List<RasterTile>) -> Unit)? = null
+    ) {
+        stampRingDabsIntoTiles(targetTileMap, ringBuffer, startIndex.toLong(), count, onTilesResolved)
+    }
+
     fun captureThumbnail(
         layer: Layer,
         visibleBounds: WorldRect,
@@ -554,25 +899,35 @@ class GlSceneRenderer {
             val screenW = viewport.screenWidth.toFloat()
             val screenH = viewport.screenHeight.toFloat()
 
-            val exportOrtho = FloatArray(16)
-            Matrix.orthoM(exportOrtho, 0, 0f, screenW, 0f, screenH, -1f, 1f)
-
-            val worldToView = FloatArray(16)
-            Matrix.setIdentityM(worldToView, 0)
-            if (viewport.isFlippedHorizontally) {
-                val cx = viewport.screenWidth * 0.5f
-                Matrix.translateM(worldToView, 0, cx, 0f, 0f)
-                Matrix.scaleM(worldToView, 0, -1f, 1f, 1f)
-                Matrix.translateM(worldToView, 0, -cx, 0f, 0f)
-            }
-            Matrix.translateM(worldToView, 0, viewport.panX, viewport.panY, 0f)
-            Matrix.scaleM(worldToView, 0, viewport.zoom, viewport.zoom, 1.0f)
-            if (viewport.rotationDegrees != 0f) {
-                Matrix.rotateM(worldToView, 0, viewport.rotationDegrees, 0f, 0f, 1f)
-            }
-
             val exportMvp = FloatArray(16)
-            Matrix.multiplyMM(exportMvp, 0, exportOrtho, 0, worldToView, 0)
+            if (viewport.nativePtr != 0L) {
+                MiltonNative.viewportComputeFinalMvp(
+                    viewport.nativePtr,
+                    screenW,
+                    screenH,
+                    identityMatrix,
+                    exportMvp
+                )
+            } else {
+                val exportOrtho = FloatArray(16)
+                Matrix.orthoM(exportOrtho, 0, 0f, screenW, 0f, screenH, -1f, 1f)
+
+                val worldToView = FloatArray(16)
+                Matrix.setIdentityM(worldToView, 0)
+                if (viewport.isFlippedHorizontally) {
+                    val cx = viewport.screenWidth * 0.5f
+                    Matrix.translateM(worldToView, 0, cx, 0f, 0f)
+                    Matrix.scaleM(worldToView, 0, -1f, 1f, 1f)
+                    Matrix.translateM(worldToView, 0, -cx, 0f, 0f)
+                }
+                Matrix.translateM(worldToView, 0, viewport.panX, viewport.panY, 0f)
+                Matrix.scaleM(worldToView, 0, viewport.zoom, viewport.zoom, 1.0f)
+                if (viewport.rotationDegrees != 0f) {
+                    Matrix.rotateM(worldToView, 0, viewport.rotationDegrees, 0f, 0f, 1f)
+                }
+
+                Matrix.multiplyMM(exportMvp, 0, exportOrtho, 0, worldToView, 0)
+            }
 
             val visibleBounds = viewport.getVisibleWorldBounds()
             tileBlitShader.begin(exportMvp, flipY = true, backgroundColorRgb = backgroundColorRgb)
@@ -631,6 +986,7 @@ class GlSceneRenderer {
             strokeCompositeShader.releaseGl()
             dabShader.releaseGl()
             tileBlitShader.releaseGl()
+            tileArrayBlitShader.releaseGl()
             thumbnailRenderer.releaseGl()
             patchBlitShader.releaseGl()
             isGlInitialized = false
@@ -646,11 +1002,33 @@ class TileDabBucket(
     val eraserDabs = mutableListOf<BrushDab>()
     val brushDabs = mutableListOf<BrushDab>()
 
+    var eraserIndices = IntArray(64)
+    var eraserCount = 0
+
+    var brushIndices = IntArray(128)
+    var brushCount = 0
+
+    fun addEraserIndex(idx: Int) {
+        if (eraserCount >= eraserIndices.size) {
+            eraserIndices = eraserIndices.copyOf(eraserIndices.size * 2)
+        }
+        eraserIndices[eraserCount++] = idx
+    }
+
+    fun addBrushIndex(idx: Int) {
+        if (brushCount >= brushIndices.size) {
+            brushIndices = brushIndices.copyOf(brushIndices.size * 2)
+        }
+        brushIndices[brushCount++] = idx
+    }
+
     fun reset(tx: Int, ty: Int, tile: RasterTile) {
         this.tx = tx
         this.ty = ty
         this.tile = tile
         eraserDabs.clear()
         brushDabs.clear()
+        eraserCount = 0
+        brushCount = 0
     }
 }

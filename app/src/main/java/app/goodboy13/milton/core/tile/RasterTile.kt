@@ -13,18 +13,31 @@ import java.nio.ByteOrder
  * A single 512x512 raster chunk of the infinite canvas.
  * Backed by an OpenGL ES 3.0 RGBA texture and Framebuffer Object (FBO).
  */
-class RasterTile(val coord: TileCoord) {
+class RasterTile(
+    val coord: TileCoord,
+    var onStateChanged: ((RasterTile) -> Unit)? = null
+) {
     var textureId: Int = 0
         private set
     var fboId: Int = 0
         private set
+    var sliceIndex: Int = -1
+        private set
 
     var isInitialized: Boolean = false
         private set
+    val isResident: Boolean get() = isInitialized
     var isDirty: Boolean = false
 
     var lastAccessTime: Long = System.nanoTime()
     var hasContent: Boolean = false
+        set(value) {
+            val changed = field != value
+            field = value
+            if (changed) {
+                onStateChanged?.invoke(this)
+            }
+        }
     var isOnDisk: Boolean = false
 
     private val prevFbo = IntArray(1)
@@ -36,9 +49,11 @@ class RasterTile(val coord: TileCoord) {
         val entry = GlTexturePool.acquire()
         textureId = entry.textureId
         fboId = entry.fboId
+        sliceIndex = entry.sliceIndex
 
         isInitialized = true
         isDirty = true
+        onStateChanged?.invoke(this)
     }
 
     /**
@@ -121,10 +136,11 @@ class RasterTile(val coord: TileCoord) {
 
     /**
      * Reads this tile's current RGBA pixel buffer directly into an off-heap direct ByteBuffer.
+     * Uses bindFboDirect to avoid synchronous glGetIntegerv state queries.
      */
     fun readPixelsDirect(outDirectBuf: ByteBuffer) {
         if (!isInitialized) initGl()
-        bindFbo()
+        bindFboDirect()
         outDirectBuf.clear()
         GLES30.glReadPixels(
             0, 0,
@@ -132,7 +148,6 @@ class RasterTile(val coord: TileCoord) {
             GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, outDirectBuf
         )
         outDirectBuf.rewind()
-        unbindFbo()
     }
 
     /**
@@ -140,15 +155,26 @@ class RasterTile(val coord: TileCoord) {
      */
     fun writePixelsDirect(directBuf: ByteBuffer) {
         if (!isInitialized) initGl()
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
         directBuf.position(0)
-        GLES30.glTexSubImage2D(
-            GLES30.GL_TEXTURE_2D, 0,
-            0, 0,
-            TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
-            GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, directBuf
-        )
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+        if (sliceIndex >= 0) {
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D_ARRAY, textureId)
+            GLES30.glTexSubImage3D(
+                GLES30.GL_TEXTURE_2D_ARRAY, 0,
+                0, 0, sliceIndex,
+                TileCoord.TILE_SIZE, TileCoord.TILE_SIZE, 1,
+                GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, directBuf
+            )
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D_ARRAY, 0)
+        } else {
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+            GLES30.glTexSubImage2D(
+                GLES30.GL_TEXTURE_2D, 0,
+                0, 0,
+                TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+                GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, directBuf
+            )
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+        }
         isDirty = true
         hasContent = true
     }
@@ -163,18 +189,29 @@ class RasterTile(val coord: TileCoord) {
             return
         }
         if (!isInitialized) initGl()
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
         DirectBufferPool.useBuffer { byteBuf ->
             byteBuf.put(rawBytes, 0, expectedSize)
             byteBuf.position(0)
-            GLES30.glTexSubImage2D(
-                GLES30.GL_TEXTURE_2D, 0,
-                0, 0,
-                TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
-                GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, byteBuf
-            )
+            if (sliceIndex >= 0) {
+                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D_ARRAY, textureId)
+                GLES30.glTexSubImage3D(
+                    GLES30.GL_TEXTURE_2D_ARRAY, 0,
+                    0, 0, sliceIndex,
+                    TileCoord.TILE_SIZE, TileCoord.TILE_SIZE, 1,
+                    GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, byteBuf
+                )
+                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D_ARRAY, 0)
+            } else {
+                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+                GLES30.glTexSubImage2D(
+                    GLES30.GL_TEXTURE_2D, 0,
+                    0, 0,
+                    TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+                    GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, byteBuf
+                )
+                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+            }
         }
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
         isDirty = true
         hasContent = true
     }
@@ -244,15 +281,26 @@ class RasterTile(val coord: TileCoord) {
                     )
                     if (ok) {
                         initGl()
-                        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
                         byteBuf.position(0)
-                        GLES30.glTexSubImage2D(
-                            GLES30.GL_TEXTURE_2D, 0,
-                            0, 0,
-                            TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
-                            GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, byteBuf
-                        )
-                        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+                        if (sliceIndex >= 0) {
+                            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D_ARRAY, textureId)
+                            GLES30.glTexSubImage3D(
+                                GLES30.GL_TEXTURE_2D_ARRAY, 0,
+                                0, 0, sliceIndex,
+                                TileCoord.TILE_SIZE, TileCoord.TILE_SIZE, 1,
+                                GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, byteBuf
+                            )
+                            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D_ARRAY, 0)
+                        } else {
+                            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+                            GLES30.glTexSubImage2D(
+                                GLES30.GL_TEXTURE_2D, 0,
+                                0, 0,
+                                TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+                                GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, byteBuf
+                            )
+                            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+                        }
                         isDirty = true
                         hasContent = true
                     }
@@ -319,9 +367,10 @@ class RasterTile(val coord: TileCoord) {
 
     fun releaseGl() {
         if (textureId != 0 && fboId != 0) {
-            GlTexturePool.release(textureId, fboId)
+            GlTexturePool.release(textureId, fboId, sliceIndex)
             textureId = 0
             fboId = 0
+            sliceIndex = -1
         } else if (fboId != 0) {
             val fbos = intArrayOf(fboId)
             GLES30.glDeleteFramebuffers(1, fbos, 0)
@@ -332,5 +381,6 @@ class RasterTile(val coord: TileCoord) {
             textureId = 0
         }
         isInitialized = false
+        onStateChanged?.invoke(this)
     }
 }

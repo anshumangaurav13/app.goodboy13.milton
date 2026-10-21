@@ -30,7 +30,8 @@ data class ViewportActions(
     val onToggleZoomLock: () -> Unit = {},
     val onToggleRotationLock: () -> Unit = {},
     val onResetCanvas: () -> Unit = {},
-    val onToggleZenMode: (Boolean) -> Unit = {}
+    val onToggleZenMode: (Boolean) -> Unit = {},
+    val onTrimBudget: () -> Unit = {}
 )
 
 /**

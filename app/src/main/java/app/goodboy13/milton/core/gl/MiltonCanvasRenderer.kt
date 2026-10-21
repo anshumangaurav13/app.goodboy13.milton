@@ -7,6 +7,7 @@ import androidx.graphics.lowlatency.BufferInfo
 import androidx.graphics.lowlatency.GLFrontBufferedRenderer
 import androidx.graphics.opengl.egl.EGLManager
 import app.goodboy13.milton.core.brush.BrushDab
+import app.goodboy13.milton.core.memory.NativeDabRingBuffer
 import app.goodboy13.milton.core.history.UndoManager
 import app.goodboy13.milton.core.layer.LayerManager
 import app.goodboy13.milton.core.memory.DirectBufferPool
@@ -18,8 +19,20 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
 data class DabPacket(
-    val dabs: List<BrushDab> = emptyList()
-)
+    val dabs: List<BrushDab> = emptyList(),
+    val ringBuffer: NativeDabRingBuffer? = null,
+    val ringStartHead: Long = 0L,
+    val ringCount: Int = 0
+) {
+    constructor(
+        dabs: List<BrushDab> = emptyList(),
+        ringBuffer: NativeDabRingBuffer? = null,
+        ringStartIndex: Int,
+        ringCount: Int
+    ) : this(dabs, ringBuffer, ringStartIndex.toLong(), ringCount)
+
+    val ringStartIndex: Int get() = ringStartHead.toInt()
+}
 
 /**
  * High-level bridge and facade implementing [GLFrontBufferedRenderer.Callback].
@@ -58,6 +71,7 @@ class MiltonCanvasRenderer(
 
     val dabShader get() = sceneRenderer.dabShader
     val tileBlitShader get() = sceneRenderer.tileBlitShader
+    val tileArrayBlitShader get() = sceneRenderer.tileArrayBlitShader
     val thumbnailRenderer get() = sceneRenderer.thumbnailRenderer
     val strokeCompositeShader get() = sceneRenderer.strokeCompositeShader
 
@@ -82,6 +96,14 @@ class MiltonCanvasRenderer(
 
     fun queueDabs(dabs: List<BrushDab>) {
         engine.enqueueCommand(GlRenderCommand.SubmitDabs(dabs, false))
+    }
+
+    fun queueRingDabs(ringBuffer: NativeDabRingBuffer, startHead: Long, count: Int) {
+        engine.enqueueCommand(GlRenderCommand.SubmitRingDabs(ringBuffer, startHead, count, false))
+    }
+
+    fun queueRingDabs(ringBuffer: NativeDabRingBuffer, startIndex: Int, count: Int) {
+        queueRingDabs(ringBuffer, startIndex.toLong(), count)
     }
 
     fun clearPendingDabs() {
@@ -139,7 +161,12 @@ class MiltonCanvasRenderer(
         transform: FloatArray,
         param: DabPacket
     ) {
-        engine.renderFrontBuffer(param.dabs, bufferInfo, transform)
+        val t0 = System.nanoTime()
+        if (param.ringBuffer != null && param.ringCount > 0) {
+            engine.renderFrontBuffer(param.ringBuffer, param.ringStartHead, param.ringCount, bufferInfo, transform)
+        } else {
+            engine.renderFrontBuffer(param.dabs, bufferInfo, transform)
+        }
     }
 
     override fun onDrawMultiBufferedLayer(
@@ -150,7 +177,11 @@ class MiltonCanvasRenderer(
         transform: FloatArray,
         params: Collection<DabPacket>
     ) {
+        val t0 = System.nanoTime()
         engine.processFrame(bufferInfo, transform, backgroundColorRgb)
+        val t1 = System.nanoTime()
+
+
     }
 
     /**

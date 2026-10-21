@@ -42,15 +42,15 @@ object BrushDefaults {
 
     val PENCIL = ToolPreset(
         size = 24.0f,
-        opacity = 0.85f,
+        opacity = 0.30f,
         stabilizer = 0.10f,
-        hardness = 0.70f,
+        hardness = 0.10f,
         tilt = 0.50f,
-        spacing = 0.16f,
+        spacing = 0.12f,
         brushMode = 1,
         isEraser = false,
-        sizeBezier = PressureCurveDefaults.STANDARD.copy(minPercent = 0.50f),
-        opacityBezier = PressureCurveDefaults.SOFT.copy(minPercent = 0.20f),
+        sizeBezier = PressureCurveDefaults.STANDARD.copy(minPercent = 0.40f),
+        opacityBezier = PressureCurveDefaults.SOFT.copy(minPercent = 0.25f),
         tiltBezier = PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f)
     )
 
@@ -81,6 +81,8 @@ object BrushDefaults {
         opacityBezier = PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f),
         tiltBezier = PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f)
     )
+
+
 
     val LASSO = ToolPreset(
         size = 24.0f,

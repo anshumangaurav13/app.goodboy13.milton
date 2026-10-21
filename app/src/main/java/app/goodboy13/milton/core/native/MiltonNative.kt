@@ -14,6 +14,9 @@ object MiltonNative {
     var isLoaded: Boolean = false
         private set
 
+    @JvmStatic
+    fun isNativeAvailable(): Boolean = isLoaded
+
     init {
         try {
             System.loadLibrary("milton_core")
@@ -254,4 +257,360 @@ object MiltonNative {
 
     @JvmStatic
     external fun selectionSessionEnd()
+
+    // ========================================================================
+    // #5 HEADLESS DOCUMENT CORE & FLAT RENDER PACKET GENERATOR
+    // ========================================================================
+
+    @JvmStatic
+    external fun createDocument(): Long
+
+    @JvmStatic
+    external fun destroyDocument(docPtr: Long)
+
+    @JvmStatic
+    external fun documentAddLayer(docPtr: Long, layerId: Long, name: String, opacity: Float, visible: Boolean)
+
+    @JvmStatic
+    external fun documentRemoveLayer(docPtr: Long, layerId: Long): Boolean
+
+    @JvmStatic
+    external fun documentSetLayerOpacity(docPtr: Long, layerId: Long, opacity: Float)
+
+    @JvmStatic
+    external fun documentSetLayerVisible(docPtr: Long, layerId: Long, visible: Boolean)
+
+    @JvmStatic
+    external fun documentReorderLayers(docPtr: Long, layerIds: LongArray)
+
+    @JvmStatic
+    external fun documentClearLayer(docPtr: Long, layerId: Long)
+
+    @JvmStatic
+    external fun documentSetTile(docPtr: Long, layerId: Long, tx: Int, ty: Int, sliceIndex: Int, hasContent: Boolean)
+
+    @JvmStatic
+    external fun documentSetOverviewTile(docPtr: Long, layerId: Long, otx: Int, oty: Int, sliceIndex: Int, hasContent: Boolean)
+
+    @JvmStatic
+    external fun documentGenerateRenderPacket(
+        docPtr: Long,
+        viewLeft: Float,
+        viewTop: Float,
+        viewRight: Float,
+        viewBottom: Float,
+        zoom: Float,
+        forceOverview: Boolean,
+        excludeLayerId: Long = 0L,
+        excludeLeft: Float = 0f,
+        excludeTop: Float = 0f,
+        excludeRight: Float = 0f,
+        excludeBottom: Float = 0f,
+        outDirectBuf: java.nio.ByteBuffer
+    ): Int
+
+    @JvmStatic
+    external fun documentGetBounds(docPtr: Long, outBounds: FloatArray): Boolean
+
+    // ========================================================================
+    // #6 BRUSH ENGINE & STROKE INTERPOLATION
+    // ========================================================================
+
+    @JvmStatic
+    external fun createBrushEngine(
+        size: Float,
+        opacity: Float,
+        colorRgb: Int,
+        spacing: Float,
+        hardness: Float,
+        tilt: Float,
+        minRadius: Float,
+        isEraser: Boolean,
+        brushMode: Int,
+        stabilizer: Float,
+        sizeCurve: FloatArray,
+        opacityCurve: FloatArray,
+        tiltCurve: FloatArray
+    ): Long
+
+    @JvmStatic
+    external fun destroyBrushEngine(enginePtr: Long)
+
+    @JvmStatic
+    external fun brushSetProperties(
+        enginePtr: Long,
+        size: Float,
+        opacity: Float,
+        colorRgb: Int,
+        spacing: Float,
+        hardness: Float,
+        tilt: Float,
+        minRadius: Float,
+        isEraser: Boolean,
+        brushMode: Int,
+        stabilizer: Float,
+        sizeCurve: FloatArray,
+        opacityCurve: FloatArray,
+        tiltCurve: FloatArray
+    )
+
+    @JvmStatic
+    external fun brushStartStroke(
+        enginePtr: Long,
+        worldX: Float,
+        worldY: Float,
+        pressure: Float,
+        eventTimeMillis: Long,
+        tilt: Float,
+        outDirectBuf: java.nio.ByteBuffer,
+        headIndex: Long,
+        capacity: Int
+    ): Int
+
+    @JvmStatic
+    external fun brushAddPoint(
+        enginePtr: Long,
+        worldX: Float,
+        worldY: Float,
+        pressure: Float,
+        eventTimeMillis: Long,
+        tilt: Float,
+        outDirectBuf: java.nio.ByteBuffer,
+        headIndex: Long,
+        capacity: Int
+    ): Int
+
+    @JvmStatic
+    external fun brushEndStroke(
+        enginePtr: Long,
+        outDirectBuf: java.nio.ByteBuffer,
+        headIndex: Long,
+        capacity: Int
+    ): Int
+
+    // ========================================================================
+    // #7 HISTORY & UNDO/REDO
+    // ========================================================================
+
+    @JvmStatic
+    external fun createHistoryManager(maxHistorySize: Int): Long
+
+    @JvmStatic
+    external fun destroyHistoryManager(historyPtr: Long)
+
+    @JvmStatic
+    external fun historyCanUndo(historyPtr: Long): Boolean
+
+    @JvmStatic
+    external fun historyCanRedo(historyPtr: Long): Boolean
+
+    @JvmStatic
+    external fun historyUndoCount(historyPtr: Long): Int
+
+    @JvmStatic
+    external fun historyRedoCount(historyPtr: Long): Int
+
+    @JvmStatic
+    external fun historyClear(historyPtr: Long)
+
+    @JvmStatic
+    external fun historyTotalMemoryBytes(historyPtr: Long): Long
+
+    @JvmStatic
+    external fun historyPushTileDelta(
+        historyPtr: Long,
+        isStartOfCommand: Boolean,
+        layerId: Long,
+        tx: Int,
+        ty: Int,
+        minX: Int,
+        minY: Int,
+        width: Int,
+        height: Int,
+        beforePatch: ByteArray?,
+        afterPatch: ByteArray?
+    )
+
+    @JvmStatic
+    external fun historyGetUndoDeltasCount(historyPtr: Long): Int
+
+    @JvmStatic
+    external fun historyGetUndoDeltaMetadata(
+        historyPtr: Long,
+        index: Int,
+        outMeta: IntArray,
+        outLayerId: LongArray
+    ): Boolean
+
+    @JvmStatic
+    external fun historyApplyUndoTileDirect(
+        historyPtr: Long,
+        index: Int,
+        tileDirectBuf: java.nio.ByteBuffer
+    ): Boolean
+
+    @JvmStatic
+    external fun historyCommitUndo(historyPtr: Long): Boolean
+
+    @JvmStatic
+    external fun historyGetRedoDeltasCount(historyPtr: Long): Int
+
+    @JvmStatic
+    external fun historyGetRedoDeltaMetadata(
+        historyPtr: Long,
+        index: Int,
+        outMeta: IntArray,
+        outLayerId: LongArray
+    ): Boolean
+
+    @JvmStatic
+    external fun historyApplyRedoTileDirect(
+        historyPtr: Long,
+        index: Int,
+        tileDirectBuf: java.nio.ByteBuffer
+    ): Boolean
+
+    @JvmStatic
+    external fun historyCommitRedo(historyPtr: Long): Boolean
+
+    // ========================================================================
+    // #11 VIEWPORT & CAMERA TRANSFORMATION ENGINE
+    // ========================================================================
+
+    @JvmStatic
+    external fun viewportCreate(screenWidth: Float, screenHeight: Float): Long
+
+    @JvmStatic
+    external fun viewportDestroy(vpPtr: Long)
+
+    @JvmStatic
+    external fun viewportUpdateScreenSize(vpPtr: Long, width: Float, height: Float)
+
+    @JvmStatic
+    external fun viewportSetPan(vpPtr: Long, panX: Float, panY: Float)
+
+    @JvmStatic
+    external fun viewportGetPan(vpPtr: Long, outPan: FloatArray)
+
+    @JvmStatic
+    external fun viewportSetZoom(vpPtr: Long, zoom: Float)
+
+    @JvmStatic
+    external fun viewportGetZoom(vpPtr: Long): Float
+
+    @JvmStatic
+    external fun viewportSetRotation(vpPtr: Long, degrees: Float)
+
+    @JvmStatic
+    external fun viewportGetRotation(vpPtr: Long): Float
+
+    @JvmStatic
+    external fun viewportSetFlipped(vpPtr: Long, flipped: Boolean)
+
+    @JvmStatic
+    external fun viewportIsFlipped(vpPtr: Long): Boolean
+
+    @JvmStatic
+    external fun viewportReset(vpPtr: Long)
+
+    @JvmStatic
+    external fun viewportScreenToWorld(vpPtr: Long, screenX: Float, screenY: Float, outCoords: FloatArray)
+
+    @JvmStatic
+    external fun viewportWorldToScreen(vpPtr: Long, worldX: Float, worldY: Float, outCoords: FloatArray)
+
+    @JvmStatic
+    external fun viewportGetVisibleBounds(vpPtr: Long, outBounds: FloatArray)
+
+    @JvmStatic
+    external fun viewportApplyGesture(
+        vpPtr: Long,
+        prevFocalX: Float,
+        prevFocalY: Float,
+        curFocalX: Float,
+        curFocalY: Float,
+        zoomFactor: Float,
+        angleDelta: Float
+    )
+
+    @JvmStatic
+    external fun viewportStepFling(
+        dt: Float,
+        velocities: FloatArray,
+        outDeltas: FloatArray
+    ): Boolean
+
+    @JvmStatic
+    external fun viewportComputeFinalMvp(
+        vpPtr: Long,
+        bufferW: Float,
+        bufferH: Float,
+        transform: FloatArray,
+        outMvp: FloatArray
+    )
+
+    // ========================================================================
+    // #12 SPATIAL TILE MAP & LRU BUDGET ENGINE
+    // ========================================================================
+
+    @JvmStatic
+    external fun spatialMapCreate(maxResidentTiles: Int): Long
+
+    @JvmStatic
+    external fun spatialMapDestroy(mapPtr: Long)
+
+    @JvmStatic
+    external fun spatialMapSetTile(
+        mapPtr: Long,
+        tx: Int,
+        ty: Int,
+        sliceIndex: Int,
+        hasContent: Boolean,
+        isResident: Boolean,
+        isOnDisk: Boolean,
+        isDirty: Boolean,
+        timestampNs: Long
+    )
+
+    @JvmStatic
+    external fun spatialMapUpdateTileState(
+        mapPtr: Long,
+        tx: Int,
+        ty: Int,
+        sliceIndex: Int,
+        hasContent: Boolean,
+        isResident: Boolean
+    )
+
+    @JvmStatic
+    external fun spatialMapRemoveTile(mapPtr: Long, tx: Int, ty: Int): Boolean
+
+    @JvmStatic
+    external fun spatialMapTouchTile(mapPtr: Long, tx: Int, ty: Int, timestampNs: Long)
+
+    @JvmStatic
+    external fun spatialMapQueryVisible(
+        mapPtr: Long,
+        minTx: Int,
+        minTy: Int,
+        maxTx: Int,
+        maxTy: Int,
+        timestampNs: Long,
+        outKeys: LongArray
+    ): Int
+
+    @JvmStatic
+    external fun spatialMapFindEvictionCandidates(
+        mapPtr: Long,
+        visibleKeys: LongArray,
+        nowNs: Long,
+        maxEvictions: Int,
+        outEvictKeys: LongArray
+    ): Int
+
+    @JvmStatic
+    external fun spatialMapGetBounds(mapPtr: Long, outBounds: FloatArray): Boolean
+
+    @JvmStatic
+    external fun spatialMapClear(mapPtr: Long)
 }

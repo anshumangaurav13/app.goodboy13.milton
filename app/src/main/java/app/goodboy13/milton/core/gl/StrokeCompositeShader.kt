@@ -58,13 +58,11 @@ class StrokeCompositeShader {
                 }
 
                 float strokeAlpha = stroke.a;
-                vec3 strokeRgb = stroke.rgb / max(strokeAlpha, 0.001);
                 float dstAlpha = dst.a;
-
                 float outAlpha = dstAlpha + strokeAlpha * (1.0 - dstAlpha);
 
                 // Single-pass Porter-Duff Over optical blending evaluated once across the stroke ribbon
-                vec3 outPremul = strokeRgb * strokeAlpha + dst.rgb * (1.0 - strokeAlpha);
+                vec3 outPremul = stroke.rgb + dst.rgb * (1.0 - strokeAlpha);
                 fragColor = vec4(clamp(outPremul, 0.0, 1.0), clamp(outAlpha, 0.0, 1.0));
             }
         """.trimIndent()

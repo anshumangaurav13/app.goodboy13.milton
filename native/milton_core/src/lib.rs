@@ -1,3 +1,4 @@
+pub mod document;
 pub mod compression;
 pub mod archive;
 pub mod tile_swap;
@@ -5,9 +6,13 @@ pub mod export;
 pub mod sub_tile;
 pub mod selection;
 pub mod constants;
+pub mod brush;
+pub mod history;
+pub mod viewport;
+pub mod spatial_map;
 
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JByteBuffer, JClass, JFloatArray, JIntArray, JString};
+use jni::objects::{JByteArray, JByteBuffer, JClass, JFloatArray, JIntArray, JLongArray, JString};
 use jni::sys::{jboolean, jfloat, jint, jlong, JNI_FALSE, JNI_TRUE};
 
 // ============================================================================
@@ -1058,3 +1063,1232 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_select
 }
 
 
+
+// ============================================================================
+// #5 HEADLESS DOCUMENT CORE & FLAT RENDER PACKET GENERATOR
+// ============================================================================
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_createDocument<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jlong {
+    let doc = Box::new(document::MiltonDocument::new());
+    Box::into_raw(doc) as jlong
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_destroyDocument<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+) {
+    if doc_ptr != 0 {
+        unsafe {
+            let _ = Box::from_raw(doc_ptr as *mut document::MiltonDocument);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentAddLayer<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    layer_id: jlong,
+    name: JString<'local>,
+    opacity: jfloat,
+    visible: jboolean,
+) {
+    if doc_ptr == 0 { return; }
+    let doc = unsafe { &mut *(doc_ptr as *mut document::MiltonDocument) };
+    let name_str: String = match env.get_string(&name) {
+        Ok(s) => s.into(),
+        Err(_) => "Layer".to_string(),
+    };
+    doc.add_layer(layer_id, name_str, opacity, visible == JNI_TRUE);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentRemoveLayer<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    layer_id: jlong,
+) -> jboolean {
+    if doc_ptr == 0 { return JNI_FALSE; }
+    let doc = unsafe { &mut *(doc_ptr as *mut document::MiltonDocument) };
+    if doc.remove_layer(layer_id) { JNI_TRUE } else { JNI_FALSE }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentSetLayerOpacity<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    layer_id: jlong,
+    opacity: jfloat,
+) {
+    if doc_ptr == 0 { return; }
+    let doc = unsafe { &mut *(doc_ptr as *mut document::MiltonDocument) };
+    doc.set_layer_opacity(layer_id, opacity);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentSetLayerVisible<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    layer_id: jlong,
+    visible: jboolean,
+) {
+    if doc_ptr == 0 { return; }
+    let doc = unsafe { &mut *(doc_ptr as *mut document::MiltonDocument) };
+    doc.set_layer_visible(layer_id, visible == JNI_TRUE);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentReorderLayers<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    layer_ids: JLongArray<'local>,
+) {
+    if doc_ptr == 0 { return; }
+    let len = match env.get_array_length(&layer_ids) {
+        Ok(l) => l as usize,
+        Err(_) => return,
+    };
+    let mut ids = vec![0i64; len];
+    if env.get_long_array_region(&layer_ids, 0, &mut ids).is_ok() {
+        let doc = unsafe { &mut *(doc_ptr as *mut document::MiltonDocument) };
+        doc.reorder_layers(&ids);
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentClearLayer<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    layer_id: jlong,
+) {
+    if doc_ptr == 0 { return; }
+    let doc = unsafe { &mut *(doc_ptr as *mut document::MiltonDocument) };
+    doc.clear_layer(layer_id);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentSetTile<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    layer_id: jlong,
+    tx: jint,
+    ty: jint,
+    slice_index: jint,
+    has_content: jboolean,
+) {
+    if doc_ptr == 0 { return; }
+    let doc = unsafe { &mut *(doc_ptr as *mut document::MiltonDocument) };
+    doc.set_tile(layer_id, tx, ty, slice_index, has_content == JNI_TRUE);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentSetOverviewTile<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    layer_id: jlong,
+    otx: jint,
+    oty: jint,
+    slice_index: jint,
+    has_content: jboolean,
+) {
+    if doc_ptr == 0 { return; }
+    let doc = unsafe { &mut *(doc_ptr as *mut document::MiltonDocument) };
+    doc.set_overview_tile(layer_id, otx, oty, slice_index, has_content == JNI_TRUE);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentGenerateRenderPacket<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    view_left: jfloat,
+    view_top: jfloat,
+    view_right: jfloat,
+    view_bottom: jfloat,
+    zoom: jfloat,
+    force_overview: jboolean,
+    exclude_layer_id: jlong,
+    exclude_left: jfloat,
+    exclude_top: jfloat,
+    exclude_right: jfloat,
+    exclude_bottom: jfloat,
+    out_direct_buf: JByteBuffer<'local>,
+) -> jint {
+    if doc_ptr == 0 { return 0; }
+    let doc = unsafe { &*(doc_ptr as *const document::MiltonDocument) };
+
+    let ptr = match env.get_direct_buffer_address(&out_direct_buf) {
+        Ok(p) => p as *mut f32,
+        Err(_) => return 0,
+    };
+    let cap_bytes = match env.get_direct_buffer_capacity(&out_direct_buf) {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    let float_cap = cap_bytes / std::mem::size_of::<f32>();
+    if ptr.is_null() || float_cap < document::FLOATS_PER_INSTANCE {
+        return 0;
+    }
+
+    let out_slice = unsafe { std::slice::from_raw_parts_mut(ptr, float_cap) };
+    let count = doc.generate_render_packet(
+        view_left,
+        view_top,
+        view_right,
+        view_bottom,
+        zoom,
+        force_overview == JNI_TRUE,
+        exclude_layer_id,
+        exclude_left,
+        exclude_top,
+        exclude_right,
+        exclude_bottom,
+        out_slice,
+    );
+
+    count as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_documentGetBounds<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    out_bounds: JFloatArray<'local>,
+) -> jboolean {
+    if doc_ptr == 0 { return JNI_FALSE; }
+    let doc = unsafe { &*(doc_ptr as *const document::MiltonDocument) };
+
+    if let Some((min_x, min_y, max_x, max_y)) = doc.get_bounds() {
+        let bounds = [min_x, min_y, max_x, max_y];
+        if env.set_float_array_region(&out_bounds, 0, &bounds).is_ok() {
+            return JNI_TRUE;
+        }
+    }
+    JNI_FALSE
+}
+
+// ============================================================================
+// #6 BRUSH ENGINE & STROKE INTERPOLATION JNI BINDINGS
+// ============================================================================
+
+fn parse_bezier_curve(env: &mut JNIEnv, arr: &JFloatArray) -> brush::BezierCurve {
+    let mut buf = [0.0f32; 6];
+    if env.get_float_array_region(arr, 0, &mut buf).is_ok() {
+        brush::BezierCurve::new(buf[0], buf[1], buf[2], buf[3], buf[4], buf[5])
+    } else {
+        brush::BezierCurve::default()
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_createBrushEngine<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    size: jfloat,
+    opacity: jfloat,
+    color_rgb: jint,
+    spacing: jfloat,
+    hardness: jfloat,
+    tilt: jfloat,
+    min_radius: jfloat,
+    is_eraser: jboolean,
+    brush_mode: jint,
+    stabilizer: jfloat,
+    size_curve: JFloatArray<'local>,
+    opacity_curve: JFloatArray<'local>,
+    tilt_curve: JFloatArray<'local>,
+) -> jlong {
+    let sc = parse_bezier_curve(&mut env, &size_curve);
+    let oc = parse_bezier_curve(&mut env, &opacity_curve);
+    let tc = parse_bezier_curve(&mut env, &tilt_curve);
+
+    let props = brush::BrushProperties {
+        size,
+        opacity,
+        color_rgb,
+        spacing,
+        hardness,
+        tilt,
+        min_radius,
+        is_eraser: is_eraser == JNI_TRUE,
+        brush_mode,
+        stabilizer,
+        size_curve: sc,
+        opacity_curve: oc,
+        tilt_curve: tc,
+    };
+
+    let engine = Box::new(brush::BrushEngine::new(props));
+    Box::into_raw(engine) as jlong
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_destroyBrushEngine<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    engine_ptr: jlong,
+) {
+    if engine_ptr != 0 {
+        unsafe { drop(Box::from_raw(engine_ptr as *mut brush::BrushEngine)); }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_brushSetProperties<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    engine_ptr: jlong,
+    size: jfloat,
+    opacity: jfloat,
+    color_rgb: jint,
+    spacing: jfloat,
+    hardness: jfloat,
+    tilt: jfloat,
+    min_radius: jfloat,
+    is_eraser: jboolean,
+    brush_mode: jint,
+    stabilizer: jfloat,
+    size_curve: JFloatArray<'local>,
+    opacity_curve: JFloatArray<'local>,
+    tilt_curve: JFloatArray<'local>,
+) {
+    if engine_ptr == 0 { return; }
+    let sc = parse_bezier_curve(&mut env, &size_curve);
+    let oc = parse_bezier_curve(&mut env, &opacity_curve);
+    let tc = parse_bezier_curve(&mut env, &tilt_curve);
+
+    let props = brush::BrushProperties {
+        size,
+        opacity,
+        color_rgb,
+        spacing,
+        hardness,
+        tilt,
+        min_radius,
+        is_eraser: is_eraser == JNI_TRUE,
+        brush_mode,
+        stabilizer,
+        size_curve: sc,
+        opacity_curve: oc,
+        tilt_curve: tc,
+    };
+
+    let engine = unsafe { &mut *(engine_ptr as *mut brush::BrushEngine) };
+    engine.properties = props;
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_brushStartStroke<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    engine_ptr: jlong,
+    world_x: jfloat,
+    world_y: jfloat,
+    pressure: jfloat,
+    event_time_millis: jlong,
+    tilt: jfloat,
+    out_direct_buf: JByteBuffer<'local>,
+    head_index: jlong,
+    capacity: jint,
+) -> jint {
+    if engine_ptr == 0 || capacity <= 0 { return 0; }
+    let engine = unsafe { &mut *(engine_ptr as *mut brush::BrushEngine) };
+
+    let ptr = match env.get_direct_buffer_address(&out_direct_buf) {
+        Ok(p) => p,
+        Err(_) => return 0,
+    };
+    let cap_bytes = match env.get_direct_buffer_capacity(&out_direct_buf) {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    if ptr.is_null() || cap_bytes < (capacity as usize * brush::STRIDE_BYTES) {
+        return 0;
+    }
+
+    let total_floats = cap_bytes / std::mem::size_of::<f32>();
+    let base_slice = unsafe {
+        std::slice::from_raw_parts_mut(ptr as *mut f32, total_floats)
+    };
+
+    let count = engine.start_stroke_ring(
+        world_x, world_y, pressure, event_time_millis, tilt,
+        base_slice, head_index as u64, capacity as usize,
+    );
+    count as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_brushAddPoint<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    engine_ptr: jlong,
+    world_x: jfloat,
+    world_y: jfloat,
+    pressure: jfloat,
+    event_time_millis: jlong,
+    tilt: jfloat,
+    out_direct_buf: JByteBuffer<'local>,
+    head_index: jlong,
+    capacity: jint,
+) -> jint {
+    if engine_ptr == 0 || capacity <= 0 { return 0; }
+    let engine = unsafe { &mut *(engine_ptr as *mut brush::BrushEngine) };
+
+    let ptr = match env.get_direct_buffer_address(&out_direct_buf) {
+        Ok(p) => p,
+        Err(_) => return 0,
+    };
+    let cap_bytes = match env.get_direct_buffer_capacity(&out_direct_buf) {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    if ptr.is_null() || cap_bytes < (capacity as usize * brush::STRIDE_BYTES) {
+        return 0;
+    }
+
+    let total_floats = cap_bytes / std::mem::size_of::<f32>();
+    let base_slice = unsafe {
+        std::slice::from_raw_parts_mut(ptr as *mut f32, total_floats)
+    };
+
+    let count = engine.add_point_ring(
+        world_x, world_y, pressure, event_time_millis, tilt,
+        base_slice, head_index as u64, capacity as usize,
+    );
+    count as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_brushEndStroke<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    engine_ptr: jlong,
+    out_direct_buf: JByteBuffer<'local>,
+    head_index: jlong,
+    capacity: jint,
+) -> jint {
+    if engine_ptr == 0 || capacity <= 0 { return 0; }
+    let engine = unsafe { &mut *(engine_ptr as *mut brush::BrushEngine) };
+
+    let ptr = match env.get_direct_buffer_address(&out_direct_buf) {
+        Ok(p) => p,
+        Err(_) => return 0,
+    };
+    let cap_bytes = match env.get_direct_buffer_capacity(&out_direct_buf) {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    if ptr.is_null() || cap_bytes < (capacity as usize * brush::STRIDE_BYTES) {
+        return 0;
+    }
+
+    let total_floats = cap_bytes / std::mem::size_of::<f32>();
+    let base_slice = unsafe {
+        std::slice::from_raw_parts_mut(ptr as *mut f32, total_floats)
+    };
+
+    let count = engine.end_stroke_ring(
+        base_slice, head_index as u64, capacity as usize,
+    );
+    count as jint
+}
+
+// ============================================================================
+// #7 HISTORY & UNDO/REDO JNI BINDINGS
+// ============================================================================
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_createHistoryManager<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    max_history_size: jint,
+) -> jlong {
+    let mgr = Box::new(history::HistoryManager::new(max_history_size.max(1) as usize));
+    Box::into_raw(mgr) as jlong
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_destroyHistoryManager<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+) {
+    if history_ptr != 0 {
+        unsafe { drop(Box::from_raw(history_ptr as *mut history::HistoryManager)); }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyCanUndo<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+) -> jboolean {
+    if history_ptr == 0 { return JNI_FALSE; }
+    let mgr = unsafe { &*(history_ptr as *mut history::HistoryManager) };
+    if mgr.can_undo() { JNI_TRUE } else { JNI_FALSE }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyCanRedo<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+) -> jboolean {
+    if history_ptr == 0 { return JNI_FALSE; }
+    let mgr = unsafe { &*(history_ptr as *mut history::HistoryManager) };
+    if mgr.can_redo() { JNI_TRUE } else { JNI_FALSE }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyUndoCount<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+) -> jint {
+    if history_ptr == 0 { return 0; }
+    let mgr = unsafe { &*(history_ptr as *mut history::HistoryManager) };
+    mgr.undo_count() as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyRedoCount<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+) -> jint {
+    if history_ptr == 0 { return 0; }
+    let mgr = unsafe { &*(history_ptr as *mut history::HistoryManager) };
+    mgr.redo_count() as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyClear<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+) {
+    if history_ptr == 0 { return; }
+    let mgr = unsafe { &mut *(history_ptr as *mut history::HistoryManager) };
+    mgr.clear();
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyTotalMemoryBytes<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+) -> jlong {
+    if history_ptr == 0 { return 0; }
+    let mgr = unsafe { &*(history_ptr as *mut history::HistoryManager) };
+    mgr.total_memory_bytes() as jlong
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyPushTileDelta<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+    is_start_of_command: jboolean,
+    layer_id: jlong,
+    tx: jint,
+    ty: jint,
+    min_x: jint,
+    min_y: jint,
+    width: jint,
+    height: jint,
+    before_patch: JByteArray<'local>,
+    after_patch: JByteArray<'local>,
+) {
+    if history_ptr == 0 { return; }
+    let mgr = unsafe { &mut *(history_ptr as *mut history::HistoryManager) };
+
+    if is_start_of_command == JNI_TRUE {
+        mgr.begin_stroke();
+    }
+
+    let before_vec = if !before_patch.as_raw().is_null() {
+        env.convert_byte_array(&before_patch).ok()
+    } else {
+        None
+    };
+
+    let after_vec = if !after_patch.as_raw().is_null() {
+        env.convert_byte_array(&after_patch).ok()
+    } else {
+        None
+    };
+
+    let delta = history::TileDelta {
+        layer_id,
+        tx,
+        ty,
+        min_x,
+        min_y,
+        width,
+        height,
+        before_patch: before_vec,
+        after_patch: after_vec,
+    };
+    mgr.append_stroke_delta(delta);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyGetUndoDeltasCount<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+) -> jint {
+    if history_ptr == 0 { return 0; }
+    let mgr = unsafe { &*(history_ptr as *mut history::HistoryManager) };
+    match mgr.peek_undo_stroke() {
+        Some(deltas) => deltas.len() as jint,
+        None => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyGetUndoDeltaMetadata<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+    index: jint,
+    out_meta: JIntArray<'local>,
+    out_layer_id: JLongArray<'local>,
+) -> jboolean {
+    if history_ptr == 0 { return JNI_FALSE; }
+    let mgr = unsafe { &*(history_ptr as *mut history::HistoryManager) };
+    let deltas = match mgr.peek_undo_stroke() {
+        Some(d) => d,
+        None => return JNI_FALSE,
+    };
+    let idx = index as usize;
+    if idx >= deltas.len() { return JNI_FALSE; }
+    let d = &deltas[idx];
+
+    let meta_slice = [
+        d.tx, d.ty, d.min_x, d.min_y, d.width, d.height,
+        if d.before_patch.is_some() { 1 } else { 0 },
+        if d.after_patch.is_some() { 1 } else { 0 },
+    ];
+    if env.set_int_array_region(&out_meta, 0, &meta_slice).is_err() {
+        return JNI_FALSE;
+    }
+    let layer_slice = [d.layer_id];
+    if env.set_long_array_region(&out_layer_id, 0, &layer_slice).is_err() {
+        return JNI_FALSE;
+    }
+    JNI_TRUE
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyApplyUndoTileDirect<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+    index: jint,
+    tile_direct_buf: JByteBuffer<'local>,
+) -> jboolean {
+    if history_ptr == 0 { return JNI_FALSE; }
+    let mgr = unsafe { &*(history_ptr as *mut history::HistoryManager) };
+    let deltas = match mgr.peek_undo_stroke() {
+        Some(d) => d,
+        None => return JNI_FALSE,
+    };
+    let idx = index as usize;
+    if idx >= deltas.len() { return JNI_FALSE; }
+    let d = &deltas[idx];
+
+    let ptr = match env.get_direct_buffer_address(&tile_direct_buf) {
+        Ok(p) => p,
+        Err(_) => return JNI_FALSE,
+    };
+    let cap = match env.get_direct_buffer_capacity(&tile_direct_buf) {
+        Ok(c) => c,
+        Err(_) => return JNI_FALSE,
+    };
+    if ptr.is_null() || cap < constants::TILE_BYTES {
+        return JNI_FALSE;
+    }
+    let slice = unsafe { std::slice::from_raw_parts_mut(ptr, constants::TILE_BYTES) };
+
+    match history::HistoryManager::apply_delta_to_slice(d, true, slice) {
+        Ok(has_content) => if has_content { JNI_TRUE } else { JNI_FALSE },
+        Err(_) => JNI_FALSE,
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyCommitUndo<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+) -> jboolean {
+    if history_ptr == 0 { return JNI_FALSE; }
+    let mgr = unsafe { &mut *(history_ptr as *mut history::HistoryManager) };
+    if mgr.commit_undo() { JNI_TRUE } else { JNI_FALSE }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyGetRedoDeltasCount<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+) -> jint {
+    if history_ptr == 0 { return 0; }
+    let mgr = unsafe { &*(history_ptr as *mut history::HistoryManager) };
+    match mgr.peek_redo_stroke() {
+        Some(deltas) => deltas.len() as jint,
+        None => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyGetRedoDeltaMetadata<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+    index: jint,
+    out_meta: JIntArray<'local>,
+    out_layer_id: JLongArray<'local>,
+) -> jboolean {
+    if history_ptr == 0 { return JNI_FALSE; }
+    let mgr = unsafe { &*(history_ptr as *mut history::HistoryManager) };
+    let deltas = match mgr.peek_redo_stroke() {
+        Some(d) => d,
+        None => return JNI_FALSE,
+    };
+    let idx = index as usize;
+    if idx >= deltas.len() { return JNI_FALSE; }
+    let d = &deltas[idx];
+
+    let meta_slice = [
+        d.tx, d.ty, d.min_x, d.min_y, d.width, d.height,
+        if d.before_patch.is_some() { 1 } else { 0 },
+        if d.after_patch.is_some() { 1 } else { 0 },
+    ];
+    if env.set_int_array_region(&out_meta, 0, &meta_slice).is_err() {
+        return JNI_FALSE;
+    }
+    let layer_slice = [d.layer_id];
+    if env.set_long_array_region(&out_layer_id, 0, &layer_slice).is_err() {
+        return JNI_FALSE;
+    }
+    JNI_TRUE
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyApplyRedoTileDirect<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+    index: jint,
+    tile_direct_buf: JByteBuffer<'local>,
+) -> jboolean {
+    if history_ptr == 0 { return JNI_FALSE; }
+    let mgr = unsafe { &*(history_ptr as *mut history::HistoryManager) };
+    let deltas = match mgr.peek_redo_stroke() {
+        Some(d) => d,
+        None => return JNI_FALSE,
+    };
+    let idx = index as usize;
+    if idx >= deltas.len() { return JNI_FALSE; }
+    let d = &deltas[idx];
+
+    let ptr = match env.get_direct_buffer_address(&tile_direct_buf) {
+        Ok(p) => p,
+        Err(_) => return JNI_FALSE,
+    };
+    let cap = match env.get_direct_buffer_capacity(&tile_direct_buf) {
+        Ok(c) => c,
+        Err(_) => return JNI_FALSE,
+    };
+    if ptr.is_null() || cap < constants::TILE_BYTES {
+        return JNI_FALSE;
+    }
+    let slice = unsafe { std::slice::from_raw_parts_mut(ptr, constants::TILE_BYTES) };
+
+    match history::HistoryManager::apply_delta_to_slice(d, false, slice) {
+        Ok(has_content) => if has_content { JNI_TRUE } else { JNI_FALSE },
+        Err(_) => JNI_FALSE,
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyCommitRedo<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+) -> jboolean {
+    if history_ptr == 0 { return JNI_FALSE; }
+    let mgr = unsafe { &mut *(history_ptr as *mut history::HistoryManager) };
+    if mgr.commit_redo() { JNI_TRUE } else { JNI_FALSE }
+}
+
+// ============================================================================
+// #11 VIEWPORT & CAMERA TRANSFORMATION JNI BINDINGS
+// ============================================================================
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportCreate<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    screen_width: jfloat,
+    screen_height: jfloat,
+) -> jlong {
+    let vp = Box::new(viewport::Viewport::new(screen_width as f32, screen_height as f32));
+    Box::into_raw(vp) as jlong
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportDestroy<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+) {
+    if vp_ptr != 0 {
+        unsafe {
+            drop(Box::from_raw(vp_ptr as *mut viewport::Viewport));
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportUpdateScreenSize<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    width: jfloat,
+    height: jfloat,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &mut *(vp_ptr as *mut viewport::Viewport) };
+    vp.update_screen_size(width as f32, height as f32);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportSetPan<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    pan_x: jfloat,
+    pan_y: jfloat,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &mut *(vp_ptr as *mut viewport::Viewport) };
+    vp.pan_x = pan_x as f32;
+    vp.pan_y = pan_y as f32;
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportGetPan<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    out_pan: JFloatArray<'local>,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &*(vp_ptr as *mut viewport::Viewport) };
+    let buf = [vp.pan_x, vp.pan_y];
+    let _ = env.set_float_array_region(&out_pan, 0, &buf);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportSetZoom<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    zoom: jfloat,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &mut *(vp_ptr as *mut viewport::Viewport) };
+    vp.set_zoom(zoom as f32);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportGetZoom<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+) -> jfloat {
+    if vp_ptr == 0 { return 1.0; }
+    let vp = unsafe { &*(vp_ptr as *mut viewport::Viewport) };
+    vp.zoom as jfloat
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportSetRotation<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    degrees: jfloat,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &mut *(vp_ptr as *mut viewport::Viewport) };
+    vp.rotation_degrees = degrees as f32;
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportGetRotation<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+) -> jfloat {
+    if vp_ptr == 0 { return 0.0; }
+    let vp = unsafe { &*(vp_ptr as *mut viewport::Viewport) };
+    vp.rotation_degrees as jfloat
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportSetFlipped<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    flipped: jboolean,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &mut *(vp_ptr as *mut viewport::Viewport) };
+    vp.is_flipped_horizontally = flipped != JNI_FALSE;
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportIsFlipped<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+) -> jboolean {
+    if vp_ptr == 0 { return JNI_FALSE; }
+    let vp = unsafe { &*(vp_ptr as *mut viewport::Viewport) };
+    if vp.is_flipped_horizontally { JNI_TRUE } else { JNI_FALSE }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportReset<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &mut *(vp_ptr as *mut viewport::Viewport) };
+    vp.reset();
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportScreenToWorld<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    screen_x: jfloat,
+    screen_y: jfloat,
+    out_coords: JFloatArray<'local>,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &*(vp_ptr as *mut viewport::Viewport) };
+    let (wx, wy) = vp.screen_to_world(screen_x as f32, screen_y as f32);
+    let buf = [wx, wy];
+    let _ = env.set_float_array_region(&out_coords, 0, &buf);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportWorldToScreen<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    world_x: jfloat,
+    world_y: jfloat,
+    out_coords: JFloatArray<'local>,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &*(vp_ptr as *mut viewport::Viewport) };
+    let (sx, sy) = vp.world_to_screen(world_x as f32, world_y as f32);
+    let buf = [sx, sy];
+    let _ = env.set_float_array_region(&out_coords, 0, &buf);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportGetVisibleBounds<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    out_bounds: JFloatArray<'local>,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &*(vp_ptr as *mut viewport::Viewport) };
+    let bounds = vp.get_visible_world_bounds();
+    let _ = env.set_float_array_region(&out_bounds, 0, &bounds);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportApplyGesture<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    prev_focal_x: jfloat,
+    prev_focal_y: jfloat,
+    cur_focal_x: jfloat,
+    cur_focal_y: jfloat,
+    zoom_factor: jfloat,
+    angle_delta: jfloat,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &mut *(vp_ptr as *mut viewport::Viewport) };
+    vp.apply_gesture(
+        prev_focal_x as f32,
+        prev_focal_y as f32,
+        cur_focal_x as f32,
+        cur_focal_y as f32,
+        zoom_factor as f32,
+        angle_delta as f32,
+    );
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportStepFling<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dt: jfloat,
+    velocities: JFloatArray<'local>,
+    out_deltas: JFloatArray<'local>,
+) -> jboolean {
+    let mut vel = [0.0f32; 2];
+    if env.get_float_array_region(&velocities, 0, &mut vel).is_err() {
+        return JNI_TRUE;
+    }
+    let mut vx = vel[0];
+    let mut vy = vel[1];
+    let (dx, dy, is_stopped) = viewport::Viewport::step_fling(dt as f32, &mut vx, &mut vy);
+    let vel = [vx, vy];
+    let _ = env.set_float_array_region(&velocities, 0, &vel);
+    let deltas = [dx, dy];
+    let _ = env.set_float_array_region(&out_deltas, 0, &deltas);
+    if is_stopped { JNI_TRUE } else { JNI_FALSE }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportComputeFinalMvp<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    vp_ptr: jlong,
+    buffer_w: jfloat,
+    buffer_h: jfloat,
+    transform: JFloatArray<'local>,
+    out_mvp: JFloatArray<'local>,
+) {
+    if vp_ptr == 0 { return; }
+    let vp = unsafe { &*(vp_ptr as *mut viewport::Viewport) };
+    let mut tf = [0.0f32; 16];
+    if env.get_float_array_region(&transform, 0, &mut tf).is_err() {
+        return;
+    }
+    let mut mvp = [0.0f32; 16];
+    vp.compute_final_mvp_matrix(buffer_w as f32, buffer_h as f32, &tf, &mut mvp);
+    let _ = env.set_float_array_region(&out_mvp, 0, &mvp);
+}
+
+// ============================================================================
+// #12 SPATIAL TILE MAP & LRU BUDGET JNI BINDINGS
+// ============================================================================
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapCreate<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    max_resident_tiles: jint,
+) -> jlong {
+    let map = Box::new(spatial_map::SpatialTileMap::new(max_resident_tiles as usize));
+    Box::into_raw(map) as jlong
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapDestroy<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+) {
+    if map_ptr != 0 {
+        unsafe {
+            drop(Box::from_raw(map_ptr as *mut spatial_map::SpatialTileMap));
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapSetTile<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+    tx: jint,
+    ty: jint,
+    slice_index: jint,
+    has_content: jboolean,
+    is_resident: jboolean,
+    is_on_disk: jboolean,
+    is_dirty: jboolean,
+    timestamp_ns: jlong,
+) {
+    if map_ptr == 0 { return; }
+    let map = unsafe { &mut *(map_ptr as *mut spatial_map::SpatialTileMap) };
+    map.set_tile(
+        tx,
+        ty,
+        slice_index,
+        has_content != JNI_FALSE,
+        is_resident != JNI_FALSE,
+        is_on_disk != JNI_FALSE,
+        is_dirty != JNI_FALSE,
+        timestamp_ns as u64,
+    );
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapUpdateTileState<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+    tx: jint,
+    ty: jint,
+    slice_index: jint,
+    has_content: jboolean,
+    is_resident: jboolean,
+) {
+    if map_ptr == 0 { return; }
+    let map = unsafe { &mut *(map_ptr as *mut spatial_map::SpatialTileMap) };
+    map.update_tile_state(
+        tx,
+        ty,
+        slice_index,
+        has_content != JNI_FALSE,
+        is_resident != JNI_FALSE,
+    );
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapRemoveTile<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+    tx: jint,
+    ty: jint,
+) -> jboolean {
+    if map_ptr == 0 { return JNI_FALSE; }
+    let map = unsafe { &mut *(map_ptr as *mut spatial_map::SpatialTileMap) };
+    if map.remove_tile(tx, ty) { JNI_TRUE } else { JNI_FALSE }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapTouchTile<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+    tx: jint,
+    ty: jint,
+    timestamp_ns: jlong,
+) {
+    if map_ptr == 0 { return; }
+    let map = unsafe { &mut *(map_ptr as *mut spatial_map::SpatialTileMap) };
+    map.touch_tile(tx, ty, timestamp_ns as u64);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapQueryVisible<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+    min_tx: jint,
+    min_ty: jint,
+    max_tx: jint,
+    max_ty: jint,
+    timestamp_ns: jlong,
+    out_keys: JLongArray<'local>,
+) -> jint {
+    if map_ptr == 0 { return 0; }
+    let map = unsafe { &mut *(map_ptr as *mut spatial_map::SpatialTileMap) };
+    let len = match env.get_array_length(&out_keys) {
+        Ok(l) => l as usize,
+        Err(_) => return 0,
+    };
+    if len == 0 { return 0; }
+
+    let mut buf = vec![0i64; len];
+    let count = map.query_visible_into_slice(min_tx, min_ty, max_tx, max_ty, timestamp_ns as u64, &mut buf);
+    if count > 0 {
+        let _ = env.set_long_array_region(&out_keys, 0, &buf[..count]);
+    }
+    count as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapFindEvictionCandidates<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+    visible_keys: JLongArray<'local>,
+    now_ns: jlong,
+    max_evictions: jint,
+    out_evict_keys: JLongArray<'local>,
+) -> jint {
+    if map_ptr == 0 { return 0; }
+    let map = unsafe { &*(map_ptr as *mut spatial_map::SpatialTileMap) };
+
+    let vis_len = env.get_array_length(&visible_keys).unwrap_or(0) as usize;
+    let mut vis_buf = vec![0i64; vis_len];
+    if vis_len > 0 {
+        let _ = env.get_long_array_region(&visible_keys, 0, &mut vis_buf);
+    }
+    let vis_u64: Vec<u64> = vis_buf.into_iter().map(|k| k as u64).collect();
+
+    let mut evict_candidates = Vec::new();
+    map.find_eviction_candidates(&vis_u64, now_ns as u64, max_evictions as usize, &mut evict_candidates);
+
+    let count = evict_candidates.len();
+    if count > 0 {
+        let evict_i64: Vec<i64> = evict_candidates.into_iter().map(|k| k as i64).collect();
+        let _ = env.set_long_array_region(&out_evict_keys, 0, &evict_i64);
+    }
+    count as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapGetBounds<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+    out_bounds: JFloatArray<'local>,
+) -> jboolean {
+    if map_ptr == 0 { return JNI_FALSE; }
+    let map = unsafe { &*(map_ptr as *mut spatial_map::SpatialTileMap) };
+    if let Some((min_x, min_y, max_x, max_y)) = map.compute_bounds() {
+        let bounds = [min_x, min_y, max_x, max_y];
+        let _ = env.set_float_array_region(&out_bounds, 0, &bounds);
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapClear<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+) {
+    if map_ptr == 0 { return; }
+    let map = unsafe { &mut *(map_ptr as *mut spatial_map::SpatialTileMap) };
+    map.clear();
+}
