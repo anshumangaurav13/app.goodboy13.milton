@@ -77,14 +77,17 @@ class DabShader {
 $GRAPHITE_HASH_FUNCTIONS_GLSL
 
             void main() {
+                float dist = 0.0;
                 vec2 pixelCoord = floor(vWorldPos + vec2(0.01));
-                float dist = length(vLocalCoord);
-                if (dist > 1.0) {
-                    discard;
-                }
 
                 float dabAlpha = 0.0;
                 if (uBrushMode == 1) {
+                    vec2 pixelCenter = pixelCoord + vec2(0.5);
+                    dist = length(pixelCenter - vDabCenter) / vRadius;
+                    if (dist > 1.0) {
+                        discard;
+                    }
+
 
 $GRAPHITE_PHYSICS_GLSL
                 } else if (uBrushMode == 2) {
@@ -161,14 +164,17 @@ $GRAPHITE_PHYSICS_GLSL
 $GRAPHITE_HASH_FUNCTIONS_GLSL
 
             void main() {
+                float dist = 0.0;
                 vec2 pixelCoord = floor(vWorldPos + vec2(0.01));
-                float dist = length(vLocalCoord);
-                if (dist > 1.0) {
-                    discard;
-                }
 
                 float dabAlpha = 0.0;
                 if (uBrushMode == 1) {
+                    vec2 pixelCenter = pixelCoord + vec2(0.5);
+                    dist = length(pixelCenter - vDabCenter) / vRadius;
+                    if (dist > 1.0) {
+                        discard;
+                    }
+
 
 $GRAPHITE_PHYSICS_GLSL
                 } else if (uBrushMode == 2) {
@@ -340,14 +346,11 @@ $GRAPHITE_PHYSICS_GLSL
                     // 4. Natural linear radial falloff from lead contact center
                     float falloff = clamp(1.0 - dist, 0.0, 1.0);
 
-                    // 5. Anti-aliased outer edge feathering matching continuous dab boundary
-                    float edge = smoothstep(1.0, uHardness * 0.85, dist);
-
-                    // 6. Rich carbon deposit opacity with microscopic grain variance
+                    // 5. Rich carbon deposit opacity with microscopic grain variance
                     float grainRand = fract(pRand * 13.37 + tooth * 7.19);
                     float alphaDeposit = (0.16 + 0.36 * grainRand) * (0.35 + 0.65 * falloff) * effHardness;
 
-                    dabAlpha = alphaDeposit * edge * uColor.a;
+                    dabAlpha = alphaDeposit * uColor.a;
         """
     }
 }
