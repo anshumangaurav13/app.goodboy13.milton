@@ -11,6 +11,7 @@ pub mod history;
 pub mod viewport;
 pub mod spatial_map;
 pub mod liquify;
+pub mod spectral;
 
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JByteBuffer, JClass, JFloatArray, JIntArray, JLongArray, JString};
@@ -1950,7 +1951,7 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_histor
 
 #[no_mangle]
 pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyGetUndoLayerMeta<'local>(
-    mut env: JNIEnv<'local>,
+    env: JNIEnv<'local>,
     _class: JClass<'local>,
     history_ptr: jlong,
     out_ids: JLongArray<'local>,
@@ -1974,7 +1975,7 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_histor
 
 #[no_mangle]
 pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyGetRedoLayerMeta<'local>(
-    mut env: JNIEnv<'local>,
+    env: JNIEnv<'local>,
     _class: JClass<'local>,
     history_ptr: jlong,
     out_ids: JLongArray<'local>,
@@ -2750,4 +2751,59 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_select
         }
         Err(_) => env.new_float_array(0).unwrap_or_default(),
     }
+}
+
+// ============================================================================
+// #13 KUBELKA-MUNK SPECTRAL PIGMENT MIXING JNI BINDINGS
+// ============================================================================
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_mixSpectralColor(
+    _env: JNIEnv,
+    _class: JClass,
+    src_rgba: jint,
+    dst_rgba: jint,
+    weight: jfloat,
+) -> jint {
+    let src_bytes = (src_rgba as u32).to_le_bytes();
+    let dst_bytes = (dst_rgba as u32).to_le_bytes();
+    let out = spectral::mix_spectral_rgba(src_bytes, dst_bytes, weight);
+    u32::from_le_bytes(out) as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_mixSpectralPixelBufferDirect<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    src_direct_buf: JByteBuffer<'local>,
+    dst_direct_buf: JByteBuffer<'local>,
+    weight: jfloat,
+) -> jboolean {
+    let src_ptr = match env.get_direct_buffer_address(&src_direct_buf) {
+        Ok(p) => p,
+        Err(_) => return JNI_FALSE,
+    };
+    let src_cap = match env.get_direct_buffer_capacity(&src_direct_buf) {
+        Ok(c) => c,
+        Err(_) => return JNI_FALSE,
+    };
+
+    let dst_ptr = match env.get_direct_buffer_address(&dst_direct_buf) {
+        Ok(p) => p,
+        Err(_) => return JNI_FALSE,
+    };
+    let dst_cap = match env.get_direct_buffer_capacity(&dst_direct_buf) {
+        Ok(c) => c,
+        Err(_) => return JNI_FALSE,
+    };
+
+    if src_cap != dst_cap || src_cap == 0 {
+        return JNI_FALSE;
+    }
+
+    let src_slice = unsafe { std::slice::from_raw_parts(src_ptr, src_cap) };
+    let dst_slice = unsafe { std::slice::from_raw_parts_mut(dst_ptr, dst_cap) };
+
+    spectral::mix_spectral_pixel_buffer(src_slice, dst_slice, weight);
+    JNI_TRUE
 }

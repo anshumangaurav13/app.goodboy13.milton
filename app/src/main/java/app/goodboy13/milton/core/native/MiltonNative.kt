@@ -748,4 +748,18 @@ object MiltonNative {
         epsilon: Float,
         smoothIterations: Int
     ): FloatArray
+
+    // ========================================================================
+    // #13 KUBELKA-MUNK SPECTRAL PIGMENT MIXING
+    // ========================================================================
+
+    @JvmStatic
+    external fun mixSpectralColor(srcRgba: Int, dstRgba: Int, weight: Float): Int
+
+    @JvmStatic
+    external fun mixSpectralPixelBufferDirect(
+        srcDirectBuf: java.nio.ByteBuffer,
+        dstDirectBuf: java.nio.ByteBuffer,
+        weight: Float
+    ): Boolean
 }
