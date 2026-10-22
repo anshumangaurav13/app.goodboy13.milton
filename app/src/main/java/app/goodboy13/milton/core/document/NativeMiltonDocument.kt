@@ -18,11 +18,9 @@ class NativeMiltonDocument : Closeable {
     val docPtr: Long
 
     init {
-        docPtr = if (MiltonNative.isLoaded) {
-            MiltonNative.createDocument()
-        } else {
-            0L
-        }
+        check(MiltonNative.isLoaded) { "MiltonNative core library must be loaded for NativeMiltonDocument" }
+        docPtr = MiltonNative.createDocument()
+        check(docPtr != 0L) { "Failed to create native MiltonDocument" }
     }
 
     val isValid: Boolean

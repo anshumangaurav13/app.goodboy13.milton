@@ -1,0 +1,5 @@
+# Mark unit tests as vendored so GitHub Linguist language stats reflect pure production code
+app/src/test/** linguist-vendored
+
+# Mark static vector asset path coordinate tables as vendored
+app/src/main/java/app/goodboy13/milton/ui/components/ToolIcons.kt linguist-vendored

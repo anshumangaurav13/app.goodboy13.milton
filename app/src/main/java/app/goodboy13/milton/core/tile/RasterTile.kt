@@ -234,31 +234,23 @@ class RasterTile(
         }
 
         try {
-            if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
-                var ok = false
-                bindFbo()
-                DirectBufferPool.useBuffer { byteBuf ->
-                    GLES30.glReadPixels(
-                        0, 0,
-                        TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
-                        GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, byteBuf
-                    )
-                    byteBuf.rewind()
-                    ok = app.goodboy13.milton.core.native.MiltonNative.swapWriteTileDirect(
-                        cacheDir.absolutePath, 0L, coord.tx, coord.ty, byteBuf
-                    )
-                }
-                unbindFbo()
-                if (ok) {
-                    isOnDisk = true
-                    return
-                }
+            var ok = false
+            bindFbo()
+            DirectBufferPool.useBuffer { byteBuf ->
+                GLES30.glReadPixels(
+                    0, 0,
+                    TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+                    GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, byteBuf
+                )
+                byteBuf.rewind()
+                ok = app.goodboy13.milton.core.native.MiltonNative.swapWriteTileDirect(
+                    cacheDir.absolutePath, 0L, coord.tx, coord.ty, byteBuf
+                )
             }
-            val raw = readPixels()
-            val swapFile = getSwapFile(cacheDir)
-            swapFile.parentFile?.mkdirs()
-            swapFile.writeBytes(raw)
-            isOnDisk = true
+            unbindFbo()
+            if (ok) {
+                isOnDisk = true
+            }
         } catch (e: Exception) {
             Log.e("RasterTile", "Failed to evict tile $coord to disk", e)
         } finally {
@@ -273,48 +265,36 @@ class RasterTile(
         }
 
         try {
-            if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
-                var ok = false
-                DirectBufferPool.useBuffer { byteBuf ->
-                    ok = app.goodboy13.milton.core.native.MiltonNative.swapReadTileDirect(
-                        cacheDir.absolutePath, 0L, coord.tx, coord.ty, byteBuf
-                    )
-                    if (ok) {
-                        initGl()
-                        byteBuf.position(0)
-                        if (sliceIndex >= 0) {
-                            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D_ARRAY, textureId)
-                            GLES30.glTexSubImage3D(
-                                GLES30.GL_TEXTURE_2D_ARRAY, 0,
-                                0, 0, sliceIndex,
-                                TileCoord.TILE_SIZE, TileCoord.TILE_SIZE, 1,
-                                GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, byteBuf
-                            )
-                            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D_ARRAY, 0)
-                        } else {
-                            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
-                            GLES30.glTexSubImage2D(
-                                GLES30.GL_TEXTURE_2D, 0,
-                                0, 0,
-                                TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
-                                GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, byteBuf
-                            )
-                            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
-                        }
-                        isDirty = true
-                        hasContent = true
+            var ok = false
+            DirectBufferPool.useBuffer { byteBuf ->
+                ok = app.goodboy13.milton.core.native.MiltonNative.swapReadTileDirect(
+                    cacheDir.absolutePath, 0L, coord.tx, coord.ty, byteBuf
+                )
+                if (ok) {
+                    initGl()
+                    byteBuf.position(0)
+                    if (sliceIndex >= 0) {
+                        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D_ARRAY, textureId)
+                        GLES30.glTexSubImage3D(
+                            GLES30.GL_TEXTURE_2D_ARRAY, 0,
+                            0, 0, sliceIndex,
+                            TileCoord.TILE_SIZE, TileCoord.TILE_SIZE, 1,
+                            GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, byteBuf
+                        )
+                        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D_ARRAY, 0)
+                    } else {
+                        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+                        GLES30.glTexSubImage2D(
+                            GLES30.GL_TEXTURE_2D, 0,
+                            0, 0,
+                            TileCoord.TILE_SIZE, TileCoord.TILE_SIZE,
+                            GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, byteBuf
+                        )
+                        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
                     }
+                    isDirty = true
+                    hasContent = true
                 }
-                if (ok) return
-            }
-            val swapFile = getSwapFile(cacheDir)
-            val raw = readSwapBytes(swapFile)
-            if (raw != null) {
-                initGl()
-                writePixels(raw)
-                hasContent = true
-            } else {
-                initGl()
             }
         } catch (e: Exception) {
             Log.e("RasterTile", "Failed to restore tile $coord from disk", e)
@@ -326,43 +306,11 @@ class RasterTile(
 
     fun deleteDiskSwap(cacheDir: File?) {
         if (cacheDir != null) {
-            if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
-                app.goodboy13.milton.core.native.MiltonNative.swapDeleteTile(
-                    cacheDir.absolutePath, 0L, coord.tx, coord.ty
-                )
-            }
-            val swapFile = getSwapFile(cacheDir)
-            if (swapFile.exists()) {
-                swapFile.delete()
-            }
+            app.goodboy13.milton.core.native.MiltonNative.swapDeleteTile(
+                cacheDir.absolutePath, 0L, coord.tx, coord.ty
+            )
         }
         isOnDisk = false
-    }
-
-    private fun getSwapFile(cacheDir: File): File {
-        return File(cacheDir, "tile_${coord.tx}_${coord.ty}.bin")
-    }
-
-    companion object {
-        /**
-         * Reads tile swap bytes from disk. Supports both lightning-fast raw 1MB streams
-         * and legacy Deflater-compressed files with automatic decompression.
-         */
-        fun readSwapBytes(swapFile: File): ByteArray? {
-            if (!swapFile.exists()) return null
-            val data = swapFile.readBytes()
-            val expectedSize = TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4
-            val raw = if (data.size == expectedSize) {
-                data
-            } else {
-                try {
-                    UndoManager.decompress(data)
-                } catch (e: Exception) {
-                    null
-                }
-            }
-            return if (raw != null && raw.size == expectedSize) raw else null
-        }
     }
 
     fun releaseGl() {

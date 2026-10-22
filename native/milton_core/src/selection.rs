@@ -695,6 +695,55 @@ fn sample_cutout_bilinear(
     out
 }
 
+
+/// Computes transformed destination bounding box [min_x, min_y, max_x, max_y] from source bounds.
+#[inline]
+pub fn session_calculate_dest_bounds(
+    src_left: f32,
+    src_top: f32,
+    src_right: f32,
+    src_bottom: f32,
+    scale_x: f32,
+    scale_y: f32,
+    rotation_rad: f32,
+    trans_x: f32,
+    trans_y: f32,
+    pivot_x: f32,
+    pivot_y: f32,
+    flip_h: bool,
+    flip_v: bool,
+) -> [f32; 4] {
+    let eff_sx = if flip_h { -scale_x } else { scale_x };
+    let eff_sy = if flip_v { -scale_y } else { scale_y };
+    let cos_t = rotation_rad.cos();
+    let sin_t = rotation_rad.sin();
+
+    let corners = [
+        Point2D { x: src_left, y: src_top },
+        Point2D { x: src_right, y: src_top },
+        Point2D { x: src_right, y: src_bottom },
+        Point2D { x: src_left, y: src_bottom },
+    ];
+
+    let mut min_x = f32::MAX;
+    let mut max_x = -f32::MAX;
+    let mut min_y = f32::MAX;
+    let mut max_y = -f32::MAX;
+
+    for c in &corners {
+        let cx = (c.x - pivot_x) * eff_sx;
+        let cy = (c.y - pivot_y) * eff_sy;
+        let rx = cx * cos_t - cy * sin_t + pivot_x + trans_x;
+        let ry = cx * sin_t + cy * cos_t + pivot_y + trans_y;
+        min_x = min_x.min(rx);
+        max_x = max_x.max(rx);
+        min_y = min_y.min(ry);
+        max_y = max_y.max(ry);
+    }
+
+    [min_x, min_y, max_x, max_y]
+}
+
 /// Computes the exact set of destination canvas tiles affected by the transformed selection.
 pub fn session_get_affected_dest_tiles(
     layer_id: i64,
@@ -1396,7 +1445,17 @@ mod tests {
         assert!(simplified.len() < 15, "RDP must compress 100+ collinear points to < 15, got {}", simplified.len());
 
         // Smooth with Chaikin
+        // Smooth with Chaikin
         let smoothed = smooth_polygon_chaikin(&simplified, 2);
         assert!(smoothed.len() > simplified.len());
+    }
+
+    #[test]
+    fn test_selection_calculate_dest_bounds_identity() {
+        let b = session_calculate_dest_bounds(0.0, 0.0, 100.0, 100.0, 1.0, 1.0, 0.0, 0.0, 0.0, 50.0, 50.0, false, false);
+        assert!((b[0] - 0.0).abs() < 1e-4);
+        assert!((b[1] - 0.0).abs() < 1e-4);
+        assert!((b[2] - 100.0).abs() < 1e-4);
+        assert!((b[3] - 100.0).abs() < 1e-4);
     }
 }
