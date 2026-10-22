@@ -148,16 +148,8 @@ object CanvasExportEngine {
 
     private fun flipPixelsVertically(src: ByteArray, width: Int, height: Int): ByteArray {
         val dst = ByteArray(src.size)
-        if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
-            if (app.goodboy13.milton.core.native.MiltonNative.flipPixelsVertically(src, width, height, dst)) {
-                return dst
-            }
-        }
-        val stride = width * 4
-        for (row in 0 until height) {
-            val srcOffset = (height - 1 - row) * stride
-            val dstOffset = row * stride
-            System.arraycopy(src, srcOffset, dst, dstOffset, stride)
+        require(app.goodboy13.milton.core.native.MiltonNative.flipPixelsVertically(src, width, height, dst)) {
+            "Native pixel vertical flip failed"
         }
         return dst
     }

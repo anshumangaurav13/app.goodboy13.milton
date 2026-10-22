@@ -49,9 +49,6 @@ class GlSceneRenderer {
     private val pickPixelBuf = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder())
 
     private val tileOrthoMatrix = FloatArray(16)
-    private val screenOrthoMatrix = FloatArray(16)
-    private val screenProjectionMatrix = FloatArray(16)
-    private val worldToViewMatrix = FloatArray(16)
     private val finalMvpMatrix = FloatArray(16)
     private val identityMatrix = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
 
@@ -65,11 +62,7 @@ class GlSceneRenderer {
     private val packetDirectBuffer = ByteBuffer.allocateDirect(2048 * 20).order(ByteOrder.nativeOrder())
     private var nativeBucketHeaders = IntArray(256 * 6)
     private var nativeDabIndices = IntArray(16384)
-    private val tileDabsBucketMap = HashMap<Long, TileDabBucket>()
-    private val bucketPool = ArrayList<TileDabBucket>()
-    private val activeBuckets = ArrayList<TileDabBucket>()
-
-    private fun packTileCoord(tx: Int, ty: Int): Long = (tx.toLong() shl 32) or (ty.toLong() and 0xFFFFFFFFL)
+    private val compatRingBuffer = NativeDabRingBuffer(capacity = 8192)
 
     var isGlInitialized = false
         private set
@@ -139,34 +132,7 @@ class GlSceneRenderer {
                 transform,
                 finalMvpMatrix
             )
-            return finalMvpMatrix
         }
-        // 1. screenOrthoMatrix: maps buffer pixels [0..bufW, 0..bufH] to buffer NDC [-1, 1]
-        Matrix.orthoM(
-            screenOrthoMatrix, 0,
-            0f, bufferInfo.width.toFloat(),
-            0f, bufferInfo.height.toFloat(),
-            -1f, 1f
-        )
-        // 2. screenProjectionMatrix: maps view pixels -> buffer pixels -> buffer NDC
-        Matrix.multiplyMM(screenProjectionMatrix, 0, screenOrthoMatrix, 0, transform, 0)
-
-        // 3. worldToViewMatrix: maps canvas world coordinates -> view pixels
-        Matrix.setIdentityM(worldToViewMatrix, 0)
-        if (viewport.isFlippedHorizontally) {
-            val cx = viewport.screenWidth * 0.5f
-            Matrix.translateM(worldToViewMatrix, 0, cx, 0f, 0f)
-            Matrix.scaleM(worldToViewMatrix, 0, -1f, 1f, 1f)
-            Matrix.translateM(worldToViewMatrix, 0, -cx, 0f, 0f)
-        }
-        Matrix.translateM(worldToViewMatrix, 0, viewport.panX, viewport.panY, 0f)
-        Matrix.scaleM(worldToViewMatrix, 0, viewport.zoom, viewport.zoom, 1.0f)
-        if (viewport.rotationDegrees != 0f) {
-            Matrix.rotateM(worldToViewMatrix, 0, viewport.rotationDegrees, 0f, 0f, 1f)
-        }
-
-        // 4. Final MVP: world coordinates -> buffer NDC
-        Matrix.multiplyMM(finalMvpMatrix, 0, screenProjectionMatrix, 0, worldToViewMatrix, 0)
         return finalMvpMatrix
     }
 
@@ -512,149 +478,26 @@ class GlSceneRenderer {
         }
     }
 
-    /**
-     * Two-pass scratch FBO composition: accumulates brush dabs into a scratch FBO ribbon,
-     * then composites onto destination tile FBO in a single pass. Directly attenuates for eraser dabs.
-     * Uses non-allocating pooled TileDabBuckets and bindFboDirect() to eliminate GPU stalls and GC churn.
-     */
     fun stampDabsIntoTiles(
         targetTileMap: TileMap,
         dabs: List<BrushDab>,
         onTilesResolved: ((Collection<RasterTile>) -> Unit)? = null
     ) {
         if (dabs.isEmpty()) return
-
-        tileDabsBucketMap.clear()
-        for (i in activeBuckets.indices) {
-            bucketPool.add(activeBuckets[i])
-        }
-        activeBuckets.clear()
-        reusableAffectedTiles.clear()
-
-        val tileSize = TileCoord.TILE_SIZE.toFloat()
+        compatRingBuffer.reset()
         for (dab in dabs) {
-            val reach = dab.radius + 2.0f
-            val minTx = floor((dab.x - reach) / tileSize).toInt()
-            val maxTx = floor((dab.x + reach) / tileSize).toInt()
-            val minTy = floor((dab.y - reach) / tileSize).toInt()
-            val maxTy = floor((dab.y + reach) / tileSize).toInt()
-            for (ty in minTy..maxTy) {
-                for (tx in minTx..maxTx) {
-                    val key = packTileCoord(tx, ty)
-                    var bucket = tileDabsBucketMap[key]
-                    if (bucket == null) {
-                        val tile = targetTileMap.getOrCreateTile(tx, ty)
-                        tile.ensureResident(targetTileMap.cacheDir)
-                        bucket = if (bucketPool.isNotEmpty()) bucketPool.removeAt(bucketPool.size - 1) else TileDabBucket()
-                        bucket.reset(tx, ty, tile)
-                        tileDabsBucketMap[key] = bucket
-                        activeBuckets.add(bucket)
-                        reusableAffectedTiles.add(tile)
-                    }
-                    if (dab.isEraser) {
-                        bucket.eraserDabs.add(dab)
-                    } else {
-                        bucket.brushDabs.add(dab)
-                    }
-                }
-            }
+            compatRingBuffer.pushDab(dab)
         }
-
-        // Notify callback (e.g. undo pre-stroke snapshot) before modifying tile FBOs
-        onTilesResolved?.invoke(reusableAffectedTiles)
-
-        for (i in activeBuckets.indices) {
-            val bucket = activeBuckets[i]
-            val tx = bucket.tx
-            val ty = bucket.ty
-            val tile = bucket.tile ?: continue
-            val eraserDabs = bucket.eraserDabs
-            val brushDabs = bucket.brushDabs
-
-            if (brushDabs.isNotEmpty()) {
-                tile.hasContent = true
-            }
-
-            // 1. Eraser dabs directly attenuate the tile FBO
-            if (eraserDabs.isNotEmpty()) {
-                tile.bindFboDirect()
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glDisable(GLES30.GL_BLEND)
-                } else {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                    GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
-                    GLES30.glBlendFunc(GLES30.GL_ZERO, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-                }
-
-                dabShader.beginBatch(tileOrthoMatrix)
-                for (dab in eraserDabs) {
-                    val localX = dab.x - (tx * tileSize)
-                    val localY = dab.y - (ty * tileSize)
-                    dabShader.renderDabFast(
-                        centerX = localX,
-                        centerY = localY,
-                        radius = dab.radius,
-                        colorRgb = 0,
-                        alpha = dab.alpha,
-                        hardness = dab.hardness,
-                        brushMode = dab.brushMode,
-                        pressure = dab.pressure,
-                        worldOffsetX = tx * tileSize,
-                        worldOffsetY = ty * tileSize,
-                        isEraser = true
-                    )
-                }
-                dabShader.endBatch()
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                }
-            }
-
-            // 2. Brush dabs: Two-pass scratch composition
-            if (brushDabs.isNotEmpty()) {
-                // Pass 1: Render all brush dabs for this tile into the scratch FBO
-                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, scratchFboId)
-                GLES30.glViewport(0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE)
-                GLES30.glClearColor(0f, 0f, 0f, 0f)
-                GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
-
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glDisable(GLES30.GL_BLEND)
-                } else {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                    GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
-                    GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-                }
-
-                dabShader.beginBatch(tileOrthoMatrix)
-                for (dab in brushDabs) {
-                    val localX = dab.x - (tx * tileSize)
-                    val localY = dab.y - (ty * tileSize)
-                    dabShader.renderDabFast(
-                        centerX = localX,
-                        centerY = localY,
-                        radius = dab.radius,
-                        colorRgb = dab.colorRgb,
-                        alpha = dab.alpha,
-                        hardness = dab.hardness,
-                        brushMode = dab.brushMode,
-                        pressure = dab.pressure,
-                        worldOffsetX = tx * tileSize,
-                        worldOffsetY = ty * tileSize,
-                        isEraser = false
-                    )
-                }
-                dabShader.endBatch()
-
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                }
-
-                // Pass 2: Composite the scratch stroke ribbon onto destination tile FBO in a single pass
-                tile.bindFboDirect()
-                strokeCompositeShader.render(strokeTextureId = scratchTextureId)
-            }
+        val onResolvedAdapter: ((List<RasterTile>) -> Unit)? = onTilesResolved?.let { cb ->
+            { list -> cb(list) }
         }
+        stampRingDabsIntoTiles(
+            targetTileMap = targetTileMap,
+            ringBuffer = compatRingBuffer,
+            startHead = 0L,
+            count = dabs.size,
+            onTilesResolved = onResolvedAdapter
+        )
     }
 
     /**
@@ -796,137 +639,6 @@ class GlSceneRenderer {
                         strokeCompositeShader.render(strokeTextureId = scratchTextureId)
                     }
                 }
-                return
-            }
-        }
-
-        tileDabsBucketMap.clear()
-        for (i in activeBuckets.indices) {
-            bucketPool.add(activeBuckets[i])
-        }
-        activeBuckets.clear()
-        reusableAffectedTiles.clear()
-
-        val tileSize = TileCoord.TILE_SIZE.toFloat()
-        ringBuffer.forEachDab(startHead, count) { slot, x, y, radius, _, _, _, _, _, _, isEraser ->
-            val reach = radius + 2.0f
-            val minTx = floor((x - reach) / tileSize).toInt()
-            val maxTx = floor((x + reach) / tileSize).toInt()
-            val minTy = floor((y - reach) / tileSize).toInt()
-            val maxTy = floor((y + reach) / tileSize).toInt()
-            for (ty in minTy..maxTy) {
-                for (tx in minTx..maxTx) {
-                    val key = packTileCoord(tx, ty)
-                    var bucket = tileDabsBucketMap[key]
-                    if (bucket == null) {
-                        val tile = targetTileMap.getOrCreateTile(tx, ty)
-                        tile.ensureResident(targetTileMap.cacheDir)
-                        bucket = if (bucketPool.isNotEmpty()) bucketPool.removeAt(bucketPool.size - 1) else TileDabBucket()
-                        bucket.reset(tx, ty, tile)
-                        tileDabsBucketMap[key] = bucket
-                        activeBuckets.add(bucket)
-                        reusableAffectedTiles.add(tile)
-                    }
-                    if (isEraser) {
-                        bucket.addEraserIndex(slot)
-                    } else {
-                        bucket.addBrushIndex(slot)
-                    }
-                }
-            }
-        }
-
-        onTilesResolved?.invoke(reusableAffectedTiles)
-
-        for (i in activeBuckets.indices) {
-            val bucket = activeBuckets[i]
-            val tx = bucket.tx
-            val ty = bucket.ty
-            val tile = bucket.tile ?: continue
-
-            if (bucket.brushCount > 0) {
-                tile.hasContent = true
-            }
-
-            // 1. Eraser dabs directly attenuate the tile FBO
-            if (bucket.eraserCount > 0) {
-                tile.bindFboDirect()
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glDisable(GLES30.GL_BLEND)
-                } else {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                    GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
-                    GLES30.glBlendFunc(GLES30.GL_ZERO, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-                }
-
-                dabShader.beginBatch(tileOrthoMatrix)
-                for (k in 0 until bucket.eraserCount) {
-                    val slot = bucket.eraserIndices[k]
-                    val localX = ringBuffer.getXBySlot(slot) - (tx * tileSize)
-                    val localY = ringBuffer.getYBySlot(slot) - (ty * tileSize)
-                    dabShader.renderDabFast(
-                        centerX = localX,
-                        centerY = localY,
-                        radius = ringBuffer.getRadiusBySlot(slot),
-                        colorRgb = 0,
-                        alpha = ringBuffer.getAlphaBySlot(slot),
-                        hardness = ringBuffer.getHardnessBySlot(slot),
-                        brushMode = ringBuffer.getBrushModeBySlot(slot),
-                        pressure = ringBuffer.getPressureBySlot(slot),
-                        worldOffsetX = tx * tileSize,
-                        worldOffsetY = ty * tileSize,
-                        isEraser = true
-                    )
-                }
-                dabShader.endBatch()
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                }
-            }
-
-            // 3. Brush dabs: Two-pass scratch composition
-            if (bucket.brushCount > 0) {
-                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, scratchFboId)
-                GLES30.glViewport(0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE)
-                GLES30.glClearColor(0f, 0f, 0f, 0f)
-                GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
-
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glDisable(GLES30.GL_BLEND)
-                } else {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                    GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
-                    GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-                }
-
-                dabShader.beginBatch(tileOrthoMatrix)
-                for (k in 0 until bucket.brushCount) {
-                    val slot = bucket.brushIndices[k]
-                    val localX = ringBuffer.getXBySlot(slot) - (tx * tileSize)
-                    val localY = ringBuffer.getYBySlot(slot) - (ty * tileSize)
-                    dabShader.renderDabFast(
-                        centerX = localX,
-                        centerY = localY,
-                        radius = ringBuffer.getRadiusBySlot(slot),
-                        colorRgb = ringBuffer.getColorRgbBySlot(slot),
-                        alpha = ringBuffer.getAlphaBySlot(slot),
-                        hardness = ringBuffer.getHardnessBySlot(slot),
-                        brushMode = ringBuffer.getBrushModeBySlot(slot),
-                        pressure = ringBuffer.getPressureBySlot(slot),
-                        worldOffsetX = tx * tileSize,
-                        worldOffsetY = ty * tileSize,
-                        isEraser = false
-                    )
-                }
-                dabShader.endBatch()
-
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                }
-
-                // Pass 2: Composite the scratch stroke ribbon onto destination tile FBO in a single pass
-                tile.bindFboDirect()
-                strokeCompositeShader.render(strokeTextureId = scratchTextureId)
             }
         }
     }
@@ -1066,25 +778,6 @@ class GlSceneRenderer {
                     identityMatrix,
                     exportMvp
                 )
-            } else {
-                val exportOrtho = FloatArray(16)
-                Matrix.orthoM(exportOrtho, 0, 0f, screenW, 0f, screenH, -1f, 1f)
-
-                val worldToView = FloatArray(16)
-                Matrix.setIdentityM(worldToView, 0)
-                if (viewport.isFlippedHorizontally) {
-                    val cx = viewport.screenWidth * 0.5f
-                    Matrix.translateM(worldToView, 0, cx, 0f, 0f)
-                    Matrix.scaleM(worldToView, 0, -1f, 1f, 1f)
-                    Matrix.translateM(worldToView, 0, -cx, 0f, 0f)
-                }
-                Matrix.translateM(worldToView, 0, viewport.panX, viewport.panY, 0f)
-                Matrix.scaleM(worldToView, 0, viewport.zoom, viewport.zoom, 1.0f)
-                if (viewport.rotationDegrees != 0f) {
-                    Matrix.rotateM(worldToView, 0, viewport.rotationDegrees, 0f, 0f, 1f)
-                }
-
-                Matrix.multiplyMM(exportMvp, 0, exportOrtho, 0, worldToView, 0)
             }
 
             val visibleBounds = viewport.getVisibleWorldBounds()
@@ -1149,44 +842,5 @@ class GlSceneRenderer {
             patchBlitShader.releaseGl()
             isGlInitialized = false
         }
-    }
-}
-
-class TileDabBucket(
-    var tx: Int = 0,
-    var ty: Int = 0,
-    var tile: RasterTile? = null
-) {
-    val eraserDabs = mutableListOf<BrushDab>()
-    val brushDabs = mutableListOf<BrushDab>()
-
-    var eraserIndices = IntArray(64)
-    var eraserCount = 0
-
-    var brushIndices = IntArray(128)
-    var brushCount = 0
-
-    fun addEraserIndex(idx: Int) {
-        if (eraserCount >= eraserIndices.size) {
-            eraserIndices = eraserIndices.copyOf(eraserIndices.size * 2)
-        }
-        eraserIndices[eraserCount++] = idx
-    }
-
-    fun addBrushIndex(idx: Int) {
-        if (brushCount >= brushIndices.size) {
-            brushIndices = brushIndices.copyOf(brushIndices.size * 2)
-        }
-        brushIndices[brushCount++] = idx
-    }
-
-    fun reset(tx: Int, ty: Int, tile: RasterTile) {
-        this.tx = tx
-        this.ty = ty
-        this.tile = tile
-        eraserDabs.clear()
-        brushDabs.clear()
-        eraserCount = 0
-        brushCount = 0
     }
 }

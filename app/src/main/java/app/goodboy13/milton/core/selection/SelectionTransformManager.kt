@@ -162,7 +162,7 @@ class SelectionTransformManager {
             return
         }
 
-        val polygon = if (MiltonNative.isLoaded && lassoPoints.size >= 4) {
+        val polygon = if (lassoPoints.size >= 4) {
             val px = FloatArray(lassoPoints.size) { lassoPoints[it].x }
             val py = FloatArray(lassoPoints.size) { lassoPoints[it].y }
             val interleaved = MiltonNative.selectionSimplifyAndSmooth(px, py, 1.5f, 1)

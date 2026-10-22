@@ -15,8 +15,6 @@ import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.util.ArrayDeque
-import java.util.zip.Deflater
-import java.util.zip.Inflater
 
 /**
  * Tile delta entry containing compressed RGBA pixel snapshots.
@@ -92,9 +90,9 @@ class UndoManager(val maxHistorySize: Int = 30) {
     private var nativeHistoryPtr: Long = 0L
 
     init {
-        if (MiltonNative.isLoaded) {
-            nativeHistoryPtr = MiltonNative.createHistoryManager(maxHistorySize)
-        }
+        check(MiltonNative.isLoaded) { "MiltonNative core library must be loaded for UndoManager" }
+        nativeHistoryPtr = MiltonNative.createHistoryManager(maxHistorySize)
+        check(nativeHistoryPtr != 0L) { "Failed to create native HistoryManager" }
     }
 
     fun release() {
@@ -626,87 +624,19 @@ class UndoManager(val maxHistorySize: Int = 30) {
 
     companion object {
         fun compress(input: ByteArray): ByteArray {
-            if (MiltonNative.isLoaded) {
-                try {
-                    val result = MiltonNative.compressTile(input)
-                    if (result.isNotEmpty()) return result
-                } catch (e: Throwable) {
-                    // Fall back to Java Deflater
-                }
-            }
-            val deflater = Deflater(Deflater.BEST_SPEED)
-            deflater.setInput(input)
-            deflater.finish()
-
-            val bos = ByteArrayOutputStream(input.size / 10)
-            val buffer = ByteArray(16384)
-            while (!deflater.finished()) {
-                val count = deflater.deflate(buffer)
-                bos.write(buffer, 0, count)
-            }
-            deflater.end()
-            return bos.toByteArray()
+            return MiltonNative.compressTile(input)
         }
 
         fun compress(directBuf: ByteBuffer): ByteArray {
-            if (MiltonNative.isLoaded) {
-                try {
-                    val result = MiltonNative.compressTileDirect(directBuf)
-                    if (result.isNotEmpty()) return result
-                } catch (e: Throwable) {
-                    // Fall back to heap array
-                }
-            }
-            val arr = ByteArray(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4)
-            directBuf.position(0)
-            directBuf.get(arr)
-            directBuf.rewind()
-            return compress(arr)
+            return MiltonNative.compressTileDirect(directBuf)
         }
 
         fun decompress(input: ByteArray): ByteArray {
-            if (MiltonNative.isLoaded) {
-                try {
-                    val result = MiltonNative.decompressTile(input)
-                    if (result.isNotEmpty()) return result
-                } catch (e: Throwable) {
-                    // Fall back to Java Inflater
-                }
-            }
-            val inflater = Inflater()
-            inflater.setInput(input)
-
-            val bos = ByteArrayOutputStream(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4)
-            val buffer = ByteArray(16384)
-            try {
-                while (!inflater.finished()) {
-                    val count = inflater.inflate(buffer)
-                    if (count == 0) {
-                        if (inflater.needsInput() || inflater.needsDictionary()) break
-                    }
-                    bos.write(buffer, 0, count)
-                }
-            } finally {
-                inflater.end()
-            }
-            return bos.toByteArray()
+            return MiltonNative.decompressTile(input)
         }
 
         fun decompressDirect(input: ByteArray, outDirectBuf: ByteBuffer): Boolean {
-            if (MiltonNative.isLoaded) {
-                try {
-                    if (MiltonNative.decompressTileDirect(input, outDirectBuf)) {
-                        return true
-                    }
-                } catch (e: Throwable) {
-                    // Fall back
-                }
-            }
-            val raw = decompress(input)
-            outDirectBuf.clear()
-            outDirectBuf.put(raw)
-            outDirectBuf.rewind()
-            return true
+            return MiltonNative.decompressTileDirect(input, outDirectBuf)
         }
     }
 }

@@ -89,6 +89,9 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        unitTests.all {
+            it.systemProperty("java.library.path", file("${rootDir}/native/milton_core/target/debug").absolutePath)
+        }
     }
 }
 

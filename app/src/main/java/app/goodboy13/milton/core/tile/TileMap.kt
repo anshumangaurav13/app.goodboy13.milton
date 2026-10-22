@@ -152,9 +152,9 @@ class TileMap(
     }
 
     init {
-        if (MiltonNative.isLoaded) {
-            nativePtr = MiltonNative.spatialMapCreate(maxResidentTiles)
-        }
+        check(MiltonNative.isLoaded) { "MiltonNative core library must be loaded for TileMap" }
+        nativePtr = MiltonNative.spatialMapCreate(maxResidentTiles)
+        check(nativePtr != 0L) { "Failed to create native SpatialTileMap" }
         cacheDir?.mkdirs()
         cacheDir?.listFiles()?.forEach { if (it.extension == "bin") it.delete() }
     }
@@ -168,7 +168,9 @@ class TileMap(
 
     fun getOrCreateTile(tx: Int, ty: Int): RasterTile {
         val key = TileCoord.pack(tx, ty)
+        var created = false
         val tile = tiles.computeIfAbsent(key) {
+            created = true
             RasterTile(TileCoord(tx, ty)) { t ->
                 if (nativePtr != 0L) {
                     MiltonNative.spatialMapUpdateTileState(
@@ -186,13 +188,25 @@ class TileMap(
         val now = System.nanoTime()
         tile.lastAccessTime = now
         if (nativePtr != 0L) {
+            if (created) {
+                MiltonNative.spatialMapUpdateTileState(
+                    nativePtr,
+                    tx,
+                    ty,
+                    tile.sliceIndex,
+                    tile.hasContent,
+                    tile.isResident
+                )
+            }
             MiltonNative.spatialMapTouchTile(nativePtr, tx, ty, now)
         }
         return tile
     }
 
     fun getOrCreateTile(packed: Long): RasterTile {
+        var created = false
         val tile = tiles.computeIfAbsent(packed) {
+            created = true
             val tx = TileCoord.unpackTx(packed)
             val ty = TileCoord.unpackTy(packed)
             RasterTile(TileCoord(tx, ty)) { t ->
@@ -212,6 +226,16 @@ class TileMap(
         val now = System.nanoTime()
         tile.lastAccessTime = now
         if (nativePtr != 0L) {
+            if (created) {
+                MiltonNative.spatialMapUpdateTileState(
+                    nativePtr,
+                    tile.coord.tx,
+                    tile.coord.ty,
+                    tile.sliceIndex,
+                    tile.hasContent,
+                    tile.isResident
+                )
+            }
             MiltonNative.spatialMapTouchTile(nativePtr, tile.coord.tx, tile.coord.ty, now)
         }
         return tile
@@ -279,25 +303,7 @@ class TileMap(
             hasPendingRestores = pendingFound
             return outTiles
         }
-
-        // Pure Kotlin fallback
-        for (tile in tiles.values) {
-            val tx = tile.coord.tx
-            val ty = tile.coord.ty
-            if (tx in minTx..maxTx && ty in minTy..maxTy) {
-                tile.lastAccessTime = now
-                if (tile.isOnDisk) {
-                    if (restoreCount < maxRestores) {
-                        tile.restoreFromDisk(cacheDir)
-                        restoreCount++
-                    } else {
-                        pendingFound = true
-                    }
-                }
-                outTiles.add(tile)
-            }
-        }
-        hasPendingRestores = pendingFound
+        hasPendingRestores = false
         return outTiles
     }
 
@@ -365,28 +371,6 @@ class TileMap(
                 val tile = tiles[packed]
                 tile?.evictToDisk(cacheDir)
             }
-            return
-        }
-
-        // Pure Kotlin fallback
-        val slack = maxResidentTiles / CanvasConstants.TILE_EVICTION_SLACK_DIVISOR
-        val excess = residentCount - (maxResidentTiles + slack)
-        if (excess <= 0) return
-
-        val visibleSet = visibleTiles.toSet()
-        val now = System.nanoTime()
-        val gracePeriodNs = CanvasConstants.TILE_EVICTION_GRACE_PERIOD_NS
-        val enforceGracePeriod = residentCount <= maxResidentTiles * 2
-
-        val residentNonVisible = tiles.values
-            .filter { it.isInitialized && it !in visibleSet && (!enforceGracePeriod || (now - it.lastAccessTime) > gracePeriodNs) }
-
-        if (residentNonVisible.isEmpty()) return
-
-        val sorted = residentNonVisible.sortedBy { it.lastAccessTime }
-        val toEvict = sorted.take(minOf(excess, CanvasConstants.MAX_TILE_EVICTIONS_PER_FRAME))
-        for (tile in toEvict) {
-            tile.evictToDisk(cacheDir)
         }
     }
 
@@ -397,27 +381,8 @@ class TileMap(
                     return WorldRect(tempBounds[0], tempBounds[1], tempBounds[2], tempBounds[3])
                 }
             }
-            return null
         }
-        var minX = Float.MAX_VALUE
-        var minY = Float.MAX_VALUE
-        var maxX = Float.MIN_VALUE
-        var maxY = Float.MIN_VALUE
-        var hasAny = false
-        for (tile in tiles.values) {
-            if (tile.hasContent) {
-                val left = tile.coord.tx * TileCoord.TILE_SIZE.toFloat()
-                val top = tile.coord.ty * TileCoord.TILE_SIZE.toFloat()
-                val right = left + TileCoord.TILE_SIZE
-                val bottom = top + TileCoord.TILE_SIZE
-                if (left < minX) minX = left
-                if (top < minY) minY = top
-                if (right > maxX) maxX = right
-                if (bottom > maxY) maxY = bottom
-                hasAny = true
-            }
-        }
-        return if (hasAny) WorldRect(minX, minY, maxX, maxY) else null
+        return null
     }
 
     fun getAllTiles(): List<RasterTile> {
