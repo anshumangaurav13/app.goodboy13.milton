@@ -14,6 +14,7 @@ import java.util.zip.ZipOutputStream
 
 /**
  * Dedicated compression and decompression codec for standalone .milton ZIP archives.
+ * Backed by native Rust (`milton_core::archive`) for high-speed multi-threaded compression and unpacking.
  */
 class MiltonArchiveCodec(private val context: Context) {
 
@@ -77,6 +78,31 @@ class MiltonArchiveCodec(private val context: Context) {
         canvasView: MiltonCanvasView,
         autosaveCoordinator: AutosaveCoordinator
     ): DocumentMetadata? = withContext(Dispatchers.IO) {
+        if (app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
+            val tempZip = File(context.cacheDir, "import_temp_${System.currentTimeMillis()}.mltn")
+            try {
+                FileOutputStream(tempZip).use { fos -> inputStream.copyTo(fos) }
+                autosaveCoordinator.autosaveTilesDir.listFiles()?.forEach { it.delete() }
+                val manifestText = app.goodboy13.milton.core.native.MiltonNative.importArchive(
+                    sourceZip = tempZip.absolutePath,
+                    destinationTilesDir = autosaveCoordinator.autosaveTilesDir.absolutePath
+                )
+                if (!manifestText.isNullOrBlank()) {
+                    val metadata = DocumentMetadata.fromJson(manifestText)
+                    autosaveCoordinator.autosaveManifestFile.writeText(manifestText)
+                    withContext(Dispatchers.Main) {
+                        autosaveCoordinator.loadMetadataIntoCanvas(metadata, autosaveCoordinator.autosaveTilesDir, canvasView)
+                    }
+                    Log.i(TAG, "Native imported .milton archive from ${tempZip.absolutePath}")
+                    return@withContext metadata
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Native import failed, falling back to JVM unpacker", e)
+            } finally {
+                tempZip.delete()
+            }
+        }
+
         val tempUnpackDir = File(context.cacheDir, "unpack_${System.currentTimeMillis()}").apply { mkdirs() }
         val tempTilesDir = File(tempUnpackDir, AutosaveCoordinator.TILES_DIR_NAME).apply { mkdirs() }
         var manifestText: String? = null

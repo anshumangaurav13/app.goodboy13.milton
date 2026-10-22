@@ -3,6 +3,8 @@
 //! Provides sub-pixel equidistant dab spacing, rate-invariant lazy brush stabilization,
 //! and cubic Bezier pressure/opacity response curves with Newton-Raphson solvers.
 
+use std::collections::HashMap;
+
 pub const STRIDE_FLOATS: usize = 10;
 pub const STRIDE_BYTES: usize = STRIDE_FLOATS * 4;
 
@@ -503,6 +505,100 @@ impl BrushProperties {
     }
 }
 
+/// Groups ring buffer dabs in range [start_head, start_head + count) into spatial tile buckets.
+/// Writes bucket headers [tx, ty, eraser_count, brush_count, eraser_start_index, brush_start_index]
+/// into `out_headers` and corresponding dab slot indices into `out_indices`.
+/// Returns the number of unique tile buckets generated.
+pub fn bin_ring_dabs_to_tiles(
+    ring_buf: &[f32],
+    capacity: usize,
+    start_head: u64,
+    count: usize,
+    tile_size: f32,
+    out_headers: &mut [i32],
+    out_indices: &mut [i32],
+) -> usize {
+    if count == 0 || capacity == 0 || tile_size <= 0.0 {
+        return 0;
+    }
+    let is_pow2 = (capacity & (capacity - 1)) == 0;
+    let mask = (capacity - 1) as u64;
+
+    let mut buckets: HashMap<u64, (i32, i32, Vec<i32>, Vec<i32>)> = HashMap::new();
+
+    for i in 0..count {
+        let seq = start_head + i as u64;
+        let slot = if is_pow2 {
+            (seq & mask) as usize
+        } else {
+            (seq % capacity as u64) as usize
+        };
+
+        let offset = slot * STRIDE_FLOATS;
+        if offset + STRIDE_FLOATS > ring_buf.len() {
+            continue;
+        }
+
+        let x = ring_buf[offset + 0];
+        let y = ring_buf[offset + 1];
+        let radius = ring_buf[offset + 2];
+        let is_eraser = ring_buf[offset + 9].to_bits() != 0;
+
+        let reach = radius + 2.0;
+        let min_tx = ((x - reach) / tile_size).floor() as i32;
+        let max_tx = ((x + reach) / tile_size).floor() as i32;
+        let min_ty = ((y - reach) / tile_size).floor() as i32;
+        let max_ty = ((y + reach) / tile_size).floor() as i32;
+
+        for ty in min_ty..=max_ty {
+            for tx in min_tx..=max_tx {
+                let key = ((tx as u32 as u64) << 32) | (ty as u32 as u64);
+                let entry = buckets.entry(key).or_insert_with(|| (tx, ty, Vec::new(), Vec::new()));
+                if is_eraser {
+                    entry.2.push(slot as i32);
+                } else {
+                    entry.3.push(slot as i32);
+                }
+            }
+        }
+    }
+
+    let max_buckets = out_headers.len() / 6;
+    let mut bucket_idx = 0;
+    let mut current_index_pos = 0;
+
+    for (_, (tx, ty, erasers, brushes)) in buckets {
+        if bucket_idx >= max_buckets {
+            break;
+        }
+        if current_index_pos + erasers.len() + brushes.len() > out_indices.len() {
+            break;
+        }
+
+        let eraser_start = current_index_pos;
+        let eraser_count = erasers.len();
+        out_indices[eraser_start..eraser_start + eraser_count].copy_from_slice(&erasers);
+        current_index_pos += eraser_count;
+
+        let brush_start = current_index_pos;
+        let brush_count = brushes.len();
+        out_indices[brush_start..brush_start + brush_count].copy_from_slice(&brushes);
+        current_index_pos += brush_count;
+
+        let h_offset = bucket_idx * 6;
+        out_headers[h_offset + 0] = tx;
+        out_headers[h_offset + 1] = ty;
+        out_headers[h_offset + 2] = eraser_count as i32;
+        out_headers[h_offset + 3] = brush_count as i32;
+        out_headers[h_offset + 4] = eraser_start as i32;
+        out_headers[h_offset + 5] = brush_start as i32;
+
+        bucket_idx += 1;
+    }
+
+    bucket_idx
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -592,5 +688,26 @@ mod tests {
         assert_eq!(out[6].to_bits(), 1);
         // Offset 9: is_eraser as u32 bits
         assert_eq!(out[9].to_bits(), 1);
+    }
+
+    #[test]
+    fn test_bin_ring_dabs_to_tiles() {
+        let mut ring = [0.0f32; STRIDE_FLOATS * 10];
+        // Slot 0: dab at (10, 10), radius 5 (inside tile 0,0)
+        ring[0] = 10.0;
+        ring[1] = 10.0;
+        ring[2] = 5.0;
+        ring[9] = f32::from_bits(0); // brush
+
+        // Slot 1: dab at (600, 10), radius 5 (inside tile 1,0)
+        ring[10] = 600.0;
+        ring[11] = 10.0;
+        ring[12] = 5.0;
+        ring[19] = f32::from_bits(1); // eraser
+
+        let mut headers = [0i32; 60];
+        let mut indices = [0i32; 60];
+        let count = bin_ring_dabs_to_tiles(&ring, 10, 0, 2, 512.0, &mut headers, &mut indices);
+        assert_eq!(count, 2);
     }
 }

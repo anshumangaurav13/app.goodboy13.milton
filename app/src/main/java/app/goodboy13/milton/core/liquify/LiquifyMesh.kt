@@ -3,7 +3,9 @@ package app.goodboy13.milton.core.liquify
 import app.goodboy13.milton.core.constants.CanvasConstants
 import app.goodboy13.milton.core.model.Vec2
 import app.goodboy13.milton.core.model.WorldRect
+import app.goodboy13.milton.core.native.MiltonNative
 import app.goodboy13.milton.core.viewport.Viewport
+import java.io.Closeable
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.max
@@ -13,13 +15,14 @@ import kotlin.math.sin
 /**
  * High-performance 2D deformation mesh for Liquify operations.
  * Constrained strictly to the bounding box and boundary polygon of a Lasso selection.
+ * Backed by native Rust (`milton_core::liquify::LiquifyMesh`) for zero GC allocations.
  */
 class LiquifyMesh(
     val srcBounds: WorldRect,
     val polygon: List<Vec2>,
     val gridCols: Int = CanvasConstants.LIQUIFY_GRID_SIZE,
     val gridRows: Int = CanvasConstants.LIQUIFY_GRID_SIZE
-) {
+) : Closeable {
     val vertexCount = (gridCols + 1) * (gridRows + 1)
     val width = srcBounds.width
     val height = srcBounds.height
@@ -35,7 +38,32 @@ class LiquifyMesh(
     // Polygon boundary weights [0.0..1.0] to anchor vertices outside/at the lasso edge
     val maskWeights = FloatArray(vertexCount)
 
+    var nativePtr: Long = 0L
+        private set
+
     init {
+        if (MiltonNative.isLoaded) {
+            val polyX = FloatArray(polygon.size) { polygon[it].x }
+            val polyY = FloatArray(polygon.size) { polygon[it].y }
+            nativePtr = MiltonNative.liquifyMeshCreate(
+                srcBounds.left, srcBounds.top, srcBounds.right, srcBounds.bottom,
+                polyX, polyY, gridCols, gridRows
+            )
+            if (nativePtr != 0L) {
+                MiltonNative.liquifyMeshGetVertices(nativePtr, worldX, worldY, maskWeights)
+                for (i in 0 until vertexCount) {
+                    initLocalX[i] = worldX[i] - srcBounds.left
+                    initLocalY[i] = worldY[i] - srcBounds.top
+                }
+            } else {
+                initJvmMesh()
+            }
+        } else {
+            initJvmMesh()
+        }
+    }
+
+    private fun initJvmMesh() {
         val dx = width / gridCols.toFloat()
         val dy = height / gridRows.toFloat()
         val featherRadius = (maxOf(width, height) * 0.05f).coerceIn(32f, 96f)
@@ -68,9 +96,25 @@ class LiquifyMesh(
     }
 
     fun reset() {
+        if (nativePtr != 0L) {
+            MiltonNative.liquifyMeshReset(nativePtr)
+            MiltonNative.liquifyMeshGetVertices(nativePtr, worldX, worldY, null)
+            return
+        }
         for (i in 0 until vertexCount) {
             worldX[i] = srcBounds.left + initLocalX[i]
             worldY[i] = srcBounds.top + initLocalY[i]
+        }
+    }
+
+    override fun close() {
+        destroy()
+    }
+
+    fun destroy() {
+        if (nativePtr != 0L) {
+            MiltonNative.liquifyMeshDestroy(nativePtr)
+            nativePtr = 0L
         }
     }
 
@@ -85,6 +129,14 @@ class LiquifyMesh(
         mode: LiquifyMode
     ) {
         if (radius <= 0.001f || strength <= 0.001f) return
+
+        if (nativePtr != 0L) {
+            MiltonNative.liquifyMeshApplyStroke(
+                nativePtr, x1, y1, x2, y2, radius, strength, mode.ordinal
+            )
+            MiltonNative.liquifyMeshGetVertices(nativePtr, worldX, worldY, null)
+            return
+        }
 
         val r2 = radius * radius
         val segDx = x2 - x1
@@ -231,6 +283,10 @@ class LiquifyMesh(
      * Converts world vertex coordinates to local patch space [0..width, 0..height] for baking.
      */
     fun computeLocalWarpedVerts(outArray: FloatArray) {
+        if (nativePtr != 0L) {
+            MiltonNative.liquifyMeshComputeLocalWarpedVerts(nativePtr, outArray)
+            return
+        }
         var vi = 0
         for (i in 0 until vertexCount) {
             outArray[vi] = worldX[i] - srcBounds.left

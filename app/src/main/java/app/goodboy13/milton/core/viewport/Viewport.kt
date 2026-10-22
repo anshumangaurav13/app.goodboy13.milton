@@ -67,6 +67,7 @@ class Viewport(
     @Volatile var screenHeight: Int = max(1, initialHeight)
 
     private val tempBounds = FloatArray(4)
+    private val panBuf = FloatArray(2)
 
     init {
         if (MiltonNative.isNativeAvailable()) {
@@ -225,10 +226,11 @@ class Viewport(
                 curFocalX, curFocalY,
                 zoomFactor, angleDelta
             )
-            val panBuf = FloatArray(2)
-            MiltonNative.viewportGetPan(nativePtr, panBuf)
-            panX = panBuf[0]
-            panY = panBuf[1]
+            synchronized(panBuf) {
+                MiltonNative.viewportGetPan(nativePtr, panBuf)
+                panX = panBuf[0]
+                panY = panBuf[1]
+            }
             zoom = MiltonNative.viewportGetZoom(nativePtr)
             rotationDegrees = MiltonNative.viewportGetRotation(nativePtr)
             return
@@ -269,10 +271,11 @@ class Viewport(
     fun reset() {
         if (nativePtr != 0L) {
             MiltonNative.viewportReset(nativePtr)
-            val panBuf = FloatArray(2)
-            MiltonNative.viewportGetPan(nativePtr, panBuf)
-            panX = panBuf[0]
-            panY = panBuf[1]
+            synchronized(panBuf) {
+                MiltonNative.viewportGetPan(nativePtr, panBuf)
+                panX = panBuf[0]
+                panY = panBuf[1]
+            }
             zoom = MiltonNative.viewportGetZoom(nativePtr)
             rotationDegrees = MiltonNative.viewportGetRotation(nativePtr)
             isFlippedHorizontally = MiltonNative.viewportIsFlipped(nativePtr)

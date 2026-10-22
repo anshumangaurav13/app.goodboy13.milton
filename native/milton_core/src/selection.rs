@@ -968,6 +968,136 @@ pub fn session_end() {
     *guard = None;
 }
 
+// ============================================================================
+// Polygon Simplification & Spline Smoothing (RDP & Chaikin)
+// ============================================================================
+
+fn rdp_recursive(points: &[Point2D], epsilon_sq: f32, out: &mut Vec<Point2D>) {
+    if points.len() < 2 {
+        if let Some(&p) = points.first() {
+            out.push(p);
+        }
+        return;
+    }
+
+    let first = points[0];
+    let last = points[points.len() - 1];
+
+    let mut max_dist_sq = 0.0f32;
+    let mut index = 0;
+
+    let seg_dx = last.x - first.x;
+    let seg_dy = last.y - first.y;
+    let seg_len_sq = seg_dx * seg_dx + seg_dy * seg_dy;
+
+    for i in 1..points.len() - 1 {
+        let p = points[i];
+        let dist_sq = if seg_len_sq < 1e-6 {
+            let dx = p.x - first.x;
+            let dy = p.y - first.y;
+            dx * dx + dy * dy
+        } else {
+            let t = (((p.x - first.x) * seg_dx + (p.y - first.y) * seg_dy) / seg_len_sq).clamp(0.0, 1.0);
+            let proj_x = first.x + t * seg_dx;
+            let proj_y = first.y + t * seg_dy;
+            let dx = p.x - proj_x;
+            let dy = p.y - proj_y;
+            dx * dx + dy * dy
+        };
+
+        if dist_sq > max_dist_sq {
+            max_dist_sq = dist_sq;
+            index = i;
+        }
+    }
+
+    if max_dist_sq > epsilon_sq {
+        rdp_recursive(&points[..=index], epsilon_sq, out);
+        out.pop();
+        rdp_recursive(&points[index..], epsilon_sq, out);
+    } else {
+        out.push(first);
+        out.push(last);
+    }
+}
+
+/// Simplifies a closed or open polygon path using Ramer-Douglas-Peucker algorithm.
+pub fn simplify_polygon_rdp(points: &[Point2D], epsilon: f32) -> Vec<Point2D> {
+    if points.len() <= 3 || epsilon <= 0.001 {
+        return points.to_vec();
+    }
+
+    let epsilon_sq = epsilon * epsilon;
+
+    let p0 = points[0];
+    let mut max_dist_sq = 0.0f32;
+    let mut split_idx = points.len() / 2;
+
+    for (i, p) in points.iter().enumerate().skip(1) {
+        let dx = p.x - p0.x;
+        let dy = p.y - p0.y;
+        let d2 = dx * dx + dy * dy;
+        if d2 > max_dist_sq {
+            max_dist_sq = d2;
+            split_idx = i;
+        }
+    }
+
+    let mut chain1 = Vec::new();
+    rdp_recursive(&points[..=split_idx], epsilon_sq, &mut chain1);
+
+    let mut chain2 = Vec::new();
+    rdp_recursive(&points[split_idx..], epsilon_sq, &mut chain2);
+
+    chain1.pop();
+    chain1.extend(chain2);
+
+    if chain1.len() > 3 {
+        let last = chain1[chain1.len() - 1];
+        let first = chain1[0];
+        let dx = last.x - first.x;
+        let dy = last.y - first.y;
+        if dx * dx + dy * dy < epsilon_sq {
+            chain1.pop();
+        }
+    }
+
+    chain1
+}
+
+/// Smooths a closed polygon using Chaikin's corner-cutting algorithm.
+pub fn smooth_polygon_chaikin(points: &[Point2D], iterations: usize) -> Vec<Point2D> {
+    if points.len() < 3 || iterations == 0 {
+        return points.to_vec();
+    }
+
+    let mut current = points.to_vec();
+
+    for _ in 0..iterations.min(4) {
+        let mut next = Vec::with_capacity(current.len() * 2);
+        let n = current.len();
+        for i in 0..n {
+            let p0 = current[i];
+            let p1 = current[(i + 1) % n];
+
+            let q = Point2D {
+                x: 0.75 * p0.x + 0.25 * p1.x,
+                y: 0.75 * p0.y + 0.25 * p1.y,
+            };
+            let r = Point2D {
+                x: 0.25 * p0.x + 0.75 * p1.x,
+                y: 0.25 * p0.y + 0.75 * p1.y,
+            };
+
+            next.push(q);
+            next.push(r);
+        }
+        current = next;
+    }
+
+    current
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1247,5 +1377,26 @@ mod tests {
         assert_eq!(dest_tile[dest_idx + 3], 255);
 
         session_end();
+    }
+
+    #[test]
+    fn test_rdp_simplification_and_chaikin_smoothing() {
+        // Create a noisy collinear chain of points along the line y = 10
+        let mut raw_points = Vec::new();
+        for i in 0..100 {
+            let x = i as f32;
+            let jitter = if i % 2 == 0 { 0.2 } else { -0.2 };
+            raw_points.push(Point2D { x, y: 10.0 + jitter });
+        }
+        raw_points.push(Point2D { x: 100.0, y: 50.0 });
+        raw_points.push(Point2D { x: 0.0, y: 50.0 });
+
+        // Simplify with epsilon = 1.0 (should eliminate almost all collinear jitter points)
+        let simplified = simplify_polygon_rdp(&raw_points, 1.0);
+        assert!(simplified.len() < 15, "RDP must compress 100+ collinear points to < 15, got {}", simplified.len());
+
+        // Smooth with Chaikin
+        let smoothed = smooth_polygon_chaikin(&simplified, 2);
+        assert!(smoothed.len() > simplified.len());
     }
 }

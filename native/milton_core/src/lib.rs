@@ -10,6 +10,7 @@ pub mod brush;
 pub mod history;
 pub mod viewport;
 pub mod spatial_map;
+pub mod liquify;
 
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JByteBuffer, JClass, JFloatArray, JIntArray, JLongArray, JString};
@@ -1509,6 +1510,69 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_brushE
     count as jint
 }
 
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_brushBinRingDabs<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    ring_buf: JByteBuffer<'local>,
+    capacity: jint,
+    start_head: jlong,
+    count: jint,
+    tile_size: jfloat,
+    out_headers: JIntArray<'local>,
+    out_indices: JIntArray<'local>,
+) -> jint {
+    if count <= 0 || capacity <= 0 {
+        return 0;
+    }
+    let ptr = match env.get_direct_buffer_address(&ring_buf) {
+        Ok(p) => p,
+        Err(_) => return 0,
+    };
+    let cap_bytes = match env.get_direct_buffer_capacity(&ring_buf) {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    if ptr.is_null() || cap_bytes < (capacity as usize * brush::STRIDE_BYTES) {
+        return 0;
+    }
+    let float_slice = unsafe {
+        std::slice::from_raw_parts(ptr as *const f32, capacity as usize * brush::STRIDE_FLOATS)
+    };
+
+    let headers_len = env.get_array_length(&out_headers).unwrap_or(0) as usize;
+    let indices_len = env.get_array_length(&out_indices).unwrap_or(0) as usize;
+    if headers_len < 6 || indices_len == 0 {
+        return 0;
+    }
+
+    let mut headers = vec![0i32; headers_len];
+    let mut indices = vec![0i32; indices_len];
+
+    let bucket_count = brush::bin_ring_dabs_to_tiles(
+        float_slice,
+        capacity as usize,
+        start_head as u64,
+        count as usize,
+        tile_size as f32,
+        &mut headers,
+        &mut indices,
+    );
+
+    if bucket_count > 0 {
+        let headers_to_copy = bucket_count * 6;
+        let _ = env.set_int_array_region(&out_headers, 0, &headers[..headers_to_copy]);
+        let last_h_offset = (bucket_count - 1) * 6;
+        let total_indices = (headers[last_h_offset + 5] + headers[last_h_offset + 3]) as usize;
+        let indices_to_copy = total_indices.min(indices_len);
+        if indices_to_copy > 0 {
+            let _ = env.set_int_array_region(&out_indices, 0, &indices[..indices_to_copy]);
+        }
+    }
+
+    bucket_count as jint
+}
+
 // ============================================================================
 // #7 HISTORY & UNDO/REDO JNI BINDINGS
 // ============================================================================
@@ -2081,6 +2145,43 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewpo
 }
 
 #[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportComputeTwoFingerGesture<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    p0x: jfloat,
+    p0y: jfloat,
+    p1x: jfloat,
+    p1y: jfloat,
+    prev_span: jfloat,
+    prev_angle: jfloat,
+    is_zoom_locked: jboolean,
+    is_rotation_locked: jboolean,
+    out_results: JFloatArray<'local>,
+) {
+    let res = viewport::compute_two_finger_gesture(
+        p0x as f32,
+        p0y as f32,
+        p1x as f32,
+        p1y as f32,
+        prev_span as f32,
+        prev_angle as f32,
+        is_zoom_locked != JNI_FALSE,
+        is_rotation_locked != JNI_FALSE,
+    );
+    let buf = [
+        res.focal_x,
+        res.focal_y,
+        res.span,
+        res.angle_deg,
+        res.zoom_factor,
+        res.applied_angle_deg,
+        res.zoom_delta,
+        res.angle_delta_deg,
+    ];
+    let _ = env.set_float_array_region(&out_results, 0, &buf);
+}
+
+#[no_mangle]
 pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportComputeFinalMvp<'local>(
     env: JNIEnv<'local>,
     _class: JClass<'local>,
@@ -2265,6 +2366,74 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatia
 }
 
 #[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapFindEvictionCandidatesWithCount<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+    visible_keys: JLongArray<'local>,
+    visible_count: jint,
+    now_ns: jlong,
+    max_evictions: jint,
+    out_evict_keys: JLongArray<'local>,
+) -> jint {
+    if map_ptr == 0 { return 0; }
+    let map = unsafe { &*(map_ptr as *mut spatial_map::SpatialTileMap) };
+
+    let total_len = env.get_array_length(&visible_keys).unwrap_or(0) as usize;
+    let count = if visible_count >= 0 { (visible_count as usize).min(total_len) } else { total_len };
+    let mut vis_buf = vec![0i64; count];
+    if count > 0 {
+        let _ = env.get_long_array_region(&visible_keys, 0, &mut vis_buf);
+    }
+    let vis_u64: Vec<u64> = vis_buf.into_iter().map(|k| k as u64).collect();
+
+    let mut evict_candidates = Vec::new();
+    map.find_eviction_candidates(&vis_u64, now_ns as u64, max_evictions as usize, &mut evict_candidates);
+
+    let count = evict_candidates.len();
+    if count > 0 {
+        let evict_i64: Vec<i64> = evict_candidates.into_iter().map(|k| k as i64).collect();
+        let _ = env.set_long_array_region(&out_evict_keys, 0, &evict_i64);
+    }
+    count as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapFindEvictionCandidatesForBounds<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+    min_tx: jint,
+    min_ty: jint,
+    max_tx: jint,
+    max_ty: jint,
+    now_ns: jlong,
+    max_evictions: jint,
+    out_evict_keys: JLongArray<'local>,
+) -> jint {
+    if map_ptr == 0 { return 0; }
+    let map = unsafe { &*(map_ptr as *mut spatial_map::SpatialTileMap) };
+
+    let mut evict_candidates = Vec::new();
+    map.find_eviction_candidates_for_bounds(
+        min_tx,
+        min_ty,
+        max_tx,
+        max_ty,
+        now_ns as u64,
+        max_evictions as usize,
+        &mut evict_candidates,
+    );
+
+    let count = evict_candidates.len();
+    if count > 0 {
+        let evict_i64: Vec<i64> = evict_candidates.into_iter().map(|k| k as i64).collect();
+        let _ = env.set_long_array_region(&out_evict_keys, 0, &evict_i64);
+    }
+    count as jint
+}
+
+#[no_mangle]
 pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapGetBounds<'local>(
     env: JNIEnv<'local>,
     _class: JClass<'local>,
@@ -2291,4 +2460,203 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatia
     if map_ptr == 0 { return; }
     let map = unsafe { &mut *(map_ptr as *mut spatial_map::SpatialTileMap) };
     map.clear();
+}
+
+
+// ============================================================================
+// Liquify Deformation Mesh JNI Bindings
+// ============================================================================
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifyMeshCreate<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    min_x: jfloat,
+    min_y: jfloat,
+    max_x: jfloat,
+    max_y: jfloat,
+    poly_x: JFloatArray<'local>,
+    poly_y: JFloatArray<'local>,
+    grid_cols: jint,
+    grid_rows: jint,
+) -> jlong {
+    let len_x = match env.get_array_length(&poly_x) {
+        Ok(l) => l as usize,
+        Err(_) => return 0,
+    };
+    let len_y = match env.get_array_length(&poly_y) {
+        Ok(l) => l as usize,
+        Err(_) => return 0,
+    };
+    let count = len_x.min(len_y);
+    let mut px = vec![0.0f32; count];
+    let mut py = vec![0.0f32; count];
+    if env.get_float_array_region(&poly_x, 0, &mut px).is_err() {
+        return 0;
+    }
+    if env.get_float_array_region(&poly_y, 0, &mut py).is_err() {
+        return 0;
+    }
+    let points: Vec<selection::Point2D> = (0..count)
+        .map(|i| selection::Point2D { x: px[i], y: py[i] })
+        .collect();
+
+    let bounds = selection::RectF {
+        min_x,
+        min_y,
+        max_x,
+        max_y,
+    };
+
+    let mesh = Box::new(liquify::LiquifyMesh::new(
+        bounds,
+        &points,
+        grid_cols.max(1) as usize,
+        grid_rows.max(1) as usize,
+    ));
+    Box::into_raw(mesh) as jlong
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifyMeshDestroy<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    mesh_ptr: jlong,
+) {
+    if mesh_ptr != 0 {
+        unsafe {
+            drop(Box::from_raw(mesh_ptr as *mut liquify::LiquifyMesh));
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifyMeshReset<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    mesh_ptr: jlong,
+) {
+    if mesh_ptr != 0 {
+        let mesh = unsafe { &mut *(mesh_ptr as *mut liquify::LiquifyMesh) };
+        mesh.reset();
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifyMeshApplyStroke<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    mesh_ptr: jlong,
+    x1: jfloat,
+    y1: jfloat,
+    x2: jfloat,
+    y2: jfloat,
+    radius: jfloat,
+    strength: jfloat,
+    mode: jint,
+) {
+    if mesh_ptr != 0 {
+        let mesh = unsafe { &mut *(mesh_ptr as *mut liquify::LiquifyMesh) };
+        mesh.apply_stroke(
+            x1,
+            y1,
+            x2,
+            y2,
+            radius,
+            strength,
+            liquify::LiquifyMode::from_i32(mode),
+        );
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifyMeshGetVertices<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    mesh_ptr: jlong,
+    out_world_x: JFloatArray<'local>,
+    out_world_y: JFloatArray<'local>,
+    out_mask_weights: JFloatArray<'local>,
+) {
+    if mesh_ptr != 0 {
+        let mesh = unsafe { &*(mesh_ptr as *const liquify::LiquifyMesh) };
+        let count = mesh.vertex_count;
+        let _ = env.set_float_array_region(&out_world_x, 0, &mesh.world_x[..count]);
+        let _ = env.set_float_array_region(&out_world_y, 0, &mesh.world_y[..count]);
+        if !out_mask_weights.is_null() {
+            let _ = env.set_float_array_region(&out_mask_weights, 0, &mesh.mask_weights[..count]);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifyMeshComputeLocalWarpedVerts<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    mesh_ptr: jlong,
+    out_verts: JFloatArray<'local>,
+) {
+    if mesh_ptr != 0 {
+        let mesh = unsafe { &*(mesh_ptr as *const liquify::LiquifyMesh) };
+        let mut buf = vec![0.0f32; mesh.vertex_count * 2];
+        mesh.compute_local_warped_verts(&mut buf);
+        let _ = env.set_float_array_region(&out_verts, 0, &buf);
+    }
+}
+
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_selectionSimplifyAndSmooth<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    points_x: JFloatArray<'local>,
+    points_y: JFloatArray<'local>,
+    epsilon: jfloat,
+    smooth_iterations: jint,
+) -> JFloatArray<'local> {
+    let len_x = match env.get_array_length(&points_x) {
+        Ok(l) => l as usize,
+        Err(_) => return env.new_float_array(0).unwrap_or_default(),
+    };
+    let len_y = match env.get_array_length(&points_y) {
+        Ok(l) => l as usize,
+        Err(_) => return env.new_float_array(0).unwrap_or_default(),
+    };
+    let count = len_x.min(len_y);
+    if count < 3 {
+        return env.new_float_array(0).unwrap_or_default();
+    }
+
+    let mut px = vec![0.0f32; count];
+    let mut py = vec![0.0f32; count];
+    if env.get_float_array_region(&points_x, 0, &mut px).is_err()
+        || env.get_float_array_region(&points_y, 0, &mut py).is_err()
+    {
+        return env.new_float_array(0).unwrap_or_default();
+    }
+
+    let points: Vec<selection::Point2D> = (0..count)
+        .map(|i| selection::Point2D { x: px[i], y: py[i] })
+        .collect();
+
+    let simplified = selection::simplify_polygon_rdp(&points, epsilon);
+    let smoothed = if smooth_iterations > 0 {
+        selection::smooth_polygon_chaikin(&simplified, smooth_iterations as usize)
+    } else {
+        simplified
+    };
+
+    let mut out_interleaved = Vec::with_capacity(smoothed.len() * 2);
+    for p in smoothed {
+        out_interleaved.push(p.x);
+        out_interleaved.push(p.y);
+    }
+
+    match env.new_float_array(out_interleaved.len() as i32) {
+        Ok(arr) => {
+            let _ = env.set_float_array_region(&arr, 0, &out_interleaved);
+            arr
+        }
+        Err(_) => env.new_float_array(0).unwrap_or_default(),
+    }
 }

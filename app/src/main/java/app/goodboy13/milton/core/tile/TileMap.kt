@@ -28,7 +28,9 @@ class TileMap(
     private val overviewTiles = ConcurrentHashMap<Long, RasterTile>()
 
     private var queryBuffer = LongArray(1024)
+    private var visibleKeysBuffer = LongArray(1024)
     private val candidateEvictKeys = LongArray(CanvasConstants.MAX_TILE_EVICTIONS_PER_FRAME)
+    private val tempBounds = FloatArray(4)
 
     var onTileStateChanged: ((tx: Int, ty: Int, sliceIndex: Int, hasContent: Boolean) -> Unit)? = null
         set(value) {
@@ -308,18 +310,52 @@ class TileMap(
      * non-visible tiles to disk storage.
      * Backed by native Rust LRU candidate evaluation.
      */
+    /**
+     * Enforces the VRAM tile budget by paging out the least recently used
+     * non-visible tiles to disk storage based directly on viewport world bounds.
+     * Evaluates candidates entirely in native Rust with zero intermediate allocations.
+     */
+    fun trimToBudget(bounds: WorldRect) {
+        if (nativePtr != 0L) {
+            val minTx = floor(bounds.left / TileCoord.TILE_SIZE.toFloat()).toInt()
+            val maxTx = floor(bounds.right / TileCoord.TILE_SIZE.toFloat()).toInt()
+            val minTy = floor(bounds.top / TileCoord.TILE_SIZE.toFloat()).toInt()
+            val maxTy = floor(bounds.bottom / TileCoord.TILE_SIZE.toFloat()).toInt()
+            val now = System.nanoTime()
+            val evictCount = MiltonNative.spatialMapFindEvictionCandidatesForBounds(
+                nativePtr,
+                minTx, minTy, maxTx, maxTy,
+                now,
+                CanvasConstants.MAX_TILE_EVICTIONS_PER_FRAME,
+                candidateEvictKeys
+            )
+            for (i in 0 until evictCount) {
+                val packed = candidateEvictKeys[i]
+                val tile = tiles[packed]
+                tile?.evictToDisk(cacheDir)
+            }
+            return
+        }
+        val visibleTiles = mutableListOf<RasterTile>()
+        getVisibleTiles(bounds, visibleTiles)
+        trimToBudget(visibleTiles)
+    }
+
     fun trimToBudget(visibleTiles: Collection<RasterTile>) {
         if (nativePtr != 0L) {
             val now = System.nanoTime()
             val visCount = visibleTiles.size
-            val visibleKeys = LongArray(visCount)
+            if (visCount > visibleKeysBuffer.size) {
+                visibleKeysBuffer = LongArray(visCount + 256)
+            }
             var vi = 0
             for (vt in visibleTiles) {
-                visibleKeys[vi++] = vt.coord.packed
+                visibleKeysBuffer[vi++] = vt.coord.packed
             }
-            val evictCount = MiltonNative.spatialMapFindEvictionCandidates(
+            val evictCount = MiltonNative.spatialMapFindEvictionCandidatesWithCount(
                 nativePtr,
-                visibleKeys,
+                visibleKeysBuffer,
+                visCount,
                 now,
                 CanvasConstants.MAX_TILE_EVICTIONS_PER_FRAME,
                 candidateEvictKeys
@@ -352,6 +388,36 @@ class TileMap(
         for (tile in toEvict) {
             tile.evictToDisk(cacheDir)
         }
+    }
+
+    fun computeBounds(): WorldRect? {
+        if (nativePtr != 0L) {
+            synchronized(tempBounds) {
+                if (MiltonNative.spatialMapGetBounds(nativePtr, tempBounds)) {
+                    return WorldRect(tempBounds[0], tempBounds[1], tempBounds[2], tempBounds[3])
+                }
+            }
+            return null
+        }
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = Float.MIN_VALUE
+        var maxY = Float.MIN_VALUE
+        var hasAny = false
+        for (tile in tiles.values) {
+            if (tile.hasContent) {
+                val left = tile.coord.tx * TileCoord.TILE_SIZE.toFloat()
+                val top = tile.coord.ty * TileCoord.TILE_SIZE.toFloat()
+                val right = left + TileCoord.TILE_SIZE
+                val bottom = top + TileCoord.TILE_SIZE
+                if (left < minX) minX = left
+                if (top < minY) minY = top
+                if (right > maxX) maxX = right
+                if (bottom > maxY) maxY = bottom
+                hasAny = true
+            }
+        }
+        return if (hasAny) WorldRect(minX, minY, maxX, maxY) else null
     }
 
     fun getAllTiles(): List<RasterTile> {

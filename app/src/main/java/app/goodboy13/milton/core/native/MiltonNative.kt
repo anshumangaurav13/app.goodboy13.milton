@@ -388,6 +388,17 @@ object MiltonNative {
         capacity: Int
     ): Int
 
+    @JvmStatic
+    external fun brushBinRingDabs(
+        ringBuf: java.nio.ByteBuffer,
+        capacity: Int,
+        startHead: Long,
+        count: Int,
+        tileSize: Float,
+        outHeaders: IntArray,
+        outIndices: IntArray
+    ): Int
+
     // ========================================================================
     // #7 HISTORY & UNDO/REDO
     // ========================================================================
@@ -549,6 +560,19 @@ object MiltonNative {
         outMvp: FloatArray
     )
 
+    @JvmStatic
+    external fun viewportComputeTwoFingerGesture(
+        p0x: Float,
+        p0y: Float,
+        p1x: Float,
+        p1y: Float,
+        prevSpan: Float,
+        prevAngle: Float,
+        isZoomLocked: Boolean,
+        isRotationLocked: Boolean,
+        outResults: FloatArray
+    )
+
     // ========================================================================
     // #12 SPATIAL TILE MAP & LRU BUDGET ENGINE
     // ========================================================================
@@ -609,8 +633,86 @@ object MiltonNative {
     ): Int
 
     @JvmStatic
+    external fun spatialMapFindEvictionCandidatesWithCount(
+        mapPtr: Long,
+        visibleKeys: LongArray,
+        visibleCount: Int,
+        nowNs: Long,
+        maxEvictions: Int,
+        outEvictKeys: LongArray
+    ): Int
+
+    @JvmStatic
+    external fun spatialMapFindEvictionCandidatesForBounds(
+        mapPtr: Long,
+        minTx: Int,
+        minTy: Int,
+        maxTx: Int,
+        maxTy: Int,
+        nowNs: Long,
+        maxEvictions: Int,
+        outEvictKeys: LongArray
+    ): Int
+
+    @JvmStatic
     external fun spatialMapGetBounds(mapPtr: Long, outBounds: FloatArray): Boolean
 
     @JvmStatic
     external fun spatialMapClear(mapPtr: Long)
+
+    // ========================================================================
+    // Liquify Deformation Mesh Engine
+    // ========================================================================
+
+    @JvmStatic
+    external fun liquifyMeshCreate(
+        minX: Float,
+        minY: Float,
+        maxX: Float,
+        maxY: Float,
+        polyX: FloatArray,
+        polyY: FloatArray,
+        gridCols: Int,
+        gridRows: Int
+    ): Long
+
+    @JvmStatic
+    external fun liquifyMeshDestroy(meshPtr: Long)
+
+    @JvmStatic
+    external fun liquifyMeshReset(meshPtr: Long)
+
+    @JvmStatic
+    external fun liquifyMeshApplyStroke(
+        meshPtr: Long,
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float,
+        radius: Float,
+        strength: Float,
+        mode: Int
+    )
+
+    @JvmStatic
+    external fun liquifyMeshGetVertices(
+        meshPtr: Long,
+        outWorldX: FloatArray,
+        outWorldY: FloatArray,
+        outMaskWeights: FloatArray?
+    )
+
+    @JvmStatic
+    external fun liquifyMeshComputeLocalWarpedVerts(
+        meshPtr: Long,
+        outVerts: FloatArray
+    )
+
+    @JvmStatic
+    external fun selectionSimplifyAndSmooth(
+        pointsX: FloatArray,
+        pointsY: FloatArray,
+        epsilon: Float,
+        smoothIterations: Int
+    ): FloatArray
 }
