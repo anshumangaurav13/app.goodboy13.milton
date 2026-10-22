@@ -162,7 +162,24 @@ class SelectionTransformManager {
             return
         }
 
-        val polygon = lassoPoints.toList()
+        val polygon = if (MiltonNative.isLoaded && lassoPoints.size >= 4) {
+            val px = FloatArray(lassoPoints.size) { lassoPoints[it].x }
+            val py = FloatArray(lassoPoints.size) { lassoPoints[it].y }
+            val interleaved = MiltonNative.selectionSimplifyAndSmooth(px, py, 1.5f, 1)
+            if (interleaved.size >= 6) {
+                val list = ArrayList<Vec2>(interleaved.size / 2)
+                var i = 0
+                while (i < interleaved.size) {
+                    list.add(Vec2(interleaved[i], interleaved[i + 1]))
+                    i += 2
+                }
+                list
+            } else {
+                lassoPoints.toList()
+            }
+        } else {
+            lassoPoints.toList()
+        }
         val srcBounds = if (forLiquify) {
             val pad = 64f
             val minTx = floor((minX - pad) / TileCoord.TILE_SIZE).toInt()

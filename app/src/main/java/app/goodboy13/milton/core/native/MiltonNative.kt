@@ -661,4 +661,12 @@ object MiltonNative {
         meshPtr: Long,
         outVerts: FloatArray
     )
+
+    @JvmStatic
+    external fun selectionSimplifyAndSmooth(
+        pointsX: FloatArray,
+        pointsY: FloatArray,
+        epsilon: Float,
+        smoothIterations: Int
+    ): FloatArray
 }

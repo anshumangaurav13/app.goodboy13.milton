@@ -2435,3 +2435,60 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquif
         let _ = env.set_float_array_region(&out_verts, 0, &buf);
     }
 }
+
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_selectionSimplifyAndSmooth<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    points_x: JFloatArray<'local>,
+    points_y: JFloatArray<'local>,
+    epsilon: jfloat,
+    smooth_iterations: jint,
+) -> JFloatArray<'local> {
+    let len_x = match env.get_array_length(&points_x) {
+        Ok(l) => l as usize,
+        Err(_) => return env.new_float_array(0).unwrap_or_default(),
+    };
+    let len_y = match env.get_array_length(&points_y) {
+        Ok(l) => l as usize,
+        Err(_) => return env.new_float_array(0).unwrap_or_default(),
+    };
+    let count = len_x.min(len_y);
+    if count < 3 {
+        return env.new_float_array(0).unwrap_or_default();
+    }
+
+    let mut px = vec![0.0f32; count];
+    let mut py = vec![0.0f32; count];
+    if env.get_float_array_region(&points_x, 0, &mut px).is_err()
+        || env.get_float_array_region(&points_y, 0, &mut py).is_err()
+    {
+        return env.new_float_array(0).unwrap_or_default();
+    }
+
+    let points: Vec<selection::Point2D> = (0..count)
+        .map(|i| selection::Point2D { x: px[i], y: py[i] })
+        .collect();
+
+    let simplified = selection::simplify_polygon_rdp(&points, epsilon);
+    let smoothed = if smooth_iterations > 0 {
+        selection::smooth_polygon_chaikin(&simplified, smooth_iterations as usize)
+    } else {
+        simplified
+    };
+
+    let mut out_interleaved = Vec::with_capacity(smoothed.len() * 2);
+    for p in smoothed {
+        out_interleaved.push(p.x);
+        out_interleaved.push(p.y);
+    }
+
+    match env.new_float_array(out_interleaved.len() as i32) {
+        Ok(arr) => {
+            let _ = env.set_float_array_region(&arr, 0, &out_interleaved);
+            arr
+        }
+        Err(_) => env.new_float_array(0).unwrap_or_default(),
+    }
+}
