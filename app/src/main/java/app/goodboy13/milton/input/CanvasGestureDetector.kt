@@ -50,6 +50,7 @@ class CanvasGestureDetector(
     private var flingVy: Float = 0f
     private val flingVelocities = FloatArray(2)
     private val flingDeltas = FloatArray(2)
+    private val gestureResults = FloatArray(8)
     private var isFlinging: Boolean = false
     private val choreographer = Choreographer.getInstance()
     private val flingCallback = object : Choreographer.FrameCallback {
@@ -148,10 +149,20 @@ class CanvasGestureDetector(
                     val p0y = event.getY(0)
                     val p1x = event.getX(1)
                     val p1y = event.getY(1)
-                    previousX = (p0x + p1x) * 0.5f
-                    previousY = (p0y + p1y) * 0.5f
-                    previousSpan = hypot((p1x - p0x).toDouble(), (p1y - p0y).toDouble()).toFloat()
-                    previousAngle = Math.toDegrees(atan2((p1y - p0y).toDouble(), (p1x - p0x).toDouble())).toFloat()
+                    if (MiltonNative.isNativeAvailable()) {
+                        MiltonNative.viewportComputeTwoFingerGesture(
+                            p0x, p0y, p1x, p1y, 0f, 0f, isZoomLocked, isRotationLocked, gestureResults
+                        )
+                        previousX = gestureResults[0]
+                        previousY = gestureResults[1]
+                        previousSpan = gestureResults[2]
+                        previousAngle = gestureResults[3]
+                    } else {
+                        previousX = (p0x + p1x) * 0.5f
+                        previousY = (p0y + p1y) * 0.5f
+                        previousSpan = hypot((p1x - p0x).toDouble(), (p1y - p0y).toDouble()).toFloat()
+                        previousAngle = Math.toDegrees(atan2((p1y - p0y).toDouble(), (p1x - p0x).toDouble())).toFloat()
+                    }
                 }
             }
 
@@ -180,21 +191,52 @@ class CanvasGestureDetector(
                     val p0y = event.getY(0)
                     val p1x = event.getX(1)
                     val p1y = event.getY(1)
-                    val curX = (p0x + p1x) * 0.5f
-                    val curY = (p0y + p1y) * 0.5f
-                    val curSpan = hypot((p1x - p0x).toDouble(), (p1y - p0y).toDouble()).toFloat()
-                    val curAngle = Math.toDegrees(atan2((p1y - p0y).toDouble(), (p1x - p0x).toDouble())).toFloat()
+
+                    val curX: Float
+                    val curY: Float
+                    val curSpan: Float
+                    val curAngle: Float
+                    val zoomFactor: Float
+                    val appliedAngle: Float
+                    val zoomDelta: Float
+                    val angleDelta: Float
+
+                    if (MiltonNative.isNativeAvailable()) {
+                        MiltonNative.viewportComputeTwoFingerGesture(
+                            p0x, p0y, p1x, p1y, previousSpan, previousAngle, isZoomLocked, isRotationLocked, gestureResults
+                        )
+                        curX = gestureResults[0]
+                        curY = gestureResults[1]
+                        curSpan = gestureResults[2]
+                        curAngle = gestureResults[3]
+                        zoomFactor = gestureResults[4]
+                        appliedAngle = gestureResults[5]
+                        zoomDelta = gestureResults[6]
+                        angleDelta = gestureResults[7]
+                    } else {
+                        curX = (p0x + p1x) * 0.5f
+                        curY = (p0y + p1y) * 0.5f
+                        curSpan = hypot((p1x - p0x).toDouble(), (p1y - p0y).toDouble()).toFloat()
+                        curAngle = Math.toDegrees(atan2((p1y - p0y).toDouble(), (p1x - p0x).toDouble())).toFloat()
+
+                        zoomDelta = if (previousSpan > 10f) abs(curSpan - previousSpan) else 0f
+                        var ad = curAngle - previousAngle
+                        if (ad > 180f) ad -= 360f
+                        if (ad < -180f) ad += 360f
+                        angleDelta = ad
+
+                        zoomFactor = if (!isZoomLocked && previousSpan > 10f && curSpan > 10f) {
+                            curSpan / previousSpan
+                        } else 1.0f
+
+                        appliedAngle = if (!isRotationLocked) angleDelta else 0f
+                    }
 
                     val dx = curX - previousX
                     val dy = curY - previousY
                     val moveDist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
                     gestureTotalMovement += moveDist
                     sessionMaxMovement += moveDist
-
-                    val zoomDelta = if (previousSpan > 10f) abs(curSpan - previousSpan) else 0f
-                    var angleDelta = curAngle - previousAngle
-                    if (angleDelta > 180f) angleDelta -= 360f
-                    if (angleDelta < -180f) angleDelta += 360f
 
                     if (!isGesturing) {
                         if (gestureTotalMovement > 12f || zoomDelta > 14f || abs(angleDelta) > 2.5f) {
@@ -204,11 +246,6 @@ class CanvasGestureDetector(
                     }
 
                     if (isGesturing) {
-                        val zoomFactor = if (!isZoomLocked && previousSpan > 10f && curSpan > 10f) {
-                            curSpan / previousSpan
-                        } else 1.0f
-
-                        val appliedAngle = if (!isRotationLocked) angleDelta else 0f
                         listener.onPanZoomRotate(previousX, previousY, curX, curY, zoomFactor, appliedAngle)
                     }
 
@@ -232,10 +269,20 @@ class CanvasGestureDetector(
                     val p0y = event.getY(idx0)
                     val p1x = event.getX(idx1)
                     val p1y = event.getY(idx1)
-                    previousX = (p0x + p1x) * 0.5f
-                    previousY = (p0y + p1y) * 0.5f
-                    previousSpan = hypot((p1x - p0x).toDouble(), (p1y - p0y).toDouble()).toFloat()
-                    previousAngle = Math.toDegrees(atan2((p1y - p0y).toDouble(), (p1x - p0x).toDouble())).toFloat()
+                    if (MiltonNative.isNativeAvailable()) {
+                        MiltonNative.viewportComputeTwoFingerGesture(
+                            p0x, p0y, p1x, p1y, 0f, 0f, isZoomLocked, isRotationLocked, gestureResults
+                        )
+                        previousX = gestureResults[0]
+                        previousY = gestureResults[1]
+                        previousSpan = gestureResults[2]
+                        previousAngle = gestureResults[3]
+                    } else {
+                        previousX = (p0x + p1x) * 0.5f
+                        previousY = (p0y + p1y) * 0.5f
+                        previousSpan = hypot((p1x - p0x).toDouble(), (p1y - p0y).toDouble()).toFloat()
+                        previousAngle = Math.toDegrees(atan2((p1y - p0y).toDouble(), (p1x - p0x).toDouble())).toFloat()
+                    }
                 } else if (remainingCount == 1) {
                     val remainingIdx = if (liftedIndex == 0) 1 else 0
                     previousX = event.getX(remainingIdx)

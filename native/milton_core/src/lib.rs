@@ -2082,6 +2082,43 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewpo
 }
 
 #[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportComputeTwoFingerGesture<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    p0x: jfloat,
+    p0y: jfloat,
+    p1x: jfloat,
+    p1y: jfloat,
+    prev_span: jfloat,
+    prev_angle: jfloat,
+    is_zoom_locked: jboolean,
+    is_rotation_locked: jboolean,
+    out_results: JFloatArray<'local>,
+) {
+    let res = viewport::compute_two_finger_gesture(
+        p0x as f32,
+        p0y as f32,
+        p1x as f32,
+        p1y as f32,
+        prev_span as f32,
+        prev_angle as f32,
+        is_zoom_locked != JNI_FALSE,
+        is_rotation_locked != JNI_FALSE,
+    );
+    let buf = [
+        res.focal_x,
+        res.focal_y,
+        res.span,
+        res.angle_deg,
+        res.zoom_factor,
+        res.applied_angle_deg,
+        res.zoom_delta,
+        res.angle_delta_deg,
+    ];
+    let _ = env.set_float_array_region(&out_results, 0, &buf);
+}
+
+#[no_mangle]
 pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_viewportComputeFinalMvp<'local>(
     env: JNIEnv<'local>,
     _class: JClass<'local>,

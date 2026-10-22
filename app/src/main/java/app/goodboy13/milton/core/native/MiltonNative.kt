@@ -549,6 +549,19 @@ object MiltonNative {
         outMvp: FloatArray
     )
 
+    @JvmStatic
+    external fun viewportComputeTwoFingerGesture(
+        p0x: Float,
+        p0y: Float,
+        p1x: Float,
+        p1y: Float,
+        prevSpan: Float,
+        prevAngle: Float,
+        isZoomLocked: Boolean,
+        isRotationLocked: Boolean,
+        outResults: FloatArray
+    )
+
     // ========================================================================
     // #12 SPATIAL TILE MAP & LRU BUDGET ENGINE
     // ========================================================================

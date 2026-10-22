@@ -349,6 +349,71 @@ impl Viewport {
     }
 }
 
+/// Result of 2-finger gesture calculation.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TwoFingerGestureResult {
+    pub focal_x: f32,
+    pub focal_y: f32,
+    pub span: f32,
+    pub angle_deg: f32,
+    pub zoom_factor: f32,
+    pub applied_angle_deg: f32,
+    pub zoom_delta: f32,
+    pub angle_delta_deg: f32,
+}
+
+/// Pure mathematical 2-finger gesture arbitration (focal point, pinch span, rotation angle delta).
+pub fn compute_two_finger_gesture(
+    p0x: f32,
+    p0y: f32,
+    p1x: f32,
+    p1y: f32,
+    prev_span: f32,
+    prev_angle: f32,
+    is_zoom_locked: bool,
+    is_rotation_locked: bool,
+) -> TwoFingerGestureResult {
+    let focal_x = (p0x + p1x) * 0.5;
+    let focal_y = (p0y + p1y) * 0.5;
+    let dx = p1x - p0x;
+    let dy = p1y - p0y;
+    let span = (dx * dx + dy * dy).sqrt();
+    let angle_deg = dy.atan2(dx).to_degrees();
+
+    let zoom_delta = if prev_span > 10.0 { (span - prev_span).abs() } else { 0.0 };
+    let mut angle_delta = angle_deg - prev_angle;
+    while angle_delta > 180.0 {
+        angle_delta -= 360.0;
+    }
+    while angle_delta < -180.0 {
+        angle_delta += 360.0;
+    }
+
+    let zoom_factor = if !is_zoom_locked && prev_span > 10.0 && span > 10.0 {
+        span / prev_span
+    } else {
+        1.0
+    };
+
+    let applied_angle_deg = if !is_rotation_locked {
+        angle_delta
+    } else {
+        0.0
+    };
+
+    TwoFingerGestureResult {
+        focal_x,
+        focal_y,
+        span,
+        angle_deg,
+        zoom_factor,
+        applied_angle_deg,
+        zoom_delta,
+        angle_delta_deg: angle_delta,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Matrix Utilities (Column-Major 4x4)
 // ---------------------------------------------------------------------------
@@ -564,5 +629,30 @@ mod tests {
 
         assert!((mat_sx - expected_sx).abs() < 1e-3, "mat_sx: {} vs exp: {}", mat_sx, expected_sx);
         assert!((mat_sy - expected_sy).abs() < 1e-3, "mat_sy: {} vs exp: {}", mat_sy, expected_sy);
+    }
+
+    #[test]
+    fn test_compute_two_finger_gesture() {
+        let p0x = 100.0;
+        let p0y = 100.0;
+        let p1x = 200.0;
+        let p1y = 100.0;
+        let prev_span = 100.0;
+        let prev_angle = 0.0;
+
+        let res = compute_two_finger_gesture(p0x, p0y, p1x, p1y, prev_span, prev_angle, false, false);
+        assert!((res.focal_x - 150.0).abs() < 1e-4);
+        assert!((res.focal_y - 100.0).abs() < 1e-4);
+        assert!((res.span - 100.0).abs() < 1e-4);
+        assert!((res.zoom_factor - 1.0).abs() < 1e-4);
+        assert!((res.applied_angle_deg - 0.0).abs() < 1e-4);
+
+        // Now test 2x zoom and 90 deg rotation
+        let p1x_rot = 100.0;
+        let p1y_rot = 300.0; // span = 200, angle = 90
+        let res2 = compute_two_finger_gesture(p0x, p0y, p1x_rot, p1y_rot, prev_span, prev_angle, false, false);
+        assert!((res2.span - 200.0).abs() < 1e-4);
+        assert!((res2.zoom_factor - 2.0).abs() < 1e-4);
+        assert!((res2.applied_angle_deg - 90.0).abs() < 1e-4);
     }
 }
