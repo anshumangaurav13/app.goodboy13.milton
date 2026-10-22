@@ -622,6 +622,28 @@ object MiltonNative {
     ): Int
 
     @JvmStatic
+    external fun spatialMapFindEvictionCandidatesWithCount(
+        mapPtr: Long,
+        visibleKeys: LongArray,
+        visibleCount: Int,
+        nowNs: Long,
+        maxEvictions: Int,
+        outEvictKeys: LongArray
+    ): Int
+
+    @JvmStatic
+    external fun spatialMapFindEvictionCandidatesForBounds(
+        mapPtr: Long,
+        minTx: Int,
+        minTy: Int,
+        maxTx: Int,
+        maxTy: Int,
+        nowNs: Long,
+        maxEvictions: Int,
+        outEvictKeys: LongArray
+    ): Int
+
+    @JvmStatic
     external fun spatialMapGetBounds(mapPtr: Long, outBounds: FloatArray): Boolean
 
     @JvmStatic

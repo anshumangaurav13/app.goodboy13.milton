@@ -286,6 +286,60 @@ impl SpatialTileMap {
         count_to_add
     }
 
+    /// Identifies the oldest non-visible resident tiles eligible for disk swap eviction,
+    /// given the axis-aligned bounding tile coordinates `[min_tx..=max_tx, min_ty..=max_ty]`.
+    pub fn find_eviction_candidates_for_bounds(
+        &self,
+        min_tx: i32,
+        min_ty: i32,
+        max_tx: i32,
+        max_ty: i32,
+        now_ns: u64,
+        max_evictions: usize,
+        out_evictions: &mut Vec<u64>,
+    ) -> usize {
+        let slack = self.max_resident_tiles / TILE_EVICTION_SLACK_DIVISOR;
+        let resident_count = self.count_resident();
+        let threshold = self.max_resident_tiles + slack;
+
+        if resident_count <= threshold {
+            return 0;
+        }
+
+        let excess = resident_count - threshold;
+        let limit = excess.min(max_evictions);
+        let enforce_grace_period = resident_count <= self.max_resident_tiles * 2;
+
+        let mut candidates: Vec<(u64, u64)> = self.tiles.iter()
+            .filter(|(_, meta)| {
+                if !meta.is_resident {
+                    return false;
+                }
+                // Check if inside visible bounds
+                if meta.tx >= min_tx && meta.tx <= max_tx && meta.ty >= min_ty && meta.ty <= max_ty {
+                    return false;
+                }
+                if enforce_grace_period && (now_ns.saturating_sub(meta.last_access_time_ns)) <= TILE_EVICTION_GRACE_PERIOD_NS {
+                    return false;
+                }
+                true
+            })
+            .map(|(&key, meta)| (key, meta.last_access_time_ns))
+            .collect();
+
+        if candidates.is_empty() {
+            return 0;
+        }
+
+        candidates.sort_unstable_by_key(|&(_, time)| time);
+
+        let count_to_add = limit.min(candidates.len());
+        for &(key, _) in candidates.iter().take(count_to_add) {
+            out_evictions.push(key);
+        }
+        count_to_add
+    }
+
     pub fn clear(&mut self) {
         self.tiles.clear();
     }
@@ -371,5 +425,22 @@ mod tests {
         // The oldest non-visible tiles are tile 1 and tile 2
         assert_eq!(evictions[0], pack_coord(1, 0));
         assert_eq!(evictions[1], pack_coord(2, 0));
+    }
+
+    #[test]
+    fn test_lru_eviction_candidates_for_bounds() {
+        let mut map = SpatialTileMap::new(2);
+        let now = 10_000_000_000u64;
+
+        map.set_tile(0, 0, 0, true, true, false, false, now - 5_000_000_000);
+        map.set_tile(1, 0, 1, true, true, false, false, now - 4_000_000_000);
+        map.set_tile(2, 0, 2, true, true, false, false, now - 3_000_000_000);
+
+        let mut evictions = Vec::new();
+        // Visible bounds is tile (0, 0)
+        let count = map.find_eviction_candidates_for_bounds(0, 0, 0, 0, now, 4, &mut evictions);
+
+        assert_eq!(count, 1);
+        assert_eq!(evictions[0], pack_coord(1, 0));
     }
 }

@@ -262,10 +262,8 @@ class LayerManager(
     }
 
     fun trimAllToBudget(visibleBounds: WorldRect) {
-        val visibleTiles = mutableListOf<RasterTile>()
         for (layer in _layers) {
-            layer.tileMap.getVisibleTiles(visibleBounds, visibleTiles)
-            layer.tileMap.trimToBudget(visibleTiles)
+            layer.tileMap.trimToBudget(visibleBounds)
         }
     }
 

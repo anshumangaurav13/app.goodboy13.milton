@@ -2303,6 +2303,74 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatia
 }
 
 #[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapFindEvictionCandidatesWithCount<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+    visible_keys: JLongArray<'local>,
+    visible_count: jint,
+    now_ns: jlong,
+    max_evictions: jint,
+    out_evict_keys: JLongArray<'local>,
+) -> jint {
+    if map_ptr == 0 { return 0; }
+    let map = unsafe { &*(map_ptr as *mut spatial_map::SpatialTileMap) };
+
+    let total_len = env.get_array_length(&visible_keys).unwrap_or(0) as usize;
+    let count = if visible_count >= 0 { (visible_count as usize).min(total_len) } else { total_len };
+    let mut vis_buf = vec![0i64; count];
+    if count > 0 {
+        let _ = env.get_long_array_region(&visible_keys, 0, &mut vis_buf);
+    }
+    let vis_u64: Vec<u64> = vis_buf.into_iter().map(|k| k as u64).collect();
+
+    let mut evict_candidates = Vec::new();
+    map.find_eviction_candidates(&vis_u64, now_ns as u64, max_evictions as usize, &mut evict_candidates);
+
+    let count = evict_candidates.len();
+    if count > 0 {
+        let evict_i64: Vec<i64> = evict_candidates.into_iter().map(|k| k as i64).collect();
+        let _ = env.set_long_array_region(&out_evict_keys, 0, &evict_i64);
+    }
+    count as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapFindEvictionCandidatesForBounds<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    map_ptr: jlong,
+    min_tx: jint,
+    min_ty: jint,
+    max_tx: jint,
+    max_ty: jint,
+    now_ns: jlong,
+    max_evictions: jint,
+    out_evict_keys: JLongArray<'local>,
+) -> jint {
+    if map_ptr == 0 { return 0; }
+    let map = unsafe { &*(map_ptr as *mut spatial_map::SpatialTileMap) };
+
+    let mut evict_candidates = Vec::new();
+    map.find_eviction_candidates_for_bounds(
+        min_tx,
+        min_ty,
+        max_tx,
+        max_ty,
+        now_ns as u64,
+        max_evictions as usize,
+        &mut evict_candidates,
+    );
+
+    let count = evict_candidates.len();
+    if count > 0 {
+        let evict_i64: Vec<i64> = evict_candidates.into_iter().map(|k| k as i64).collect();
+        let _ = env.set_long_array_region(&out_evict_keys, 0, &evict_i64);
+    }
+    count as jint
+}
+
+#[no_mangle]
 pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatialMapGetBounds<'local>(
     env: JNIEnv<'local>,
     _class: JClass<'local>,
