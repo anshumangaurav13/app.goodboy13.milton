@@ -484,6 +484,39 @@ object MiltonNative {
     @JvmStatic
     external fun historyCommitRedo(historyPtr: Long): Boolean
 
+    @JvmStatic
+    external fun historyGetUndoCommandType(historyPtr: Long): Int
+
+    @JvmStatic
+    external fun historyGetRedoCommandType(historyPtr: Long): Int
+
+    @JvmStatic
+    external fun historyPushAddLayer(
+        historyPtr: Long,
+        layerId: Long,
+        name: String,
+        opacity: Float,
+        isVisible: Boolean,
+        storageIndex: Int,
+        activeLayerIdBefore: Long
+    )
+
+    @JvmStatic
+    external fun historyGetUndoLayerMeta(
+        historyPtr: Long,
+        outIds: LongArray,
+        outFloats: FloatArray,
+        outInts: IntArray
+    ): String?
+
+    @JvmStatic
+    external fun historyGetRedoLayerMeta(
+        historyPtr: Long,
+        outIds: LongArray,
+        outFloats: FloatArray,
+        outInts: IntArray
+    ): String?
+
     // ========================================================================
     // #11 VIEWPORT & CAMERA TRANSFORMATION ENGINE
     // ========================================================================

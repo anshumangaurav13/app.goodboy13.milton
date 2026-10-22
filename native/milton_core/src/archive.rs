@@ -16,12 +16,18 @@ pub fn export_milton_archive(
     let file = File::create(&temp_zip_path).map_err(|e| format!("Cannot create temp zip: {e}"))?;
     let mut zip = ZipWriter::new(BufWriter::new(file));
 
-    let options = SimpleFileOptions::default()
+    let manifest_options = SimpleFileOptions::default()
         .compression_method(CompressionMethod::Deflated)
         .unix_permissions(0o644);
 
+    // Tiles are already compressed with zlib/zstd in memory/disk; store them directly
+    // to eliminate double-compression CPU overhead and maximize I/O throughput.
+    let tile_options = SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Stored)
+        .unix_permissions(0o644);
+
     // 1. Write manifest.json
-    zip.start_file("manifest.json", options)
+    zip.start_file("manifest.json", manifest_options)
         .map_err(|e| format!("Cannot start manifest in zip: {e}"))?;
     zip.write_all(manifest_json.as_bytes())
         .map_err(|e| format!("Cannot write manifest to zip: {e}"))?;
@@ -36,7 +42,7 @@ pub fn export_milton_archive(
                     let file_name = entry.file_name();
                     let relative_name = format!("tiles/{}", file_name.to_string_lossy());
 
-                    zip.start_file(relative_name, options)
+                    zip.start_file(relative_name, tile_options)
                         .map_err(|e| format!("Cannot start tile in zip: {e}"))?;
 
                     let mut tile_file = File::open(&path)
