@@ -1510,6 +1510,69 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_brushE
     count as jint
 }
 
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_brushBinRingDabs<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    ring_buf: JByteBuffer<'local>,
+    capacity: jint,
+    start_head: jlong,
+    count: jint,
+    tile_size: jfloat,
+    out_headers: JIntArray<'local>,
+    out_indices: JIntArray<'local>,
+) -> jint {
+    if count <= 0 || capacity <= 0 {
+        return 0;
+    }
+    let ptr = match env.get_direct_buffer_address(&ring_buf) {
+        Ok(p) => p,
+        Err(_) => return 0,
+    };
+    let cap_bytes = match env.get_direct_buffer_capacity(&ring_buf) {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    if ptr.is_null() || cap_bytes < (capacity as usize * brush::STRIDE_BYTES) {
+        return 0;
+    }
+    let float_slice = unsafe {
+        std::slice::from_raw_parts(ptr as *const f32, capacity as usize * brush::STRIDE_FLOATS)
+    };
+
+    let headers_len = env.get_array_length(&out_headers).unwrap_or(0) as usize;
+    let indices_len = env.get_array_length(&out_indices).unwrap_or(0) as usize;
+    if headers_len < 6 || indices_len == 0 {
+        return 0;
+    }
+
+    let mut headers = vec![0i32; headers_len];
+    let mut indices = vec![0i32; indices_len];
+
+    let bucket_count = brush::bin_ring_dabs_to_tiles(
+        float_slice,
+        capacity as usize,
+        start_head as u64,
+        count as usize,
+        tile_size as f32,
+        &mut headers,
+        &mut indices,
+    );
+
+    if bucket_count > 0 {
+        let headers_to_copy = bucket_count * 6;
+        let _ = env.set_int_array_region(&out_headers, 0, &headers[..headers_to_copy]);
+        let last_h_offset = (bucket_count - 1) * 6;
+        let total_indices = (headers[last_h_offset + 5] + headers[last_h_offset + 3]) as usize;
+        let indices_to_copy = total_indices.min(indices_len);
+        if indices_to_copy > 0 {
+            let _ = env.set_int_array_region(&out_indices, 0, &indices[..indices_to_copy]);
+        }
+    }
+
+    bucket_count as jint
+}
+
 // ============================================================================
 // #7 HISTORY & UNDO/REDO JNI BINDINGS
 // ============================================================================

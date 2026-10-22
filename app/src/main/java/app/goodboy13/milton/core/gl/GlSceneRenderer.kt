@@ -63,6 +63,8 @@ class GlSceneRenderer {
     private val reusableFallbackTiles = ArrayList<RasterTile>()
     private val reusableAffectedTiles = mutableListOf<RasterTile>()
     private val packetDirectBuffer = ByteBuffer.allocateDirect(2048 * 20).order(ByteOrder.nativeOrder())
+    private var nativeBucketHeaders = IntArray(256 * 6)
+    private var nativeDabIndices = IntArray(16384)
     private val tileDabsBucketMap = HashMap<Long, TileDabBucket>()
     private val bucketPool = ArrayList<TileDabBucket>()
     private val activeBuckets = ArrayList<TileDabBucket>()
@@ -319,6 +321,31 @@ class GlSceneRenderer {
 
         if (useArrayBlit) {
             tileArrayBlitShader.begin(mvp, true, textureArrayId, showBorders)
+
+            if (nativeDoc != null && nativeDoc.isValid && selectionState == null) {
+                for (layer in layers) {
+                    if (layer.isVisible && layer.opacity > 0.001f && layer.tileMap.onDiskCount > 0) {
+                        layer.tileMap.getVisibleTiles(visibleBounds, reusableVisibleTiles, maxRestores = 4)
+                    }
+                }
+
+                val count = nativeDoc.generateRenderPacket(
+                    viewLeft = visibleBounds.left,
+                    viewTop = visibleBounds.top,
+                    viewRight = visibleBounds.right,
+                    viewBottom = visibleBounds.bottom,
+                    zoom = viewport.zoom,
+                    forceOverview = forceOverview,
+                    outDirectBuf = packetDirectBuffer
+                )
+                if (count > 0) {
+                    tileArrayBlitShader.renderPacketDirect(packetDirectBuffer, count)
+                    drawCallCounter++
+                }
+                tileArrayBlitShader.end()
+                lastDrawCalls = drawCallCounter
+                return
+            }
 
             for (layer in layers) {
                 if (!layer.isVisible || layer.opacity <= 0.001f) continue
@@ -641,6 +668,137 @@ class GlSceneRenderer {
         onTilesResolved: ((List<RasterTile>) -> Unit)? = null
     ) {
         if (count <= 0) return
+
+        if (MiltonNative.isLoaded) {
+            val requiredHeaders = 256 * 6
+            if (nativeBucketHeaders.size < requiredHeaders) {
+                nativeBucketHeaders = IntArray(requiredHeaders)
+            }
+            if (nativeDabIndices.size < count * 4) {
+                nativeDabIndices = IntArray(count * 4 + 1024)
+            }
+
+            val tileSize = TileCoord.TILE_SIZE.toFloat()
+            val bucketCount = MiltonNative.brushBinRingDabs(
+                ringBuffer.byteBuffer,
+                ringBuffer.capacity,
+                startHead,
+                count,
+                tileSize,
+                nativeBucketHeaders,
+                nativeDabIndices
+            )
+
+            if (bucketCount > 0) {
+                reusableAffectedTiles.clear()
+                for (b in 0 until bucketCount) {
+                    val hOffset = b * 6
+                    val tx = nativeBucketHeaders[hOffset + 0]
+                    val ty = nativeBucketHeaders[hOffset + 1]
+                    val tile = targetTileMap.getOrCreateTile(tx, ty)
+                    tile.ensureResident(targetTileMap.cacheDir)
+                    reusableAffectedTiles.add(tile)
+                }
+
+                onTilesResolved?.invoke(reusableAffectedTiles)
+
+                for (b in 0 until bucketCount) {
+                    val hOffset = b * 6
+                    val tx = nativeBucketHeaders[hOffset + 0]
+                    val ty = nativeBucketHeaders[hOffset + 1]
+                    val eraserCount = nativeBucketHeaders[hOffset + 2]
+                    val brushCount = nativeBucketHeaders[hOffset + 3]
+                    val eraserStart = nativeBucketHeaders[hOffset + 4]
+                    val brushStart = nativeBucketHeaders[hOffset + 5]
+                    val tile = reusableAffectedTiles[b]
+
+                    if (brushCount > 0) {
+                        tile.hasContent = true
+                    }
+
+                    // 1. Eraser dabs
+                    if (eraserCount > 0) {
+                        tile.bindFboDirect()
+                        if (dabShader.usesFramebufferFetch) {
+                            GLES30.glDisable(GLES30.GL_BLEND)
+                        } else {
+                            GLES30.glEnable(GLES30.GL_BLEND)
+                            GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
+                            GLES30.glBlendFunc(GLES30.GL_ZERO, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+                        }
+
+                        dabShader.beginBatch(tileOrthoMatrix)
+                        for (k in 0 until eraserCount) {
+                            val slot = nativeDabIndices[eraserStart + k]
+                            val localX = ringBuffer.getXBySlot(slot) - (tx * tileSize)
+                            val localY = ringBuffer.getYBySlot(slot) - (ty * tileSize)
+                            dabShader.renderDabFast(
+                                centerX = localX,
+                                centerY = localY,
+                                radius = ringBuffer.getRadiusBySlot(slot),
+                                colorRgb = 0,
+                                alpha = ringBuffer.getAlphaBySlot(slot),
+                                hardness = ringBuffer.getHardnessBySlot(slot),
+                                brushMode = ringBuffer.getBrushModeBySlot(slot),
+                                pressure = ringBuffer.getPressureBySlot(slot),
+                                worldOffsetX = tx * tileSize,
+                                worldOffsetY = ty * tileSize,
+                                isEraser = true
+                            )
+                        }
+                        dabShader.endBatch()
+                        if (dabShader.usesFramebufferFetch) {
+                            GLES30.glEnable(GLES30.GL_BLEND)
+                        }
+                    }
+
+                    // 2. Brush dabs
+                    if (brushCount > 0) {
+                        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, scratchFboId)
+                        GLES30.glViewport(0, 0, TileCoord.TILE_SIZE, TileCoord.TILE_SIZE)
+                        GLES30.glClearColor(0f, 0f, 0f, 0f)
+                        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+
+                        if (dabShader.usesFramebufferFetch) {
+                            GLES30.glDisable(GLES30.GL_BLEND)
+                        } else {
+                            GLES30.glEnable(GLES30.GL_BLEND)
+                            GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
+                            GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+                        }
+
+                        dabShader.beginBatch(tileOrthoMatrix)
+                        for (k in 0 until brushCount) {
+                            val slot = nativeDabIndices[brushStart + k]
+                            val localX = ringBuffer.getXBySlot(slot) - (tx * tileSize)
+                            val localY = ringBuffer.getYBySlot(slot) - (ty * tileSize)
+                            dabShader.renderDabFast(
+                                centerX = localX,
+                                centerY = localY,
+                                radius = ringBuffer.getRadiusBySlot(slot),
+                                colorRgb = ringBuffer.getColorRgbBySlot(slot),
+                                alpha = ringBuffer.getAlphaBySlot(slot),
+                                hardness = ringBuffer.getHardnessBySlot(slot),
+                                brushMode = ringBuffer.getBrushModeBySlot(slot),
+                                pressure = ringBuffer.getPressureBySlot(slot),
+                                worldOffsetX = tx * tileSize,
+                                worldOffsetY = ty * tileSize,
+                                isEraser = false
+                            )
+                        }
+                        dabShader.endBatch()
+
+                        if (dabShader.usesFramebufferFetch) {
+                            GLES30.glEnable(GLES30.GL_BLEND)
+                        }
+
+                        tile.bindFboDirect()
+                        strokeCompositeShader.render(strokeTextureId = scratchTextureId)
+                    }
+                }
+                return
+            }
+        }
 
         tileDabsBucketMap.clear()
         for (i in activeBuckets.indices) {

@@ -388,6 +388,17 @@ object MiltonNative {
         capacity: Int
     ): Int
 
+    @JvmStatic
+    external fun brushBinRingDabs(
+        ringBuf: java.nio.ByteBuffer,
+        capacity: Int,
+        startHead: Long,
+        count: Int,
+        tileSize: Float,
+        outHeaders: IntArray,
+        outIndices: IntArray
+    ): Int
+
     // ========================================================================
     // #7 HISTORY & UNDO/REDO
     // ========================================================================
