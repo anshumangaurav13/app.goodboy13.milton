@@ -10,6 +10,7 @@ pub mod brush;
 pub mod history;
 pub mod viewport;
 pub mod spatial_map;
+pub mod liquify;
 
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JByteBuffer, JClass, JFloatArray, JIntArray, JLongArray, JString};
@@ -2291,4 +2292,146 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_spatia
     if map_ptr == 0 { return; }
     let map = unsafe { &mut *(map_ptr as *mut spatial_map::SpatialTileMap) };
     map.clear();
+}
+
+
+// ============================================================================
+// Liquify Deformation Mesh JNI Bindings
+// ============================================================================
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifyMeshCreate<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    min_x: jfloat,
+    min_y: jfloat,
+    max_x: jfloat,
+    max_y: jfloat,
+    poly_x: JFloatArray<'local>,
+    poly_y: JFloatArray<'local>,
+    grid_cols: jint,
+    grid_rows: jint,
+) -> jlong {
+    let len_x = match env.get_array_length(&poly_x) {
+        Ok(l) => l as usize,
+        Err(_) => return 0,
+    };
+    let len_y = match env.get_array_length(&poly_y) {
+        Ok(l) => l as usize,
+        Err(_) => return 0,
+    };
+    let count = len_x.min(len_y);
+    let mut px = vec![0.0f32; count];
+    let mut py = vec![0.0f32; count];
+    if env.get_float_array_region(&poly_x, 0, &mut px).is_err() {
+        return 0;
+    }
+    if env.get_float_array_region(&poly_y, 0, &mut py).is_err() {
+        return 0;
+    }
+    let points: Vec<selection::Point2D> = (0..count)
+        .map(|i| selection::Point2D { x: px[i], y: py[i] })
+        .collect();
+
+    let bounds = selection::RectF {
+        min_x,
+        min_y,
+        max_x,
+        max_y,
+    };
+
+    let mesh = Box::new(liquify::LiquifyMesh::new(
+        bounds,
+        &points,
+        grid_cols.max(1) as usize,
+        grid_rows.max(1) as usize,
+    ));
+    Box::into_raw(mesh) as jlong
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifyMeshDestroy<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    mesh_ptr: jlong,
+) {
+    if mesh_ptr != 0 {
+        unsafe {
+            drop(Box::from_raw(mesh_ptr as *mut liquify::LiquifyMesh));
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifyMeshReset<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    mesh_ptr: jlong,
+) {
+    if mesh_ptr != 0 {
+        let mesh = unsafe { &mut *(mesh_ptr as *mut liquify::LiquifyMesh) };
+        mesh.reset();
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifyMeshApplyStroke<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    mesh_ptr: jlong,
+    x1: jfloat,
+    y1: jfloat,
+    x2: jfloat,
+    y2: jfloat,
+    radius: jfloat,
+    strength: jfloat,
+    mode: jint,
+) {
+    if mesh_ptr != 0 {
+        let mesh = unsafe { &mut *(mesh_ptr as *mut liquify::LiquifyMesh) };
+        mesh.apply_stroke(
+            x1,
+            y1,
+            x2,
+            y2,
+            radius,
+            strength,
+            liquify::LiquifyMode::from_i32(mode),
+        );
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifyMeshGetVertices<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    mesh_ptr: jlong,
+    out_world_x: JFloatArray<'local>,
+    out_world_y: JFloatArray<'local>,
+    out_mask_weights: JFloatArray<'local>,
+) {
+    if mesh_ptr != 0 {
+        let mesh = unsafe { &*(mesh_ptr as *const liquify::LiquifyMesh) };
+        let count = mesh.vertex_count;
+        let _ = env.set_float_array_region(&out_world_x, 0, &mesh.world_x[..count]);
+        let _ = env.set_float_array_region(&out_world_y, 0, &mesh.world_y[..count]);
+        if !out_mask_weights.is_null() {
+            let _ = env.set_float_array_region(&out_mask_weights, 0, &mesh.mask_weights[..count]);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_liquifyMeshComputeLocalWarpedVerts<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    mesh_ptr: jlong,
+    out_verts: JFloatArray<'local>,
+) {
+    if mesh_ptr != 0 {
+        let mesh = unsafe { &*(mesh_ptr as *const liquify::LiquifyMesh) };
+        let mut buf = vec![0.0f32; mesh.vertex_count * 2];
+        mesh.compute_local_warped_verts(&mut buf);
+        let _ = env.set_float_array_region(&out_verts, 0, &buf);
+    }
 }

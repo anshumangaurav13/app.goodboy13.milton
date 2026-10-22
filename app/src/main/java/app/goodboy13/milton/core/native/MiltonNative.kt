@@ -613,4 +613,52 @@ object MiltonNative {
 
     @JvmStatic
     external fun spatialMapClear(mapPtr: Long)
+
+    // ========================================================================
+    // Liquify Deformation Mesh Engine
+    // ========================================================================
+
+    @JvmStatic
+    external fun liquifyMeshCreate(
+        minX: Float,
+        minY: Float,
+        maxX: Float,
+        maxY: Float,
+        polyX: FloatArray,
+        polyY: FloatArray,
+        gridCols: Int,
+        gridRows: Int
+    ): Long
+
+    @JvmStatic
+    external fun liquifyMeshDestroy(meshPtr: Long)
+
+    @JvmStatic
+    external fun liquifyMeshReset(meshPtr: Long)
+
+    @JvmStatic
+    external fun liquifyMeshApplyStroke(
+        meshPtr: Long,
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float,
+        radius: Float,
+        strength: Float,
+        mode: Int
+    )
+
+    @JvmStatic
+    external fun liquifyMeshGetVertices(
+        meshPtr: Long,
+        outWorldX: FloatArray,
+        outWorldY: FloatArray,
+        outMaskWeights: FloatArray?
+    )
+
+    @JvmStatic
+    external fun liquifyMeshComputeLocalWarpedVerts(
+        meshPtr: Long,
+        outVerts: FloatArray
+    )
 }
