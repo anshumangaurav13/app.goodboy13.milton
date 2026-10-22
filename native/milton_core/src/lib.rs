@@ -913,6 +913,37 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_select
 }
 
 #[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_selectionCalculateDestBounds<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    src_left: jfloat,
+    src_top: jfloat,
+    src_right: jfloat,
+    src_bottom: jfloat,
+    scale_x: jfloat,
+    scale_y: jfloat,
+    rotation_rad: jfloat,
+    trans_x: jfloat,
+    trans_y: jfloat,
+    pivot_x: jfloat,
+    pivot_y: jfloat,
+    flip_h: jboolean,
+    flip_v: jboolean,
+    out_bounds: JFloatArray<'local>,
+) -> jboolean {
+    let bounds = selection::session_calculate_dest_bounds(
+        src_left, src_top, src_right, src_bottom,
+        scale_x, scale_y, rotation_rad, trans_x, trans_y,
+        pivot_x, pivot_y, flip_h != 0, flip_v != 0
+    );
+    if env.set_float_array_region(&out_bounds, 0, &bounds).is_ok() {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
+
+#[no_mangle]
 pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_selectionSessionGetAffectedDestTiles<'local>(
     env: JNIEnv<'local>,
     _class: JClass<'local>,

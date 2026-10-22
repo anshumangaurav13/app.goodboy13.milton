@@ -50,34 +50,24 @@ data class TransformSession(
     val flipV: Boolean = false
 ) {
     fun calculateDestBounds(): WorldRect {
-        val effSx = if (flipH) -scaleX else scaleX
-        val effSy = if (flipV) -scaleY else scaleY
-        val cosT = kotlin.math.cos(rotationRad)
-        val sinT = kotlin.math.sin(rotationRad)
-
-        val corners = listOf(
-            Vec2(srcBounds.left, srcBounds.top),
-            Vec2(srcBounds.right, srcBounds.top),
-            Vec2(srcBounds.right, srcBounds.bottom),
-            Vec2(srcBounds.left, srcBounds.bottom)
+        val out = FloatArray(4)
+        MiltonNative.selectionCalculateDestBounds(
+            srcBounds.left,
+            srcBounds.top,
+            srcBounds.right,
+            srcBounds.bottom,
+            scaleX,
+            scaleY,
+            rotationRad,
+            translationX,
+            translationY,
+            pivotX,
+            pivotY,
+            flipH,
+            flipV,
+            out
         )
-
-        var minX = Float.MAX_VALUE
-        var maxX = -Float.MAX_VALUE
-        var minY = Float.MAX_VALUE
-        var maxY = -Float.MAX_VALUE
-
-        for (c in corners) {
-            val cx = (c.x - pivotX) * effSx
-            val cy = (c.y - pivotY) * effSy
-            val rx = cx * cosT - cy * sinT + pivotX + translationX
-            val ry = cx * sinT + cy * cosT + pivotY + translationY
-            minX = minOf(minX, rx)
-            maxX = maxOf(maxX, rx)
-            minY = minOf(minY, ry)
-            maxY = maxOf(maxY, ry)
-        }
-        return WorldRect(minX, minY, maxX, maxY)
+        return WorldRect(out[0], out[1], out[2], out[3])
     }
 }
 
@@ -215,16 +205,14 @@ class SelectionTransformManager {
                 val pointsX = FloatArray(polygon.size) { polygon[it].x }
                 val pointsY = FloatArray(polygon.size) { polygon[it].y }
 
-                if (MiltonNative.isLoaded) {
-                    MiltonNative.selectionSessionBegin(
-                        pointsX,
-                        pointsY,
-                        srcBounds.left,
-                        srcBounds.top,
-                        srcBounds.right,
-                        srcBounds.bottom
-                    )
-                }
+                MiltonNative.selectionSessionBegin(
+                    pointsX,
+                    pointsY,
+                    srcBounds.left,
+                    srcBounds.top,
+                    srcBounds.right,
+                    srcBounds.bottom
+                )
 
                 val minTx = floor(srcBounds.left / TileCoord.TILE_SIZE).toInt()
                 val maxTx = floor((srcBounds.right - 1f) / TileCoord.TILE_SIZE).toInt()
@@ -247,17 +235,13 @@ class SelectionTransformManager {
                         val originalBytes = tile.readPixels()
                         val workingTile = originalBytes.clone()
 
-                        val cut = if (MiltonNative.isLoaded) {
-                            MiltonNative.selectionSessionCutTile(
-                                layerId,
-                                tile.coord.tx,
-                                tile.coord.ty,
-                                workingTile,
-                                forLiquify
-                            )
-                        } else {
-                            false
-                        }
+                        val cut = MiltonNative.selectionSessionCutTile(
+                            layerId,
+                            tile.coord.tx,
+                            tile.coord.ty,
+                            workingTile,
+                            forLiquify
+                        )
 
                         if (cut) {
                             if (!forLiquify) {
@@ -269,9 +253,7 @@ class SelectionTransformManager {
 
                     // For Liquify, request full native resolution (up to 4096px) to eliminate blurriness and pixelation
                     val maxDim = if (forLiquify) CanvasConstants.MAX_PREVIEW_DIMENSION_LIQUIFY else CanvasConstants.MAX_PREVIEW_DIMENSION
-                    val packed = if (MiltonNative.isLoaded) {
-                        MiltonNative.selectionSessionGetPreview(layerId, maxDim)
-                    } else null
+                    val packed = MiltonNative.selectionSessionGetPreview(layerId, maxDim)
 
                     if (packed != null && packed.size >= 8) {
                         val buf = ByteBuffer.wrap(packed).order(java.nio.ByteOrder.BIG_ENDIAN)
@@ -341,9 +323,7 @@ class SelectionTransformManager {
                 canvasView.post { canvasView.requestRedraw() }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start transform session", e)
-                if (MiltonNative.isLoaded) {
-                    MiltonNative.selectionSessionEnd()
-                }
+                MiltonNative.selectionSessionEnd()
                 _state.value = SelectionState.Idle
             }
         }
@@ -376,9 +356,7 @@ class SelectionTransformManager {
                 Log.e(TAG, "Error restoring tiles on cancel", e)
             } finally {
                 deletePatchTextures(current.session.layerPatches.values)
-                if (MiltonNative.isLoaded) {
-                    MiltonNative.selectionSessionEnd()
-                }
+                MiltonNative.selectionSessionEnd()
                 _state.value = SelectionState.Idle
                 canvasView.post { canvasView.requestRedraw() }
             }
@@ -410,19 +388,18 @@ class SelectionTransformManager {
                         )
                     }
 
-                    if (MiltonNative.isLoaded) {
-                        val affectedCoords = MiltonNative.selectionSessionGetAffectedDestTiles(
-                            layerId,
-                            session.scaleX,
-                            session.scaleY,
-                            session.rotationRad,
-                            session.translationX,
-                            session.translationY,
-                            session.pivotX,
-                            session.pivotY,
-                            session.flipH,
-                            session.flipV
-                        ) ?: IntArray(0)
+                    val affectedCoords = MiltonNative.selectionSessionGetAffectedDestTiles(
+                        layerId,
+                        session.scaleX,
+                        session.scaleY,
+                        session.rotationRad,
+                        session.translationX,
+                        session.translationY,
+                        session.pivotX,
+                        session.pivotY,
+                        session.flipH,
+                        session.flipV
+                    ) ?: IntArray(0)
 
                         for (i in 0 until affectedCoords.size step 2) {
                             val tx = affectedCoords[i]
@@ -458,7 +435,6 @@ class SelectionTransformManager {
                                 tile.writePixels(curBytes)
                             }
                         }
-                    }
 
                     affectedLayers.add(layerId to layer.tileMap)
                 }
@@ -470,9 +446,7 @@ class SelectionTransformManager {
                 Log.e(TAG, "Error committing transform", e)
             } finally {
                 deletePatchTextures(session.layerPatches.values)
-                if (MiltonNative.isLoaded) {
-                    MiltonNative.selectionSessionEnd()
-                }
+                MiltonNative.selectionSessionEnd()
                 _state.value = SelectionState.Idle
                 canvasView.post { canvasView.requestRedraw() }
             }

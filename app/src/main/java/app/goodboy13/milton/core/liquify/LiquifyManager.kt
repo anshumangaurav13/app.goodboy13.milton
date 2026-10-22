@@ -143,9 +143,7 @@ class LiquifyManager(
                 Log.e(TAG, "Error restoring tiles on cancel liquify", e)
             } finally {
                 SelectionTransformManager.deletePatchTextures(current.session.layerPatches.values)
-                if (MiltonNative.isLoaded) {
-                    MiltonNative.selectionSessionEnd()
-                }
+                MiltonNative.selectionSessionEnd()
                 canvasView.post { canvasView.requestRedraw() }
             }
         }
@@ -248,9 +246,7 @@ class LiquifyManager(
                 Log.e(TAG, "Error committing liquify to tiles", e)
             } finally {
                 SelectionTransformManager.deletePatchTextures(session.layerPatches.values)
-                if (MiltonNative.isLoaded) {
-                    MiltonNative.selectionSessionEnd()
-                }
+                MiltonNative.selectionSessionEnd()
                 canvasView.post { canvasView.requestRedraw() }
             }
         }

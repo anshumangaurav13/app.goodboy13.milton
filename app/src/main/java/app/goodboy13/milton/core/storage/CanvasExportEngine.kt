@@ -13,6 +13,8 @@ import android.provider.MediaStore
 import android.util.Log
 import androidx.core.content.FileProvider
 import app.goodboy13.milton.core.layer.LayerManager
+import app.goodboy13.milton.core.native.MiltonNative
+import app.goodboy13.milton.core.tile.TileCoord
 import app.goodboy13.milton.core.viewport.Viewport
 import app.goodboy13.milton.core.memory.DirectBufferPool
 import java.io.File
@@ -112,9 +114,11 @@ object CanvasExportEngine {
 
                     val rawPixels: ByteArray? = try {
                         storageManager?.getTileBytes(layer.id, tile.coord.tx, tile.coord.ty, layer.tileMap.cacheDir)
-                            ?: if (tile.isOnDisk) {
-                                val swap = File(layer.tileMap.cacheDir, "tile_${tile.coord.tx}_${tile.coord.ty}.bin")
-                                app.goodboy13.milton.core.tile.RasterTile.readSwapBytes(swap)
+                            ?: if (tile.isOnDisk && layer.tileMap.cacheDir != null) {
+                                val bytes = ByteArray(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4)
+                                if (MiltonNative.swapReadTile(layer.tileMap.cacheDir.absolutePath, 0L, tile.coord.tx, tile.coord.ty, bytes)) {
+                                    bytes
+                                } else null
                             } else if (tile.isInitialized) {
                                 tile.readPixels()
                             } else null
@@ -168,11 +172,11 @@ object CanvasExportEngine {
         exportDir.mkdirs()
         val file = File(exportDir, filename)
 
-        if (format == Bitmap.CompressFormat.PNG && app.goodboy13.milton.core.native.MiltonNative.isLoaded) {
+        if (format == Bitmap.CompressFormat.PNG) {
             val byteBuf = java.nio.ByteBuffer.allocate(bitmap.width * bitmap.height * 4)
             bitmap.copyPixelsToBuffer(byteBuf)
             val raw = byteBuf.array()
-            if (app.goodboy13.milton.core.native.MiltonNative.exportCanvasPng(bitmap.width, bitmap.height, raw, file.absolutePath)) {
+            if (MiltonNative.exportCanvasPng(bitmap.width, bitmap.height, raw, file.absolutePath)) {
                 return file
             }
         }

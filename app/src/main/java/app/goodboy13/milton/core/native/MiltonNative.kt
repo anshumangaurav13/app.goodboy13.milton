@@ -213,6 +213,24 @@ object MiltonNative {
     external fun selectionSessionGetPreview(layerId: Long, maxDim: Int): ByteArray?
 
     @JvmStatic
+    external fun selectionCalculateDestBounds(
+        srcLeft: Float,
+        srcTop: Float,
+        srcRight: Float,
+        srcBottom: Float,
+        scaleX: Float,
+        scaleY: Float,
+        rotationRad: Float,
+        transX: Float,
+        transY: Float,
+        pivotX: Float,
+        pivotY: Float,
+        flipH: Boolean,
+        flipV: Boolean,
+        outBounds: FloatArray
+    ): Boolean
+
+    @JvmStatic
     external fun selectionSessionGetAffectedDestTiles(
         layerId: Long,
         scaleX: Float,

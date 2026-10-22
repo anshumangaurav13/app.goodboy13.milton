@@ -98,14 +98,9 @@ class AutosaveCoordinator(
             }
         }
         if (fallbackCacheDir != null) {
-            val swapFile = File(fallbackCacheDir, "tile_${tx}_${ty}.bin")
-            if (swapFile.exists()) {
-                return try {
-                    val bytes = swapFile.readBytes()
-                    if (bytes.size == expectedSize) bytes else UndoManager.decompress(bytes)
-                } catch (e: Exception) {
-                    null
-                }
+            val bytes = ByteArray(expectedSize)
+            if (app.goodboy13.milton.core.native.MiltonNative.swapReadTile(fallbackCacheDir.absolutePath, 0L, tx, ty, bytes)) {
+                return bytes
             }
         }
         return null

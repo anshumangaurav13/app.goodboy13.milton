@@ -137,22 +137,15 @@ class TileMapTest {
     }
 
     @Test
-    fun testRawAndCompressedSwapCompatibility() {
-        val cacheDir = tempFolder.newFolder("swap_compat")
-        val rawFile = cacheDir.resolve("raw.bin")
+    fun testNativeSwapWriteAndRead() {
+        val cacheDir = tempFolder.newFolder("swap_native")
         val rawBytes = ByteArray(TileCoord.TILE_SIZE * TileCoord.TILE_SIZE * 4) { (it % 255).toByte() }
-        rawFile.writeBytes(rawBytes)
+        val wrote = app.goodboy13.milton.core.native.MiltonNative.swapWriteTile(cacheDir.absolutePath, 0L, 10, 20, rawBytes)
+        org.junit.Assert.assertTrue(wrote)
 
-        val readRaw = app.goodboy13.milton.core.tile.RasterTile.readSwapBytes(rawFile)
-        org.junit.Assert.assertNotNull(readRaw)
-        org.junit.Assert.assertArrayEquals(rawBytes, readRaw)
-
-        val compressedFile = cacheDir.resolve("compressed.bin")
-        val compressed = app.goodboy13.milton.core.history.UndoManager.compress(rawBytes)
-        compressedFile.writeBytes(compressed)
-
-        val readCompressed = app.goodboy13.milton.core.tile.RasterTile.readSwapBytes(compressedFile)
-        org.junit.Assert.assertNotNull(readCompressed)
-        org.junit.Assert.assertArrayEquals(rawBytes, readCompressed)
+        val readBytes = ByteArray(rawBytes.size)
+        val ok = app.goodboy13.milton.core.native.MiltonNative.swapReadTile(cacheDir.absolutePath, 0L, 10, 20, readBytes)
+        org.junit.Assert.assertTrue(ok)
+        org.junit.Assert.assertArrayEquals(rawBytes, readBytes)
     }
 }
