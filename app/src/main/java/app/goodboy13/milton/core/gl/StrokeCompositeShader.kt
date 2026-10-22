@@ -35,39 +35,7 @@ class StrokeCompositeShader {
             }
         """.trimIndent()
 
-        val fragmentShaderCodeFetch = """
-            #version 300 es
-            #extension GL_EXT_shader_framebuffer_fetch : require
-            precision highp float;
-            in vec2 vTexCoord;
-
-            uniform sampler2D uStrokeTexture;
-
-            layout(location = 0) inout vec4 fragColor;
-
-            void main() {
-                vec4 stroke = texture(uStrokeTexture, vTexCoord);
-                if (stroke.a <= 0.001) discard;
-
-                vec4 dst = fragColor;
-
-                // If destination tile pixel is transparent, directly stamp the stroke
-                if (dst.a <= 0.001) {
-                    fragColor = stroke;
-                    return;
-                }
-
-                float strokeAlpha = stroke.a;
-                float dstAlpha = dst.a;
-                float outAlpha = dstAlpha + strokeAlpha * (1.0 - dstAlpha);
-
-                // Single-pass Porter-Duff Over optical blending evaluated once across the stroke ribbon
-                vec3 outPremul = stroke.rgb + dst.rgb * (1.0 - strokeAlpha);
-                fragColor = vec4(clamp(outPremul, 0.0, 1.0), clamp(outAlpha, 0.0, 1.0));
-            }
-        """.trimIndent()
-
-        val fragmentShaderCodeFallback = """
+        val fragmentShaderCode = """
             #version 300 es
             precision highp float;
             in vec2 vTexCoord;
@@ -76,19 +44,15 @@ class StrokeCompositeShader {
             void main() {
                 vec4 stroke = texture(uStrokeTexture, vTexCoord);
                 if (stroke.a <= 0.001) discard;
+                // Scratch texture stores premultiplied stroke ribbon colors.
+                // Hardware blending (GL_ONE, GL_ONE_MINUS_SRC_ALPHA) performs single-pass Porter-Duff Over onto destination tile.
                 fragColor = stroke;
             }
         """.trimIndent()
 
-        programId = GlUtils.tryCreateProgram(vertexShaderCode, fragmentShaderCodeFetch)
-        if (programId != 0) {
-            usesFramebufferFetch = true
-            Log.i("StrokeCompositeShader", "Initialized with GL_EXT_shader_framebuffer_fetch")
-        } else {
-            programId = GlUtils.createProgram(vertexShaderCode, fragmentShaderCodeFallback)
-            usesFramebufferFetch = false
-            Log.i("StrokeCompositeShader", "Initialized with standard fallback shader")
-        }
+        programId = GlUtils.createProgram(vertexShaderCode, fragmentShaderCode)
+        usesFramebufferFetch = false
+        Log.i("StrokeCompositeShader", "Initialized with hardware premultiplied blend")
 
         uStrokeTextureLoc = GLES30.glGetUniformLocation(programId, "uStrokeTexture")
 
@@ -134,20 +98,20 @@ class StrokeCompositeShader {
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, strokeTextureId)
         GLES30.glUniform1i(uStrokeTextureLoc, 0)
 
-        if (usesFramebufferFetch) {
-            GLES30.glDisable(GLES30.GL_BLEND)
-        } else {
-            GLES30.glEnable(GLES30.GL_BLEND)
-            GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-        }
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
+        GLES30.glBlendFuncSeparate(
+            GLES30.GL_ONE,
+            GLES30.GL_ONE_MINUS_SRC_ALPHA,
+            GLES30.GL_ONE,
+            GLES30.GL_ONE_MINUS_SRC_ALPHA
+        )
 
         GLES30.glBindVertexArray(vaoId)
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)
         GLES30.glBindVertexArray(0)
 
-        if (usesFramebufferFetch) {
-            GLES30.glEnable(GLES30.GL_BLEND)
-        }
+
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
     }
 

@@ -55,127 +55,7 @@ class DabShader {
             }
         """.trimIndent()
 
-        // 1. High-fidelity fragment shader with GL_EXT_shader_framebuffer_fetch
-        val fragmentShaderCodeFetch = """
-            #version 300 es
-            #extension GL_EXT_shader_framebuffer_fetch : require
-            precision highp float;
-            precision highp int;
-            in vec2 vLocalCoord;
-            in vec2 vWorldPos;
-            in vec2 vDabCenter;
-            in float vRadius;
-
-            uniform vec4 uColor;
-            uniform float uHardness;
-            uniform int uBrushMode; // 0 = Pen, 1 = Pencil, 2 = Paintbrush
-            uniform float uPressure;
-            uniform int uIsEraser;
-
-            layout(location = 0) inout vec4 fragColor;
-
-$GRAPHITE_HASH_FUNCTIONS_GLSL
-
-            void main() {
-                vec2 pixelCoord = floor(vWorldPos + vec2(0.01));
-                float dist = length(vLocalCoord);
-                if (uBrushMode == 1) {
-                    vec2 pixelCenter = pixelCoord + vec2(0.5);
-                    dist = length(pixelCenter - vDabCenter) / vRadius;
-                }
-                if (dist > 1.0) {
-                    discard;
-                }
-
-                float dabAlpha = 0.0;
-                if (uBrushMode == 1) {
-
-
-$GRAPHITE_PHYSICS_GLSL
-                } else if (uBrushMode == 2) {
-                    // Paintbrush: soft feathered edge
-                    float edge = smoothstep(1.0, uHardness, dist);
-                    dabAlpha = edge * uColor.a;
-                } else if (uBrushMode == 3) {
-                    // Smudge tool: smooth quadratic/Gaussian pigment advection profile
-                    float edge = smoothstep(1.0, uHardness, dist);
-                    dabAlpha = edge * uColor.a * uPressure;
-                } else {
-                    // Pen / Eraser: firm anti-aliased edge
-                    dabAlpha = smoothstep(1.0, uHardness, dist) * uColor.a;
-                }
-
-                if (dabAlpha <= 0.001) {
-                    discard;
-                }
-
-                vec4 dst = fragColor;
-
-                // Eraser mode directly attenuates tile
-                if (uIsEraser == 1) {
-                    fragColor = dst * (1.0 - dabAlpha);
-                    return;
-                }
-
-                // BrushMode 3: Pigment Advection Smudge with Leonardo's linear photometric blending (linearHack)
-                if (uBrushMode == 3) {
-                    if (dst.a <= 0.002) {
-                        // Empty tile / background: deposit carried pigment with pressure falloff
-                        vec3 srcLinear = pow(clamp(uColor.rgb, 0.0, 1.0), vec3(2.2));
-                        vec3 outSrgb = pow(srcLinear, vec3(1.0 / 2.2));
-                        float depositA = dabAlpha * 0.40;
-                        fragColor = vec4(outSrgb * depositA, depositA);
-                        return;
-                    }
-
-                    // Convert destination and carried pigment to linear photometric space
-                    vec3 dstUnpremul = dst.rgb / max(dst.a, 0.001);
-                    vec3 dstLinear = pow(clamp(dstUnpremul, 0.0, 1.0), vec3(2.2));
-                    vec3 srcLinear = pow(clamp(uColor.rgb, 0.0, 1.0), vec3(2.2));
-
-                    // Advect & physically mix pigments
-                    float blendWeight = clamp(dabAlpha * 0.65, 0.0, 0.95);
-                    vec3 mixedLinear = mix(dstLinear, srcLinear, blendWeight);
-                    vec3 outSrgb = pow(clamp(mixedLinear, 0.0, 1.0), vec3(1.0 / 2.2));
-
-                    float outA = clamp(dst.a + (uColor.a - dst.a) * dabAlpha * 0.25, 0.0, 1.0);
-                    fragColor = vec4(outSrgb * outA, outA);
-                    return;
-                }
-
-                vec3 srcColor = uColor.rgb;
-                if (uBrushMode == 1) {
-                    // Soften harsh ink-black into natural matte charcoal/graphite pencil grey
-                    vec3 graphiteTone = vec3(0.25, 0.26, 0.28);
-                    srcColor = mix(srcColor, max(srcColor, graphiteTone), 0.70);
-                }
-
-                // Empty tile / front-buffer pixel: direct premultiplied stamp
-                if (dst.a <= 0.002) {
-                    fragColor = vec4(srcColor * dabAlpha, dabAlpha);
-                    return;
-                }
-
-                // Check if destination pixel was already painted with the current stroke's color.
-                vec3 premulExpected = srcColor * dst.a;
-                vec3 colorDiff = abs(dst.rgb - premulExpected);
-                bool isSameStrokeColor = all(lessThan(colorDiff, vec3(0.045)));
-
-                float outAlpha = dst.a + dabAlpha * (1.0 - dst.a);
-
-                if (isSameStrokeColor) {
-                    fragColor = vec4(srcColor * outAlpha, outAlpha);
-                    return;
-                }
-
-                // Standard Porter-Duff Over digital art blending
-                vec3 outPremul = srcColor * dabAlpha + dst.rgb * (1.0 - dabAlpha);
-                fragColor = vec4(clamp(outPremul, 0.0, 1.0), clamp(outAlpha, 0.0, 1.0));
-            }
-        """.trimIndent()
-
-        // 2. Standard fallback fragment shader without framebuffer fetch
-        val fragmentShaderCodeFallback = """
+        val fragmentShaderCodeStandard = """
             #version 300 es
             precision highp float;
             precision highp int;
@@ -186,7 +66,7 @@ $GRAPHITE_PHYSICS_GLSL
 
             uniform vec4 uColor;
             uniform float uHardness;
-            uniform int uBrushMode;
+            uniform int uBrushMode; // 0 = Pen, 1 = Pencil, 2 = Paintbrush, 3 = Smudge
             uniform float uPressure;
             uniform int uIsEraser;
 
@@ -207,16 +87,17 @@ $GRAPHITE_HASH_FUNCTIONS_GLSL
 
                 float dabAlpha = 0.0;
                 if (uBrushMode == 1) {
-
-
 $GRAPHITE_PHYSICS_GLSL
                 } else if (uBrushMode == 2) {
+                    // Paintbrush: soft feathered edge
                     float edge = smoothstep(1.0, uHardness, dist);
                     dabAlpha = edge * uColor.a;
                 } else if (uBrushMode == 3) {
+                    // Smudge: smooth pressure profile
                     float edge = smoothstep(1.0, uHardness, dist);
                     dabAlpha = edge * uColor.a * uPressure;
                 } else {
+                    // Pen / Eraser: firm anti-aliased edge
                     dabAlpha = smoothstep(1.0, uHardness, dist) * uColor.a;
                 }
 
@@ -226,23 +107,27 @@ $GRAPHITE_PHYSICS_GLSL
 
                 vec3 srcColor = uColor.rgb;
                 if (uBrushMode == 1) {
-                    vec3 graphiteTone = vec3(0.25, 0.26, 0.28);
-                    srcColor = mix(srcColor, max(srcColor, graphiteTone), 0.70);
+                    float maxCh = max(srcColor.r, max(srcColor.g, srcColor.b));
+                    float minCh = min(srcColor.r, min(srcColor.g, srcColor.b));
+                    // Monochromatic dark ink/charcoal: soften into natural warm carbon graphite grey
+                    if (maxCh < 0.30 && (maxCh - minCh) < 0.06) {
+                        vec3 graphiteTone = vec3(0.22, 0.215, 0.21);
+                        srcColor = mix(srcColor, graphiteTone, 0.75);
+                    }
                 }
 
+                // Standard premultiplied output.
+                // GPU hardware blending (GL_ONE, GL_ONE_MINUS_SRC_ALPHA) accumulates overlapping dabs
+                // into a mathematically perfect stroke ribbon without numerical noise, GMEM stalls,
+                // or FBO 0 driver hazards.
                 fragColor = vec4(srcColor * dabAlpha, dabAlpha);
             }
         """.trimIndent()
 
-        programId = GlUtils.tryCreateProgram(vertexShaderCode, fragmentShaderCodeFetch)
-        if (programId != 0) {
-            usesFramebufferFetch = true
-            Log.i("DabShader", "Initialized with GL_EXT_shader_framebuffer_fetch")
-        } else {
-            programId = GlUtils.createProgram(vertexShaderCode, fragmentShaderCodeFallback)
-            usesFramebufferFetch = false
-            Log.i("DabShader", "Initialized with standard fallback shader")
-        }
+        // Standard forward shader program for 100% of brush & eraser stamping
+        programId = GlUtils.createProgram(vertexShaderCode, fragmentShaderCodeStandard)
+        usesFramebufferFetch = false
+        Log.i("DabShader", "Initialized with hardware premultiplied blend")
 
         uProjectionLoc = GLES30.glGetUniformLocation(programId, "uProjection")
         uCenterLoc = GLES30.glGetUniformLocation(programId, "uCenter")

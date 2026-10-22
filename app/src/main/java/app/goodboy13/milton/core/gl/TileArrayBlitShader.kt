@@ -71,45 +71,7 @@ class TileArrayBlitShader {
             }
         """.trimIndent()
 
-        val fragmentShaderCodeFetch = """
-            #version 300 es
-            #extension GL_EXT_shader_framebuffer_fetch : require
-            precision highp float;
-            precision highp sampler2DArray;
-
-            in vec3 vTexCoord;
-            in vec2 vUnitPos;
-            in float vOpacity;
-
-            uniform sampler2DArray uTextureArray;
-            uniform int uShowBorders;
-
-            layout(location = 0) inout vec4 fragColor;
-
-            void main() {
-                if (uShowBorders == 1) {
-                    if (vUnitPos.x < 0.008 || vUnitPos.x > 0.992 || vUnitPos.y < 0.008 || vUnitPos.y > 0.992) {
-                        fragColor = vec4(0.0, 0.9, 1.0, 1.0);
-                        return;
-                    }
-                }
-
-                vec4 tex = texture(uTextureArray, vTexCoord);
-                float alpha = tex.a * vOpacity;
-                if (alpha <= 0.001) {
-                    discard;
-                }
-
-                vec3 srcColor = tex.rgb / max(tex.a, 0.001);
-                vec4 dst = fragColor;
-
-                // Standard Porter-Duff Over multi-layer compositing matching front-buffer overlay
-                vec3 mixed = mix(dst.rgb, srcColor, alpha);
-                fragColor = vec4(mixed, 1.0);
-            }
-        """.trimIndent()
-
-        val fragmentShaderCodeFallback = """
+        val fragmentShaderCode = """
             #version 300 es
             precision mediump float;
             precision mediump sampler2DArray;
@@ -134,19 +96,16 @@ class TileArrayBlitShader {
                 if (tex.a <= 0.001) {
                     discard;
                 }
+                // Tile textures store premultiplied colors.
+                // Multiplying by layer opacity scales premultiplied RGB and alpha equally.
+                // Hardware blending (GL_ONE, GL_ONE_MINUS_SRC_ALPHA) performs exact Porter-Duff Over.
                 fragColor = tex * vOpacity;
             }
         """.trimIndent()
 
-        programId = GlUtils.tryCreateProgram(vertexShaderCode, fragmentShaderCodeFetch)
-        if (programId != 0) {
-            usesFramebufferFetch = true
-            Log.i(TAG, "Initialized with GL_EXT_shader_framebuffer_fetch and GL_TEXTURE_2D_ARRAY")
-        } else {
-            programId = GlUtils.createProgram(vertexShaderCode, fragmentShaderCodeFallback)
-            usesFramebufferFetch = false
-            Log.i(TAG, "Initialized with standard fallback shader and GL_TEXTURE_2D_ARRAY")
-        }
+        programId = GlUtils.createProgram(vertexShaderCode, fragmentShaderCode)
+        usesFramebufferFetch = false
+        Log.i(TAG, "Initialized with hardware premultiplied blend and GL_TEXTURE_2D_ARRAY")
 
         uMvpMatrixLoc = GLES30.glGetUniformLocation(programId, "uMvpMatrix")
         uFlipYLoc = GLES30.glGetUniformLocation(programId, "uFlipY")
@@ -232,12 +191,14 @@ class TileArrayBlitShader {
 
         GLES30.glBindVertexArray(vaoId)
 
-        if (usesFramebufferFetch) {
-            GLES30.glDisable(GLES30.GL_BLEND)
-        } else {
-            GLES30.glEnable(GLES30.GL_BLEND)
-            GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-        }
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
+        GLES30.glBlendFuncSeparate(
+            GLES30.GL_ONE,
+            GLES30.GL_ONE_MINUS_SRC_ALPHA,
+            GLES30.GL_ONE,
+            GLES30.GL_ONE_MINUS_SRC_ALPHA
+        )
     }
 
     fun renderTilesBatch(

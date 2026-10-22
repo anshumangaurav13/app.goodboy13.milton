@@ -102,10 +102,11 @@ class GlSceneRenderer {
         GLES30.glGenTextures(1, textures, 0)
         scratchTextureId = textures[0]
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, scratchTextureId)
+        // High-precision half-float scratch buffer for ultra-fine low-opacity color accumulation
         GLES30.glTexImage2D(
-            GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA8,
+            GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA16F,
             TileCoord.TILE_SIZE, TileCoord.TILE_SIZE, 0,
-            GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null
+            GLES30.GL_RGBA, GLES30.GL_HALF_FLOAT, null
         )
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
@@ -121,9 +122,20 @@ class GlSceneRenderer {
             GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0,
             GLES30.GL_TEXTURE_2D, scratchTextureId, 0
         )
-        val status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
+        var status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
         if (status != GLES30.GL_FRAMEBUFFER_COMPLETE) {
-            Log.e(TAG, "Scratch FBO is incomplete: status=$status")
+            Log.w(TAG, "RGBA16F scratch FBO not complete ($status), falling back to RGBA8")
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, scratchTextureId)
+            GLES30.glTexImage2D(
+                GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA8,
+                TileCoord.TILE_SIZE, TileCoord.TILE_SIZE, 0,
+                GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null
+            )
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+            status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
+            if (status != GLES30.GL_FRAMEBUFFER_COMPLETE) {
+                Log.e(TAG, "Scratch FBO is incomplete after fallback: status=$status")
+            }
         }
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
     }
@@ -183,17 +195,14 @@ class GlSceneRenderer {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, bufferInfo.frameBufferId)
         GLES30.glViewport(0, 0, bufferInfo.width, bufferInfo.height)
 
-        if (dabShader.usesFramebufferFetch) {
-            GLES30.glDisable(GLES30.GL_BLEND)
-        } else {
-            GLES30.glEnable(GLES30.GL_BLEND)
-            GLES30.glBlendFuncSeparate(
-                GLES30.GL_ONE,
-                GLES30.GL_ONE_MINUS_SRC_ALPHA,
-                GLES30.GL_ONE,
-                GLES30.GL_ONE_MINUS_SRC_ALPHA
-            )
-        }
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
+        GLES30.glBlendFuncSeparate(
+            GLES30.GL_ONE,
+            GLES30.GL_ONE_MINUS_SRC_ALPHA,
+            GLES30.GL_ONE,
+            GLES30.GL_ONE_MINUS_SRC_ALPHA
+        )
 
         val mvp = computeFinalMvpMatrix(viewport, bufferInfo, transform)
         dabShader.beginBatch(mvp)
@@ -213,9 +222,6 @@ class GlSceneRenderer {
             )
         }
         dabShader.endBatch()
-        if (dabShader.usesFramebufferFetch) {
-            GLES30.glEnable(GLES30.GL_BLEND)
-        }
     }
 
     /**
@@ -235,17 +241,14 @@ class GlSceneRenderer {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, bufferInfo.frameBufferId)
         GLES30.glViewport(0, 0, bufferInfo.width, bufferInfo.height)
 
-        if (dabShader.usesFramebufferFetch) {
-            GLES30.glDisable(GLES30.GL_BLEND)
-        } else {
-            GLES30.glEnable(GLES30.GL_BLEND)
-            GLES30.glBlendFuncSeparate(
-                GLES30.GL_ONE,
-                GLES30.GL_ONE_MINUS_SRC_ALPHA,
-                GLES30.GL_ONE,
-                GLES30.GL_ONE_MINUS_SRC_ALPHA
-            )
-        }
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
+        GLES30.glBlendFuncSeparate(
+            GLES30.GL_ONE,
+            GLES30.GL_ONE_MINUS_SRC_ALPHA,
+            GLES30.GL_ONE,
+            GLES30.GL_ONE_MINUS_SRC_ALPHA
+        )
 
         val mvp = computeFinalMvpMatrix(viewport, bufferInfo, transform)
         dabShader.beginBatch(mvp)
@@ -265,9 +268,6 @@ class GlSceneRenderer {
             }
         }
         dabShader.endBatch()
-        if (dabShader.usesFramebufferFetch) {
-            GLES30.glEnable(GLES30.GL_BLEND)
-        }
     }
 
     fun renderFrontBufferRingDabs(
@@ -551,13 +551,14 @@ class GlSceneRenderer {
             // 1. Eraser dabs directly attenuate the tile FBO
             if (eraserDabs.isNotEmpty()) {
                 tile.bindFboDirect()
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glDisable(GLES30.GL_BLEND)
-                } else {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                    GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
-                    GLES30.glBlendFunc(GLES30.GL_ZERO, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-                }
+                GLES30.glEnable(GLES30.GL_BLEND)
+                GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
+                GLES30.glBlendFuncSeparate(
+                    GLES30.GL_ZERO,
+                    GLES30.GL_ONE_MINUS_SRC_ALPHA,
+                    GLES30.GL_ZERO,
+                    GLES30.GL_ONE_MINUS_SRC_ALPHA
+                )
 
                 dabShader.beginBatch(tileOrthoMatrix)
                 for (dab in eraserDabs) {
@@ -578,9 +579,6 @@ class GlSceneRenderer {
                     )
                 }
                 dabShader.endBatch()
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                }
             }
 
             // 2. Brush dabs: Two-pass scratch composition
@@ -591,13 +589,14 @@ class GlSceneRenderer {
                 GLES30.glClearColor(0f, 0f, 0f, 0f)
                 GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
 
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glDisable(GLES30.GL_BLEND)
-                } else {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                    GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
-                    GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-                }
+                GLES30.glEnable(GLES30.GL_BLEND)
+                GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
+                GLES30.glBlendFuncSeparate(
+                    GLES30.GL_ONE,
+                    GLES30.GL_ONE_MINUS_SRC_ALPHA,
+                    GLES30.GL_ONE,
+                    GLES30.GL_ONE_MINUS_SRC_ALPHA
+                )
 
                 dabShader.beginBatch(tileOrthoMatrix)
                 for (dab in brushDabs) {
@@ -618,10 +617,6 @@ class GlSceneRenderer {
                     )
                 }
                 dabShader.endBatch()
-
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                }
 
                 // Pass 2: Composite the scratch stroke ribbon onto destination tile FBO in a single pass
                 tile.bindFboDirect()
@@ -693,13 +688,14 @@ class GlSceneRenderer {
             // 1. Eraser dabs directly attenuate the tile FBO
             if (bucket.eraserCount > 0) {
                 tile.bindFboDirect()
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glDisable(GLES30.GL_BLEND)
-                } else {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                    GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
-                    GLES30.glBlendFunc(GLES30.GL_ZERO, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-                }
+                GLES30.glEnable(GLES30.GL_BLEND)
+                GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
+                GLES30.glBlendFuncSeparate(
+                    GLES30.GL_ZERO,
+                    GLES30.GL_ONE_MINUS_SRC_ALPHA,
+                    GLES30.GL_ZERO,
+                    GLES30.GL_ONE_MINUS_SRC_ALPHA
+                )
 
                 dabShader.beginBatch(tileOrthoMatrix)
                 for (k in 0 until bucket.eraserCount) {
@@ -721,9 +717,6 @@ class GlSceneRenderer {
                     )
                 }
                 dabShader.endBatch()
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                }
             }
 
             // 3. Brush dabs: Two-pass scratch composition
@@ -733,13 +726,14 @@ class GlSceneRenderer {
                 GLES30.glClearColor(0f, 0f, 0f, 0f)
                 GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
 
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glDisable(GLES30.GL_BLEND)
-                } else {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                    GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
-                    GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-                }
+                GLES30.glEnable(GLES30.GL_BLEND)
+                GLES30.glBlendEquation(GLES30.GL_FUNC_ADD)
+                GLES30.glBlendFuncSeparate(
+                    GLES30.GL_ONE,
+                    GLES30.GL_ONE_MINUS_SRC_ALPHA,
+                    GLES30.GL_ONE,
+                    GLES30.GL_ONE_MINUS_SRC_ALPHA
+                )
 
                 dabShader.beginBatch(tileOrthoMatrix)
                 for (k in 0 until bucket.brushCount) {
@@ -761,10 +755,6 @@ class GlSceneRenderer {
                     )
                 }
                 dabShader.endBatch()
-
-                if (dabShader.usesFramebufferFetch) {
-                    GLES30.glEnable(GLES30.GL_BLEND)
-                }
 
                 // Pass 2: Composite the scratch stroke ribbon onto destination tile FBO in a single pass
                 tile.bindFboDirect()
@@ -835,9 +825,9 @@ class GlSceneRenderer {
                 val dr = Color.red(accColor)
                 val dg = Color.green(accColor)
                 val db = Color.blue(accColor)
-                val outR = kotlin.math.round((dr * (1f - a) + r * a)).toInt().coerceIn(0, 255)
-                val outG = kotlin.math.round((dg * (1f - a) + g * a)).toInt().coerceIn(0, 255)
-                val outB = kotlin.math.round((db * (1f - a) + b * a)).toInt().coerceIn(0, 255)
+                val outR = kotlin.math.round((dr * (1f - a) + r * layer.opacity)).toInt().coerceIn(0, 255)
+                val outG = kotlin.math.round((dg * (1f - a) + g * layer.opacity)).toInt().coerceIn(0, 255)
+                val outB = kotlin.math.round((db * (1f - a) + b * layer.opacity)).toInt().coerceIn(0, 255)
                 accColor = Color.rgb(outR, outG, outB)
             }
         }
