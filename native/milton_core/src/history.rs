@@ -258,6 +258,62 @@ impl HistoryManager {
         self.redo_stack.clear();
     }
 
+    pub fn peek_undo_command_type(&self) -> i32 {
+        match self.undo_stack.back() {
+            None => 0,
+            Some(HistoryCommand::Stroke(_)) => 1,
+            Some(HistoryCommand::AddLayer { .. }) => 2,
+            Some(HistoryCommand::DeleteLayer { .. }) => 3,
+        }
+    }
+
+    pub fn peek_redo_command_type(&self) -> i32 {
+        match self.redo_stack.back() {
+            None => 0,
+            Some(HistoryCommand::Stroke(_)) => 1,
+            Some(HistoryCommand::AddLayer { .. }) => 2,
+            Some(HistoryCommand::DeleteLayer { .. }) => 3,
+        }
+    }
+
+    pub fn peek_undo_layer_meta(&self) -> Option<(i64, String, f32, bool, i32, i64)> {
+        match self.undo_stack.back() {
+            Some(HistoryCommand::AddLayer { layer_id, name, opacity, is_visible, storage_index, active_layer_id_before }) => {
+                Some((*layer_id, name.clone(), *opacity, *is_visible, *storage_index, *active_layer_id_before))
+            }
+            Some(HistoryCommand::DeleteLayer { layer_id, name, opacity, is_visible, storage_index, active_layer_id_before, .. }) => {
+                Some((*layer_id, name.clone(), *opacity, *is_visible, *storage_index, *active_layer_id_before))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn peek_redo_layer_meta(&self) -> Option<(i64, String, f32, bool, i32, i64)> {
+        match self.redo_stack.back() {
+            Some(HistoryCommand::AddLayer { layer_id, name, opacity, is_visible, storage_index, active_layer_id_before }) => {
+                Some((*layer_id, name.clone(), *opacity, *is_visible, *storage_index, *active_layer_id_before))
+            }
+            Some(HistoryCommand::DeleteLayer { layer_id, name, opacity, is_visible, storage_index, active_layer_id_before, .. }) => {
+                Some((*layer_id, name.clone(), *opacity, *is_visible, *storage_index, *active_layer_id_before))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn peek_undo_delete_layer_tiles(&self) -> Option<&Vec<(i32, i32, Vec<u8>)>> {
+        match self.undo_stack.back() {
+            Some(HistoryCommand::DeleteLayer { tiles_snapshot, .. }) => Some(tiles_snapshot),
+            _ => None,
+        }
+    }
+
+    pub fn peek_redo_delete_layer_tiles(&self) -> Option<&Vec<(i32, i32, Vec<u8>)>> {
+        match self.redo_stack.back() {
+            Some(HistoryCommand::DeleteLayer { tiles_snapshot, .. }) => Some(tiles_snapshot),
+            _ => None,
+        }
+    }
+
     pub fn total_memory_bytes(&self) -> usize {
         let u: usize = self.undo_stack.iter().map(|c| c.memory_bytes()).sum();
         let r: usize = self.redo_stack.iter().map(|c| c.memory_bytes()).sum();

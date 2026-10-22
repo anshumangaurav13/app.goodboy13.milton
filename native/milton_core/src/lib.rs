@@ -1905,6 +1905,97 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_histor
     if mgr.commit_redo() { JNI_TRUE } else { JNI_FALSE }
 }
 
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyGetUndoCommandType<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+) -> jint {
+    if history_ptr == 0 { return 0; }
+    let mgr = unsafe { &*(history_ptr as *mut history::HistoryManager) };
+    mgr.peek_undo_command_type()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyGetRedoCommandType<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+) -> jint {
+    if history_ptr == 0 { return 0; }
+    let mgr = unsafe { &*(history_ptr as *mut history::HistoryManager) };
+    mgr.peek_redo_command_type()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyPushAddLayer<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+    layer_id: jlong,
+    name: JString<'local>,
+    opacity: jfloat,
+    is_visible: jboolean,
+    storage_index: jint,
+    active_layer_id_before: jlong,
+) {
+    if history_ptr == 0 { return; }
+    let mgr = unsafe { &mut *(history_ptr as *mut history::HistoryManager) };
+    let name_str: String = match env.get_string(&name) {
+        Ok(s) => s.into(),
+        Err(_) => String::from("Layer"),
+    };
+    mgr.push_add_layer(layer_id, name_str, opacity, is_visible == JNI_TRUE, storage_index, active_layer_id_before);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyGetUndoLayerMeta<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+    out_ids: JLongArray<'local>,
+    out_floats: JFloatArray<'local>,
+    out_ints: JIntArray<'local>,
+) -> JString<'local> {
+    if history_ptr == 0 { return JString::default(); }
+    let mgr = unsafe { &*(history_ptr as *mut history::HistoryManager) };
+    if let Some((lid, name, op, vis, s_idx, active_before)) = mgr.peek_undo_layer_meta() {
+        let _ = env.set_long_array_region(&out_ids, 0, &[lid, active_before]);
+        let _ = env.set_float_array_region(&out_floats, 0, &[op]);
+        let _ = env.set_int_array_region(&out_ints, 0, &[if vis { 1 } else { 0 }, s_idx]);
+        match env.new_string(name) {
+            Ok(js) => js,
+            Err(_) => JString::default(),
+        }
+    } else {
+        JString::default()
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyGetRedoLayerMeta<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+    out_ids: JLongArray<'local>,
+    out_floats: JFloatArray<'local>,
+    out_ints: JIntArray<'local>,
+) -> JString<'local> {
+    if history_ptr == 0 { return JString::default(); }
+    let mgr = unsafe { &*(history_ptr as *mut history::HistoryManager) };
+    if let Some((lid, name, op, vis, s_idx, active_before)) = mgr.peek_redo_layer_meta() {
+        let _ = env.set_long_array_region(&out_ids, 0, &[lid, active_before]);
+        let _ = env.set_float_array_region(&out_floats, 0, &[op]);
+        let _ = env.set_int_array_region(&out_ints, 0, &[if vis { 1 } else { 0 }, s_idx]);
+        match env.new_string(name) {
+            Ok(js) => js,
+            Err(_) => JString::default(),
+        }
+    } else {
+        JString::default()
+    }
+}
+
 // ============================================================================
 // #11 VIEWPORT & CAMERA TRANSFORMATION JNI BINDINGS
 // ============================================================================
