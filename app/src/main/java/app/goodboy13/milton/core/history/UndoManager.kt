@@ -1,7 +1,6 @@
 package app.goodboy13.milton.core.history
 
 import android.opengl.GLES30
-import app.goodboy13.milton.core.gl.GlTexturePool
 import app.goodboy13.milton.core.layer.LayerManager
 import app.goodboy13.milton.core.memory.DirectBufferPool
 import app.goodboy13.milton.core.native.MiltonNative
@@ -12,7 +11,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.util.ArrayDeque
 
@@ -39,13 +37,6 @@ class TileDelta(
  * Base sealed interface for undoable actions on the canvas.
  */
 sealed interface UndoCommand
-
-/**
- * A single stroke undo record covering all tiles mutated by that stroke.
- */
-class StrokeCommand(
-    val deltas: List<TileDelta>
-) : UndoCommand
 
 /**
  * An undo record for layer creation, preserving the created layer ID, its metadata,
@@ -76,7 +67,7 @@ class DeleteLayerCommand(
 
 /**
  * High-performance, memory-efficient undo/redo manager for the infinite raster canvas.
- * Compresses tile deltas with Deflater (typically 1MB -> <15KB) for negligible RAM overhead.
+ * Powered 100% by native off-heap history (milton_core::history) with zero GC object churn.
  */
 data class UndoWorkItem(
     val layerId: Long,
@@ -107,8 +98,8 @@ class UndoManager(val maxHistorySize: Int = 30) {
     }
 
     private val lock = Any()
-    private val undoStack = ArrayDeque<UndoCommand>()
-    private val redoStack = ArrayDeque<UndoCommand>()
+    private val customUndoStack = ArrayDeque<UndoCommand>()
+    private val customRedoStack = ArrayDeque<UndoCommand>()
 
     // Dedicated background coroutine scope for asynchronous tile delta compression
     private val undoScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -119,8 +110,8 @@ class UndoManager(val maxHistorySize: Int = 30) {
     var onStateChangedListener: (() -> Unit)? = null
     var onTilesCommittedListener: ((List<TileDelta>) -> Unit)? = null
 
-    val canUndo: Boolean get() = (nativeHistoryPtr != 0L && MiltonNative.historyCanUndo(nativeHistoryPtr)) || synchronized(lock) { undoStack.isNotEmpty() }
-    val canRedo: Boolean get() = (nativeHistoryPtr != 0L && MiltonNative.historyCanRedo(nativeHistoryPtr)) || synchronized(lock) { redoStack.isNotEmpty() }
+    val canUndo: Boolean get() = (nativeHistoryPtr != 0L && MiltonNative.historyCanUndo(nativeHistoryPtr)) || synchronized(lock) { customUndoStack.isNotEmpty() }
+    val canRedo: Boolean get() = (nativeHistoryPtr != 0L && MiltonNative.historyCanRedo(nativeHistoryPtr)) || synchronized(lock) { customRedoStack.isNotEmpty() }
     val nativeMemoryBytes: Long get() = if (nativeHistoryPtr != 0L) MiltonNative.historyTotalMemoryBytes(nativeHistoryPtr) else 0L
 
     /**
@@ -168,7 +159,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
     }
 
     /**
-     * Clears and recycles all pending pre-stroke snapshots without pushing to undo stack.
+     * Clears all pending pre-stroke snapshots.
      */
     fun clearPending() {
         pendingPreStrokeRaw.clear()
@@ -177,7 +168,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
     /**
      * Finalizes stroke commits asynchronously.
      * Fast pixel readback occurs on the GL thread (~1ms per tile), and heavy dirty-rect computation
-     * and ZSTD compression run on a background thread.
+     * and compression run on a background thread.
      * Prevents the GL render thread from ever hanging when pen is lifted.
      */
     fun commitMultiLayerStroke(layers: Collection<Pair<Long, TileMap>>) {
@@ -214,7 +205,6 @@ class UndoManager(val maxHistorySize: Int = 30) {
 
         if (workItems.isEmpty()) return
 
-        // Step 2: Offload dirty rect computing and ZSTD compression to background worker thread
         undoScope.launch(Dispatchers.Default) {
             val deltas = mutableListOf<TileDelta>()
 
@@ -223,9 +213,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
                 val afterRaw = item.afterRaw
 
                 if (beforeRaw != null && afterRaw != null) {
-                    val dirtyRect = if (MiltonNative.isLoaded) {
-                        MiltonNative.computeDirtyRect(beforeRaw, afterRaw)
-                    } else null
+                    val dirtyRect = MiltonNative.computeDirtyRect(beforeRaw, afterRaw)
 
                     if (dirtyRect != null && dirtyRect.size == 4 && dirtyRect[2] > 0 && dirtyRect[3] > 0) {
                         val minX = dirtyRect[0]
@@ -288,32 +276,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
             }
 
             if (deltas.isNotEmpty()) {
-                if (nativeHistoryPtr != 0L) {
-                    for (i in deltas.indices) {
-                        val d = deltas[i]
-                        MiltonNative.historyPushTileDelta(
-                            nativeHistoryPtr,
-                            isStartOfCommand = (i == 0),
-                            layerId = d.layerId,
-                            tx = d.coord.tx,
-                            ty = d.coord.ty,
-                            minX = d.minX,
-                            minY = d.minY,
-                            width = d.patchWidth,
-                            height = d.patchHeight,
-                            beforePatch = d.beforeCompressed,
-                            afterPatch = d.afterCompressed
-                        )
-                    }
-                }
-                synchronized(lock) {
-                    redoStack.clear()
-                    undoStack.push(StrokeCommand(deltas))
-                    if (undoStack.size > maxHistorySize) {
-                        undoStack.removeLast()
-                    }
-                }
-                onStateChangedListener?.invoke()
+                pushStroke(deltas)
                 onTilesCommittedListener?.invoke(deltas)
                 for (d in deltas) {
                     d.fullAfterForAutosave = null
@@ -323,8 +286,34 @@ class UndoManager(val maxHistorySize: Int = 30) {
     }
 
     /**
-     * Call after stamping stroke dabs to finalize the stroke command into the undo stack.
+     * Pushes a completed stroke (list of tile deltas) directly into native off-heap history.
      */
+    fun pushStroke(deltas: List<TileDelta>) {
+        if (deltas.isEmpty()) return
+        if (nativeHistoryPtr != 0L) {
+            for (i in deltas.indices) {
+                val d = deltas[i]
+                MiltonNative.historyPushTileDelta(
+                    nativeHistoryPtr,
+                    isStartOfCommand = (i == 0),
+                    layerId = d.layerId,
+                    tx = d.coord.tx,
+                    ty = d.coord.ty,
+                    minX = d.minX,
+                    minY = d.minY,
+                    width = d.patchWidth,
+                    height = d.patchHeight,
+                    beforePatch = d.beforeCompressed,
+                    afterPatch = d.afterCompressed
+                )
+            }
+        }
+        synchronized(lock) {
+            customRedoStack.clear()
+        }
+        onStateChangedListener?.invoke()
+    }
+
     fun commitStroke(layerId: Long, tileMap: TileMap) {
         commitMultiLayerStroke(listOf(layerId to tileMap))
     }
@@ -335,84 +324,13 @@ class UndoManager(val maxHistorySize: Int = 30) {
 
     fun pushCustomCommand(command: UndoCommand) {
         synchronized(lock) {
-            redoStack.clear()
-            undoStack.push(command)
-            if (undoStack.size > maxHistorySize) {
-                undoStack.removeLast()
+            customRedoStack.clear()
+            customUndoStack.push(command)
+            if (customUndoStack.size > maxHistorySize) {
+                customUndoStack.removeLast()
             }
         }
         onStateChangedListener?.invoke()
-    }
-
-    private fun applyDelta(
-        tile: RasterTile,
-        cacheDir: java.io.File?,
-        targetCompressed: ByteArray?,
-        oppositeCompressed: ByteArray?,
-        delta: TileDelta,
-        isUndo: Boolean
-    ): TileDelta {
-        tile.ensureResident(cacheDir)
-        if (targetCompressed != null) {
-            if (delta.isSubTile && MiltonNative.isLoaded) {
-                var applied = false
-                var fullAutosaveTile: ByteArray? = null
-                DirectBufferPool.useBuffer { directBuf ->
-                    tile.readPixelsDirect(directBuf)
-                    val ok = MiltonNative.applySubTilePatchDirect(
-                        directBuf, targetCompressed,
-                        delta.minX, delta.minY, delta.patchWidth, delta.patchHeight
-                    )
-                    if (ok) {
-                        tile.writePixelsDirect(directBuf)
-                        tile.hasContent = true
-                        fullAutosaveTile = compress(directBuf)
-                        applied = true
-                    }
-                }
-                if (applied) {
-                    return TileDelta(
-                        layerId = delta.layerId,
-                        coord = delta.coord,
-                        beforeCompressed = if (isUndo) delta.afterCompressed else delta.beforeCompressed,
-                        afterCompressed = targetCompressed,
-                        minX = delta.minX,
-                        minY = delta.minY,
-                        patchWidth = delta.patchWidth,
-                        patchHeight = delta.patchHeight,
-                        fullAfterForAutosave = fullAutosaveTile
-                    )
-                }
-            }
-            // Full tile decompression
-            DirectBufferPool.useBuffer { decompressedBuf ->
-                if (decompressDirect(targetCompressed, decompressedBuf)) {
-                    tile.writePixelsDirect(decompressedBuf)
-                    tile.hasContent = true
-                } else {
-                    val decompressed = decompress(targetCompressed)
-                    tile.writePixels(decompressed)
-                    tile.hasContent = true
-                }
-            }
-            return TileDelta(
-                layerId = delta.layerId,
-                coord = delta.coord,
-                beforeCompressed = if (isUndo) delta.afterCompressed else delta.beforeCompressed,
-                afterCompressed = targetCompressed,
-                fullAfterForAutosave = targetCompressed
-            )
-        } else {
-            tile.clear()
-            tile.deleteDiskSwap(cacheDir)
-            return TileDelta(
-                layerId = delta.layerId,
-                coord = delta.coord,
-                beforeCompressed = oppositeCompressed,
-                afterCompressed = null,
-                fullAfterForAutosave = null
-            )
-        }
     }
 
     /**
@@ -475,32 +393,10 @@ class UndoManager(val maxHistorySize: Int = 30) {
         }
 
         val command = synchronized(lock) {
-            if (undoStack.isEmpty()) return false
-            undoStack.pop()
+            if (customUndoStack.isEmpty()) return false
+            customUndoStack.pop()
         }
         when (command) {
-            is StrokeCommand -> {
-                val deltasForAutosave = mutableListOf<TileDelta>()
-                for (delta in command.deltas) {
-                    val layer = layerManager.getLayer(delta.layerId) ?: continue
-                    val tile = layer.tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
-                    val committedDelta = applyDelta(
-                        tile = tile,
-                        cacheDir = layer.tileMap.cacheDir,
-                        targetCompressed = delta.beforeCompressed,
-                        oppositeCompressed = delta.afterCompressed,
-                        delta = delta,
-                        isUndo = true
-                    )
-                    deltasForAutosave.add(committedDelta)
-                }
-                synchronized(lock) { redoStack.push(command) }
-                onStateChangedListener?.invoke()
-                onTilesCommittedListener?.invoke(deltasForAutosave)
-                for (d in deltasForAutosave) {
-                    d.fullAfterForAutosave = null
-                }
-            }
             is AddLayerCommand -> {
                 val layer = layerManager.getLayer(command.layerId)
                 if (layer != null) {
@@ -508,7 +404,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
                     layerManager.removeLayer(command.layerId)
                 }
                 layerManager.selectLayer(command.activeLayerIdBefore)
-                synchronized(lock) { redoStack.push(command) }
+                synchronized(lock) { customRedoStack.push(command) }
                 onStateChangedListener?.invoke()
             }
             is DeleteLayerCommand -> {
@@ -533,7 +429,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
                     tile.hasContent = true
                 }
                 layerManager.selectLayer(command.activeLayerIdBefore)
-                synchronized(lock) { redoStack.push(command) }
+                synchronized(lock) { customRedoStack.push(command) }
                 onStateChangedListener?.invoke()
                 val restoredDeltas = command.tilesSnapshot.map { (coord, compressed) ->
                     TileDelta(command.layerId, coord, null, compressed)
@@ -548,30 +444,44 @@ class UndoManager(val maxHistorySize: Int = 30) {
      * Reverts the most recent stroke for a single TileMap.
      */
     fun undo(tileMap: TileMap): Boolean {
-        val command = synchronized(lock) {
-            if (undoStack.isEmpty()) return false
-            undoStack.pop() as? StrokeCommand ?: return false
+        if (nativeHistoryPtr != 0L && MiltonNative.historyCanUndo(nativeHistoryPtr)) {
+            val cmdType = MiltonNative.historyGetUndoCommandType(nativeHistoryPtr)
+            if (cmdType == 1) {
+                val count = MiltonNative.historyGetUndoDeltasCount(nativeHistoryPtr)
+                val meta = IntArray(8)
+                val layerIdBuf = LongArray(1)
+                val deltasForAutosave = mutableListOf<TileDelta>()
+
+                for (i in 0 until count) {
+                    if (MiltonNative.historyGetUndoDeltaMetadata(nativeHistoryPtr, i, meta, layerIdBuf)) {
+                        val layerId = layerIdBuf[0]
+                        val tx = meta[0]
+                        val ty = meta[1]
+                        val tile = tileMap.getOrCreateTile(tx, ty)
+                        tile.ensureResident(tileMap.cacheDir)
+                        DirectBufferPool.useBuffer { directBuf ->
+                            tile.readPixelsDirect(directBuf)
+                            val hasContent = MiltonNative.historyApplyUndoTileDirect(nativeHistoryPtr, i, directBuf)
+                            if (hasContent) {
+                                tile.writePixelsDirect(directBuf)
+                                tile.hasContent = true
+                                val autosaveBytes = compress(directBuf)
+                                deltasForAutosave.add(TileDelta(layerId, TileCoord(tx, ty), null, autosaveBytes))
+                            } else {
+                                tile.clear()
+                                tile.deleteDiskSwap(tileMap.cacheDir)
+                                deltasForAutosave.add(TileDelta(layerId, TileCoord(tx, ty), null, null))
+                            }
+                        }
+                    }
+                }
+                MiltonNative.historyCommitUndo(nativeHistoryPtr)
+                onStateChangedListener?.invoke()
+                onTilesCommittedListener?.invoke(deltasForAutosave)
+                return true
+            }
         }
-        val deltasForAutosave = mutableListOf<TileDelta>()
-        for (delta in command.deltas) {
-            val tile = tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
-            val committedDelta = applyDelta(
-                tile = tile,
-                cacheDir = tileMap.cacheDir,
-                targetCompressed = delta.beforeCompressed,
-                oppositeCompressed = delta.afterCompressed,
-                delta = delta,
-                isUndo = true
-            )
-            deltasForAutosave.add(committedDelta)
-        }
-        synchronized(lock) { redoStack.push(command) }
-        onStateChangedListener?.invoke()
-        onTilesCommittedListener?.invoke(deltasForAutosave)
-        for (d in deltasForAutosave) {
-            d.fullAfterForAutosave = null
-        }
-        return true
+        return false
     }
 
     /**
@@ -638,32 +548,10 @@ class UndoManager(val maxHistorySize: Int = 30) {
         }
 
         val command = synchronized(lock) {
-            if (redoStack.isEmpty()) return false
-            redoStack.pop()
+            if (customRedoStack.isEmpty()) return false
+            customRedoStack.pop()
         }
         when (command) {
-            is StrokeCommand -> {
-                val deltasForAutosave = mutableListOf<TileDelta>()
-                for (delta in command.deltas) {
-                    val layer = layerManager.getLayer(delta.layerId) ?: continue
-                    val tile = layer.tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
-                    val committedDelta = applyDelta(
-                        tile = tile,
-                        cacheDir = layer.tileMap.cacheDir,
-                        targetCompressed = delta.afterCompressed,
-                        oppositeCompressed = delta.beforeCompressed,
-                        delta = delta,
-                        isUndo = false
-                    )
-                    deltasForAutosave.add(committedDelta)
-                }
-                synchronized(lock) { undoStack.push(command) }
-                onStateChangedListener?.invoke()
-                onTilesCommittedListener?.invoke(deltasForAutosave)
-                for (d in deltasForAutosave) {
-                    d.fullAfterForAutosave = null
-                }
-            }
             is AddLayerCommand -> {
                 layerManager.restoreLayer(
                     id = command.layerId,
@@ -674,7 +562,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
                     thumbnail = null
                 )
                 layerManager.selectLayer(command.layerId)
-                synchronized(lock) { undoStack.push(command) }
+                synchronized(lock) { customUndoStack.push(command) }
                 onStateChangedListener?.invoke()
             }
             is DeleteLayerCommand -> {
@@ -683,7 +571,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
                     layer.tileMap.releaseAll()
                     layerManager.removeLayer(command.layerId)
                 }
-                synchronized(lock) { undoStack.push(command) }
+                synchronized(lock) { customUndoStack.push(command) }
                 onStateChangedListener?.invoke()
                 val clearedDeltas = command.tilesSnapshot.map { (coord, compressed) ->
                     TileDelta(command.layerId, coord, compressed, null)
@@ -698,30 +586,44 @@ class UndoManager(val maxHistorySize: Int = 30) {
      * Reapplies the most recently undone stroke for a single TileMap.
      */
     fun redo(tileMap: TileMap): Boolean {
-        val command = synchronized(lock) {
-            if (redoStack.isEmpty()) return false
-            redoStack.pop() as? StrokeCommand ?: return false
+        if (nativeHistoryPtr != 0L && MiltonNative.historyCanRedo(nativeHistoryPtr)) {
+            val cmdType = MiltonNative.historyGetRedoCommandType(nativeHistoryPtr)
+            if (cmdType == 1) {
+                val count = MiltonNative.historyGetRedoDeltasCount(nativeHistoryPtr)
+                val meta = IntArray(8)
+                val layerIdBuf = LongArray(1)
+                val deltasForAutosave = mutableListOf<TileDelta>()
+
+                for (i in 0 until count) {
+                    if (MiltonNative.historyGetRedoDeltaMetadata(nativeHistoryPtr, i, meta, layerIdBuf)) {
+                        val layerId = layerIdBuf[0]
+                        val tx = meta[0]
+                        val ty = meta[1]
+                        val tile = tileMap.getOrCreateTile(tx, ty)
+                        tile.ensureResident(tileMap.cacheDir)
+                        DirectBufferPool.useBuffer { directBuf ->
+                            tile.readPixelsDirect(directBuf)
+                            val hasContent = MiltonNative.historyApplyRedoTileDirect(nativeHistoryPtr, i, directBuf)
+                            if (hasContent) {
+                                tile.writePixelsDirect(directBuf)
+                                tile.hasContent = true
+                                val autosaveBytes = compress(directBuf)
+                                deltasForAutosave.add(TileDelta(layerId, TileCoord(tx, ty), null, autosaveBytes))
+                            } else {
+                                tile.clear()
+                                tile.deleteDiskSwap(tileMap.cacheDir)
+                                deltasForAutosave.add(TileDelta(layerId, TileCoord(tx, ty), null, null))
+                            }
+                        }
+                    }
+                }
+                MiltonNative.historyCommitRedo(nativeHistoryPtr)
+                onStateChangedListener?.invoke()
+                onTilesCommittedListener?.invoke(deltasForAutosave)
+                return true
+            }
         }
-        val deltasForAutosave = mutableListOf<TileDelta>()
-        for (delta in command.deltas) {
-            val tile = tileMap.getOrCreateTile(delta.coord.tx, delta.coord.ty)
-            val committedDelta = applyDelta(
-                tile = tile,
-                cacheDir = tileMap.cacheDir,
-                targetCompressed = delta.afterCompressed,
-                oppositeCompressed = delta.beforeCompressed,
-                delta = delta,
-                isUndo = false
-            )
-            deltasForAutosave.add(committedDelta)
-        }
-        synchronized(lock) { undoStack.push(command) }
-        onStateChangedListener?.invoke()
-        onTilesCommittedListener?.invoke(deltasForAutosave)
-        for (d in deltasForAutosave) {
-            d.fullAfterForAutosave = null
-        }
-        return true
+        return false
     }
 
     fun clear() {
@@ -729,8 +631,8 @@ class UndoManager(val maxHistorySize: Int = 30) {
             MiltonNative.historyClear(nativeHistoryPtr)
         }
         synchronized(lock) {
-            undoStack.clear()
-            redoStack.clear()
+            customUndoStack.clear()
+            customRedoStack.clear()
             clearPending()
         }
         onStateChangedListener?.invoke()

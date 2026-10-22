@@ -377,27 +377,112 @@ impl BrushEngine {
             let ir = (self.properties.min_radius).max((self.properties.size * 0.5) * ip_size * ip_tilt_scale);
             let dab_alpha = self.compute_alpha(ip_norm_opacity_y);
 
-            let slot = (head_index as usize + dabs_written) % capacity;
-            let offset = slot * STRIDE_FLOATS;
-            if offset + STRIDE_FLOATS <= base_slice.len() {
-                Self::push_dab_to_slice(
-                    base_slice,
-                    offset,
-                    ix,
-                    iy,
-                    ir,
-                    dab_alpha,
-                    self.properties.color_rgb,
-                    self.properties.hardness,
-                    self.properties.brush_mode,
-                    ip_size,
-                    clamped_tilt,
-                    self.properties.is_eraser,
-                );
-                dabs_written += 1;
+            if self.properties.brush_mode == 2 && ir >= 3.0 && segment_dist > 0.001 {
+                let inv_seg = 1.0 / segment_dist;
+                let tan_x = dx * inv_seg;
+                let tan_y = dy * inv_seg;
+                let norm_x = -tan_y;
+                let norm_y = tan_x;
+
+                let bristle_spread = ir * 0.45;
+                let filament_r = ir * 0.65;
+                let fil_alpha = dab_alpha * 0.75;
+
+                // Center core dab
+                let slot0 = (head_index as usize + dabs_written) % capacity;
+                let off0 = slot0 * STRIDE_FLOATS;
+                if off0 + STRIDE_FLOATS <= base_slice.len() {
+                    Self::push_dab_to_slice(
+                        base_slice,
+                        off0,
+                        ix,
+                        iy,
+                        ir * 0.85,
+                        dab_alpha * 0.85,
+                        self.properties.color_rgb,
+                        self.properties.hardness,
+                        self.properties.brush_mode,
+                        ip_size,
+                        clamped_tilt,
+                        self.properties.is_eraser,
+                    );
+                    dabs_written += 1;
+                }
+
+                // Left bristle filament
+                if dabs_written < capacity {
+                    let slot1 = (head_index as usize + dabs_written) % capacity;
+                    let off1 = slot1 * STRIDE_FLOATS;
+                    if off1 + STRIDE_FLOATS <= base_slice.len() {
+                        let lx = ix + norm_x * bristle_spread;
+                        let ly = iy + norm_y * bristle_spread;
+                        Self::push_dab_to_slice(
+                            base_slice,
+                            off1,
+                            lx,
+                            ly,
+                            filament_r,
+                            fil_alpha,
+                            self.properties.color_rgb,
+                            self.properties.hardness,
+                            self.properties.brush_mode,
+                            ip_size,
+                            clamped_tilt,
+                            self.properties.is_eraser,
+                        );
+                        dabs_written += 1;
+                    }
+                }
+
+                // Right bristle filament
+                if dabs_written < capacity {
+                    let slot2 = (head_index as usize + dabs_written) % capacity;
+                    let off2 = slot2 * STRIDE_FLOATS;
+                    if off2 + STRIDE_FLOATS <= base_slice.len() {
+                        let rx = ix - norm_x * bristle_spread;
+                        let ry = iy - norm_y * bristle_spread;
+                        Self::push_dab_to_slice(
+                            base_slice,
+                            off2,
+                            rx,
+                            ry,
+                            filament_r,
+                            fil_alpha,
+                            self.properties.color_rgb,
+                            self.properties.hardness,
+                            self.properties.brush_mode,
+                            ip_size,
+                            clamped_tilt,
+                            self.properties.is_eraser,
+                        );
+                        dabs_written += 1;
+                    }
+                }
+
                 last_placed_d = d;
             } else {
-                break;
+                let slot = (head_index as usize + dabs_written) % capacity;
+                let offset = slot * STRIDE_FLOATS;
+                if offset + STRIDE_FLOATS <= base_slice.len() {
+                    Self::push_dab_to_slice(
+                        base_slice,
+                        offset,
+                        ix,
+                        iy,
+                        ir,
+                        dab_alpha,
+                        self.properties.color_rgb,
+                        self.properties.hardness,
+                        self.properties.brush_mode,
+                        ip_size,
+                        clamped_tilt,
+                        self.properties.is_eraser,
+                    );
+                    dabs_written += 1;
+                    last_placed_d = d;
+                } else {
+                    break;
+                }
             }
             d += step_size;
         }
@@ -709,5 +794,20 @@ mod tests {
         let mut indices = [0i32; 60];
         let count = bin_ring_dabs_to_tiles(&ring, 10, 0, 2, 512.0, &mut headers, &mut indices);
         assert_eq!(count, 2);
+    }
+    #[test]
+    fn test_paintbrush_bristle_filament_generation() {
+        let mut props = BrushProperties::default();
+        props.brush_mode = 2; // Paintbrush
+        props.size = 20.0;
+        props.spacing = 0.5;
+        let mut engine = BrushEngine::new(props);
+
+        let mut out = [0.0f32; STRIDE_FLOATS * 100];
+        let c1 = engine.start_stroke(0.0, 0.0, 0.5, 1000, 0.0, &mut out);
+        assert_eq!(c1, 1);
+
+        let c2 = engine.add_point(50.0, 0.0, 0.5, 1016, 0.0, &mut out);
+        assert_eq!(c2, 12 * 3, "Expected 3 filaments per dab step for paintbrush");
     }
 }

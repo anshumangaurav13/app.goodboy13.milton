@@ -5,7 +5,6 @@ import android.util.Log
 import androidx.graphics.lowlatency.BufferInfo
 import app.goodboy13.milton.core.brush.BrushDab
 import app.goodboy13.milton.core.history.DeleteLayerCommand
-import app.goodboy13.milton.core.history.StrokeCommand
 import app.goodboy13.milton.core.history.TileDelta
 import app.goodboy13.milton.core.history.UndoManager
 import app.goodboy13.milton.core.layer.LayerManager
@@ -371,7 +370,7 @@ class CanvasEngine(
         layer.thumbnailBitmap = null
         layerManager.notifyThumbnailsChanged()
 
-        undoManager.pushCustomCommand(StrokeCommand(deltas))
+        undoManager.pushStroke(deltas)
         undoManager.onTilesCommittedListener?.invoke(deltas)
     }
 
