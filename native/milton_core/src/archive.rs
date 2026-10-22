@@ -97,3 +97,47 @@ pub fn import_milton_archive(
 
     manifest_content.ok_or_else(|| "Missing manifest.json in archive".to_string())
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_export_and_import_milton_archive_roundtrip() {
+        let temp_dir = std::env::temp_dir().join("milton_archive_test");
+        let _ = fs::remove_dir_all(&temp_dir);
+        let src_tiles = temp_dir.join("src_tiles");
+        let dest_tiles = temp_dir.join("dest_tiles");
+        let zip_path = temp_dir.join("test_artwork.milton");
+
+        fs::create_dir_all(&src_tiles).unwrap();
+
+        // 1. Create test tiles
+        let tile1_data = vec![42u8; 1024];
+        let tile2_data = vec![99u8; 2048];
+        fs::write(src_tiles.join("tile_1_0_0.bin"), &tile1_data).unwrap();
+        fs::write(src_tiles.join("tile_1_1_0.bin"), &tile2_data).unwrap();
+
+        let manifest = r#"{"title":"Test Document","layers":[{"id":1,"tiles":[[0,0],[1,0]]}]}"#;
+
+        // 2. Export archive
+        export_milton_archive(manifest, src_tiles.to_str().unwrap(), zip_path.to_str().unwrap()).unwrap();
+        assert!(zip_path.exists());
+        assert!(zip_path.metadata().unwrap().len() > 0);
+
+        // 3. Import archive
+        let imported_manifest = import_milton_archive(zip_path.to_str().unwrap(), dest_tiles.to_str().unwrap()).unwrap();
+        assert_eq!(imported_manifest, manifest);
+
+        // 4. Verify extracted tile contents
+        let read1 = fs::read(dest_tiles.join("tile_1_0_0.bin")).unwrap();
+        let read2 = fs::read(dest_tiles.join("tile_1_1_0.bin")).unwrap();
+        assert_eq!(read1, tile1_data);
+        assert_eq!(read2, tile2_data);
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+}
