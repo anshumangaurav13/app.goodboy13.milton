@@ -520,6 +520,35 @@ object MiltonNative {
     )
 
     @JvmStatic
+    external fun historyPushDeleteLayer(
+        historyPtr: Long,
+        layerId: Long,
+        name: String,
+        opacity: Float,
+        isVisible: Boolean,
+        storageIndex: Int,
+        activeLayerIdBefore: Long
+    )
+
+    @JvmStatic
+    external fun historyAppendDeleteLayerTile(
+        historyPtr: Long,
+        tx: Int,
+        ty: Int,
+        compressedTile: ByteArray
+    )
+
+    @JvmStatic
+    external fun historyGetUndoDeleteLayerTilesCount(historyPtr: Long): Int
+
+    @JvmStatic
+    external fun historyGetUndoDeleteLayerTile(
+        historyPtr: Long,
+        index: Int,
+        outCoords: IntArray
+    ): ByteArray?
+
+    @JvmStatic
     external fun historyGetUndoLayerMeta(
         historyPtr: Long,
         outIds: LongArray,

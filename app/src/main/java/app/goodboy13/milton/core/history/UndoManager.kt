@@ -98,8 +98,6 @@ class UndoManager(val maxHistorySize: Int = 30) {
     }
 
     private val lock = Any()
-    private val customUndoStack = ArrayDeque<UndoCommand>()
-    private val customRedoStack = ArrayDeque<UndoCommand>()
 
     // Dedicated background coroutine scope for asynchronous tile delta compression
     private val undoScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -110,8 +108,8 @@ class UndoManager(val maxHistorySize: Int = 30) {
     var onStateChangedListener: (() -> Unit)? = null
     var onTilesCommittedListener: ((List<TileDelta>) -> Unit)? = null
 
-    val canUndo: Boolean get() = (nativeHistoryPtr != 0L && MiltonNative.historyCanUndo(nativeHistoryPtr)) || synchronized(lock) { customUndoStack.isNotEmpty() }
-    val canRedo: Boolean get() = (nativeHistoryPtr != 0L && MiltonNative.historyCanRedo(nativeHistoryPtr)) || synchronized(lock) { customRedoStack.isNotEmpty() }
+    val canUndo: Boolean get() = nativeHistoryPtr != 0L && MiltonNative.historyCanUndo(nativeHistoryPtr)
+    val canRedo: Boolean get() = nativeHistoryPtr != 0L && MiltonNative.historyCanRedo(nativeHistoryPtr)
     val nativeMemoryBytes: Long get() = if (nativeHistoryPtr != 0L) MiltonNative.historyTotalMemoryBytes(nativeHistoryPtr) else 0L
 
     /**
@@ -308,9 +306,6 @@ class UndoManager(val maxHistorySize: Int = 30) {
                 )
             }
         }
-        synchronized(lock) {
-            customRedoStack.clear()
-        }
         onStateChangedListener?.invoke()
     }
 
@@ -322,24 +317,93 @@ class UndoManager(val maxHistorySize: Int = 30) {
         commitStroke(1L, tileMap)
     }
 
-    fun pushCustomCommand(command: UndoCommand) {
-        synchronized(lock) {
-            customRedoStack.clear()
-            customUndoStack.push(command)
-            if (customUndoStack.size > maxHistorySize) {
-                customUndoStack.removeLast()
+    fun pushAddLayer(
+        layerId: Long,
+        name: String,
+        opacity: Float,
+        isVisible: Boolean,
+        storageIndex: Int,
+        activeLayerIdBefore: Long
+    ) {
+        if (nativeHistoryPtr != 0L) {
+            MiltonNative.historyPushAddLayer(
+                nativeHistoryPtr,
+                layerId,
+                name,
+                opacity,
+                isVisible,
+                storageIndex,
+                activeLayerIdBefore
+            )
+        }
+        onStateChangedListener?.invoke()
+    }
+
+    fun pushDeleteLayer(
+        layerId: Long,
+        name: String,
+        opacity: Float,
+        isVisible: Boolean,
+        storageIndex: Int,
+        activeLayerIdBefore: Long,
+        tilesSnapshot: Map<TileCoord, ByteArray>
+    ) {
+        if (nativeHistoryPtr != 0L) {
+            MiltonNative.historyPushDeleteLayer(
+                nativeHistoryPtr,
+                layerId,
+                name,
+                opacity,
+                isVisible,
+                storageIndex,
+                activeLayerIdBefore
+            )
+            for ((coord, bytes) in tilesSnapshot) {
+                MiltonNative.historyAppendDeleteLayerTile(
+                    nativeHistoryPtr,
+                    coord.tx,
+                    coord.ty,
+                    bytes
+                )
             }
         }
         onStateChangedListener?.invoke()
+    }
+
+    @Deprecated("Use native pushAddLayer or pushDeleteLayer directly")
+    fun pushCustomCommand(command: UndoCommand) {
+        when (command) {
+            is AddLayerCommand -> pushAddLayer(
+                command.layerId,
+                command.layerName,
+                command.layerOpacity,
+                command.layerIsVisible,
+                command.storageIndex,
+                command.activeLayerIdBefore
+            )
+            is DeleteLayerCommand -> pushDeleteLayer(
+                command.layerId,
+                command.layerName,
+                command.layerOpacity,
+                command.layerIsVisible,
+                command.storageIndex,
+                command.activeLayerIdBefore,
+                command.tilesSnapshot
+            )
+        }
     }
 
     /**
      * Reverts the most recent stroke or layer operation across layers. Must be executed on the GL thread.
      */
     fun undo(layerManager: LayerManager): Boolean {
-        if (nativeHistoryPtr != 0L && MiltonNative.historyCanUndo(nativeHistoryPtr)) {
-            val cmdType = MiltonNative.historyGetUndoCommandType(nativeHistoryPtr)
-            if (cmdType == 1) {
+        if (nativeHistoryPtr == 0L || !MiltonNative.historyCanUndo(nativeHistoryPtr)) {
+            return false
+        }
+        val cmdType = MiltonNative.historyGetUndoCommandType(nativeHistoryPtr)
+        when (cmdType) {
+            1 -> {
+                // Stroke command
                 val count = MiltonNative.historyGetUndoDeltasCount(nativeHistoryPtr)
                 val meta = IntArray(8)
                 val layerIdBuf = LongArray(1)
@@ -373,11 +437,13 @@ class UndoManager(val maxHistorySize: Int = 30) {
                 onStateChangedListener?.invoke()
                 onTilesCommittedListener?.invoke(deltasForAutosave)
                 return true
-            } else if (cmdType == 2) {
+            }
+            2 -> {
+                // AddLayer command: undoing an add-layer removes the created layer
                 val outIds = LongArray(2)
                 val outFloats = FloatArray(1)
                 val outInts = IntArray(2)
-                val name = MiltonNative.historyGetUndoLayerMeta(nativeHistoryPtr, outIds, outFloats, outInts)
+                MiltonNative.historyGetUndoLayerMeta(nativeHistoryPtr, outIds, outFloats, outInts)
                 val layerId = outIds[0]
                 val activeBefore = outIds[1]
                 val layer = layerManager.getLayer(layerId)
@@ -390,34 +456,36 @@ class UndoManager(val maxHistorySize: Int = 30) {
                 onStateChangedListener?.invoke()
                 return true
             }
-        }
+            3 -> {
+                // DeleteLayer command: undoing a delete-layer restores the deleted layer and its tiles
+                val outIds = LongArray(2)
+                val outFloats = FloatArray(1)
+                val outInts = IntArray(2)
+                val name = MiltonNative.historyGetUndoLayerMeta(nativeHistoryPtr, outIds, outFloats, outInts) ?: "Layer"
+                val layerId = outIds[0]
+                val activeBefore = outIds[1]
+                val opacity = outFloats[0]
+                val isVisible = outInts[0] == 1
+                val storageIndex = outInts[1]
 
-        val command = synchronized(lock) {
-            if (customUndoStack.isEmpty()) return false
-            customUndoStack.pop()
-        }
-        when (command) {
-            is AddLayerCommand -> {
-                val layer = layerManager.getLayer(command.layerId)
-                if (layer != null) {
-                    layer.tileMap.releaseAll()
-                    layerManager.removeLayer(command.layerId)
-                }
-                layerManager.selectLayer(command.activeLayerIdBefore)
-                synchronized(lock) { customRedoStack.push(command) }
-                onStateChangedListener?.invoke()
-            }
-            is DeleteLayerCommand -> {
                 val restoredLayer = layerManager.restoreLayer(
-                    id = command.layerId,
-                    name = command.layerName,
-                    opacity = command.layerOpacity,
-                    isVisible = command.layerIsVisible,
-                    storageIndex = command.storageIndex,
-                    thumbnail = command.thumbnailBitmap
+                    id = layerId,
+                    name = name,
+                    opacity = opacity,
+                    isVisible = isVisible,
+                    storageIndex = storageIndex,
+                    thumbnail = null
                 )
-                for ((coord, compressed) in command.tilesSnapshot) {
-                    val tile = restoredLayer.tileMap.getOrCreateTile(coord.tx, coord.ty)
+
+                val tileCount = MiltonNative.historyGetUndoDeleteLayerTilesCount(nativeHistoryPtr)
+                val coordsBuf = IntArray(2)
+                val restoredDeltas = mutableListOf<TileDelta>()
+
+                for (i in 0 until tileCount) {
+                    val compressed = MiltonNative.historyGetUndoDeleteLayerTile(nativeHistoryPtr, i, coordsBuf) ?: continue
+                    val tx = coordsBuf[0]
+                    val ty = coordsBuf[1]
+                    val tile = restoredLayer.tileMap.getOrCreateTile(tx, ty)
                     DirectBufferPool.useBuffer { decompressedBuf ->
                         if (decompressDirect(compressed, decompressedBuf)) {
                             tile.writePixelsDirect(decompressedBuf)
@@ -427,17 +495,17 @@ class UndoManager(val maxHistorySize: Int = 30) {
                         }
                     }
                     tile.hasContent = true
+                    restoredDeltas.add(TileDelta(layerId, TileCoord(tx, ty), null, compressed))
                 }
-                layerManager.selectLayer(command.activeLayerIdBefore)
-                synchronized(lock) { customRedoStack.push(command) }
+
+                layerManager.selectLayer(activeBefore)
+                MiltonNative.historyCommitUndo(nativeHistoryPtr)
                 onStateChangedListener?.invoke()
-                val restoredDeltas = command.tilesSnapshot.map { (coord, compressed) ->
-                    TileDelta(command.layerId, coord, null, compressed)
-                }
                 onTilesCommittedListener?.invoke(restoredDeltas)
+                return true
             }
+            else -> return false
         }
-        return true
     }
 
     /**
@@ -488,9 +556,13 @@ class UndoManager(val maxHistorySize: Int = 30) {
      * Reapplies the most recently undone action across layers. Must be executed on the GL thread.
      */
     fun redo(layerManager: LayerManager): Boolean {
-        if (nativeHistoryPtr != 0L && MiltonNative.historyCanRedo(nativeHistoryPtr)) {
-            val cmdType = MiltonNative.historyGetRedoCommandType(nativeHistoryPtr)
-            if (cmdType == 1) {
+        if (nativeHistoryPtr == 0L || !MiltonNative.historyCanRedo(nativeHistoryPtr)) {
+            return false
+        }
+        val cmdType = MiltonNative.historyGetRedoCommandType(nativeHistoryPtr)
+        when (cmdType) {
+            1 -> {
+                // Stroke command
                 val count = MiltonNative.historyGetRedoDeltasCount(nativeHistoryPtr)
                 val meta = IntArray(8)
                 val layerIdBuf = LongArray(1)
@@ -524,7 +596,9 @@ class UndoManager(val maxHistorySize: Int = 30) {
                 onStateChangedListener?.invoke()
                 onTilesCommittedListener?.invoke(deltasForAutosave)
                 return true
-            } else if (cmdType == 2) {
+            }
+            2 -> {
+                // AddLayer command: redoing an add-layer restores the layer
                 val outIds = LongArray(2)
                 val outFloats = FloatArray(1)
                 val outInts = IntArray(2)
@@ -541,45 +615,31 @@ class UndoManager(val maxHistorySize: Int = 30) {
                     storageIndex = storageIndex,
                     thumbnail = null
                 )
+                layerManager.selectLayer(layerId)
                 MiltonNative.historyCommitRedo(nativeHistoryPtr)
                 onStateChangedListener?.invoke()
                 return true
             }
-        }
-
-        val command = synchronized(lock) {
-            if (customRedoStack.isEmpty()) return false
-            customRedoStack.pop()
-        }
-        when (command) {
-            is AddLayerCommand -> {
-                layerManager.restoreLayer(
-                    id = command.layerId,
-                    name = command.layerName,
-                    opacity = command.layerOpacity,
-                    isVisible = command.layerIsVisible,
-                    storageIndex = command.storageIndex,
-                    thumbnail = null
-                )
-                layerManager.selectLayer(command.layerId)
-                synchronized(lock) { customUndoStack.push(command) }
-                onStateChangedListener?.invoke()
-            }
-            is DeleteLayerCommand -> {
-                val layer = layerManager.getLayer(command.layerId)
+            3 -> {
+                // DeleteLayer command: redoing a delete-layer removes the layer again
+                val outIds = LongArray(2)
+                val outFloats = FloatArray(1)
+                val outInts = IntArray(2)
+                MiltonNative.historyGetRedoLayerMeta(nativeHistoryPtr, outIds, outFloats, outInts)
+                val layerId = outIds[0]
+                val activeBefore = outIds[1]
+                val layer = layerManager.getLayer(layerId)
                 if (layer != null) {
                     layer.tileMap.releaseAll()
-                    layerManager.removeLayer(command.layerId)
+                    layerManager.removeLayer(layerId)
                 }
-                synchronized(lock) { customUndoStack.push(command) }
+                layerManager.selectLayer(activeBefore)
+                MiltonNative.historyCommitRedo(nativeHistoryPtr)
                 onStateChangedListener?.invoke()
-                val clearedDeltas = command.tilesSnapshot.map { (coord, compressed) ->
-                    TileDelta(command.layerId, coord, compressed, null)
-                }
-                onTilesCommittedListener?.invoke(clearedDeltas)
+                return true
             }
+            else -> return false
         }
-        return true
     }
 
     /**
@@ -631,8 +691,6 @@ class UndoManager(val maxHistorySize: Int = 30) {
             MiltonNative.historyClear(nativeHistoryPtr)
         }
         synchronized(lock) {
-            customUndoStack.clear()
-            customRedoStack.clear()
             clearPending()
         }
         onStateChangedListener?.invoke()

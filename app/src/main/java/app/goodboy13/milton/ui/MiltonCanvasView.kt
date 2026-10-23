@@ -273,15 +273,13 @@ class MiltonCanvasView @JvmOverloads constructor(
         val activeBefore = layerManager.activeLayerId
         val newLayer = layerManager.addLayer(name, insertAboveActive) ?: return null
         val storageIndex = layerManager.layers.indexOf(newLayer)
-        renderer.undoManager.pushCustomCommand(
-            AddLayerCommand(
-                layerId = newLayer.id,
-                layerName = newLayer.name,
-                layerOpacity = newLayer.opacity,
-                layerIsVisible = newLayer.isVisible,
-                storageIndex = storageIndex,
-                activeLayerIdBefore = activeBefore
-            )
+        renderer.undoManager.pushAddLayer(
+            layerId = newLayer.id,
+            name = newLayer.name,
+            opacity = newLayer.opacity,
+            isVisible = newLayer.isVisible,
+            storageIndex = storageIndex,
+            activeLayerIdBefore = activeBefore
         )
         return newLayer
     }

@@ -1981,6 +1981,77 @@ pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_histor
 }
 
 #[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyPushDeleteLayer<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+    layer_id: jlong,
+    name: JString<'local>,
+    opacity: jfloat,
+    is_visible: jboolean,
+    storage_index: jint,
+    active_layer_id_before: jlong,
+) {
+    if history_ptr == 0 { return; }
+    let mgr = unsafe { &mut *(history_ptr as *mut history::HistoryManager) };
+    let name_str: String = match env.get_string(&name) {
+        Ok(s) => s.into(),
+        Err(_) => String::from("Layer"),
+    };
+    mgr.push_delete_layer(layer_id, name_str, opacity, is_visible == JNI_TRUE, storage_index, active_layer_id_before, Vec::new());
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyAppendDeleteLayerTile<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+    tx: jint,
+    ty: jint,
+    compressed_tile: JByteArray<'local>,
+) {
+    if history_ptr == 0 { return; }
+    let mgr = unsafe { &mut *(history_ptr as *mut history::HistoryManager) };
+    let bytes: Vec<u8> = match env.convert_byte_array(&compressed_tile) {
+        Ok(b) => b,
+        Err(_) => return,
+    };
+    mgr.append_delete_layer_tile(tx, ty, bytes);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyGetUndoDeleteLayerTilesCount<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+) -> jint {
+    if history_ptr == 0 { return 0; }
+    let mgr = unsafe { &*(history_ptr as *mut history::HistoryManager) };
+    mgr.undo_delete_layer_tiles_count() as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyGetUndoDeleteLayerTile<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    history_ptr: jlong,
+    index: jint,
+    out_coords: JIntArray<'local>,
+) -> JByteArray<'local> {
+    if history_ptr == 0 { return JByteArray::default(); }
+    let mgr = unsafe { &*(history_ptr as *mut history::HistoryManager) };
+    if let Some((tx, ty, bytes)) = mgr.undo_delete_layer_tile_at(index as usize) {
+        let _ = env.set_int_array_region(&out_coords, 0, &[tx, ty]);
+        match env.byte_array_from_slice(bytes) {
+            Ok(arr) => arr,
+            Err(_) => JByteArray::default(),
+        }
+    } else {
+        JByteArray::default()
+    }
+}
+
+#[no_mangle]
 pub extern "system" fn Java_app_goodboy13_milton_core_native_MiltonNative_historyGetUndoLayerMeta<'local>(
     env: JNIEnv<'local>,
     _class: JClass<'local>,

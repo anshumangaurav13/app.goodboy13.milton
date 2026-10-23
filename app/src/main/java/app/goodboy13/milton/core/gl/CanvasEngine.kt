@@ -333,17 +333,14 @@ class CanvasEngine(
         layer.tileMap.releaseAll()
         layerManager.removeLayer(layerId)
 
-        undoManager.pushCustomCommand(
-            DeleteLayerCommand(
-                layerId = layerId,
-                layerName = name,
-                layerOpacity = opacity,
-                layerIsVisible = isVisible,
-                storageIndex = storageIndex,
-                activeLayerIdBefore = activeBefore,
-                tilesSnapshot = tilesSnapshot,
-                thumbnailBitmap = thumbnail
-            )
+        undoManager.pushDeleteLayer(
+            layerId = layerId,
+            name = name,
+            opacity = opacity,
+            isVisible = isVisible,
+            storageIndex = storageIndex,
+            activeLayerIdBefore = activeBefore,
+            tilesSnapshot = tilesSnapshot
         )
 
         val clearedDeltas = tilesSnapshot.map { (coord, _) ->

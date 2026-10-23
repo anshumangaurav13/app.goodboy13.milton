@@ -241,6 +241,20 @@ impl HistoryManager {
         }
     }
 
+    pub fn append_delete_layer_tile(&mut self, tx: i32, ty: i32, tile_bytes: Vec<u8>) {
+        if let Some(HistoryCommand::DeleteLayer { tiles_snapshot, .. }) = self.undo_stack.back_mut() {
+            tiles_snapshot.push((tx, ty, tile_bytes));
+        }
+    }
+
+    pub fn undo_delete_layer_tiles_count(&self) -> usize {
+        self.peek_undo_delete_layer_tiles().map(|v| v.len()).unwrap_or(0)
+    }
+
+    pub fn undo_delete_layer_tile_at(&self, index: usize) -> Option<(i32, i32, &[u8])> {
+        self.peek_undo_delete_layer_tiles().and_then(|v| v.get(index)).map(|(tx, ty, bytes)| (*tx, *ty, bytes.as_slice()))
+    }
+
     pub fn pop_undo(&mut self) -> Option<HistoryCommand> {
         let cmd = self.undo_stack.pop_back()?;
         self.redo_stack.push_back(cmd.clone());
@@ -390,6 +404,64 @@ mod tests {
 
         assert_eq!(history.undo_count(), 3);
         assert!(history.total_memory_bytes() > 0);
+    }
+
+    #[test]
+    fn test_history_push_and_undo_redo_add_layer() {
+        let mut history = HistoryManager::new(5);
+        history.push_add_layer(2, "Layer 2".to_string(), 0.8, true, 1, 1);
+        assert!(history.can_undo());
+        assert_eq!(history.peek_undo_command_type(), 2);
+
+        let meta = history.peek_undo_layer_meta().unwrap();
+        assert_eq!(meta.0, 2);
+        assert_eq!(meta.1, "Layer 2");
+        assert_eq!(meta.4, 1);
+        assert_eq!(meta.5, 1);
+
+        assert!(history.commit_undo());
+        assert!(!history.can_undo());
+        assert!(history.can_redo());
+        assert_eq!(history.peek_redo_command_type(), 2);
+
+        let redo_meta = history.peek_redo_layer_meta().unwrap();
+        assert_eq!(redo_meta.0, 2);
+        assert_eq!(redo_meta.1, "Layer 2");
+
+        assert!(history.commit_redo());
+        assert!(history.can_undo());
+        assert!(!history.can_redo());
+    }
+
+    #[test]
+    fn test_history_push_and_undo_redo_delete_layer() {
+        let mut history = HistoryManager::new(5);
+        history.push_delete_layer(3, "Layer 3".to_string(), 1.0, true, 2, 1, Vec::new());
+        history.append_delete_layer_tile(0, 0, vec![10, 20, 30]);
+        history.append_delete_layer_tile(1, 0, vec![40, 50, 60]);
+
+        assert!(history.can_undo());
+        assert_eq!(history.peek_undo_command_type(), 3);
+        assert_eq!(history.undo_delete_layer_tiles_count(), 2);
+
+        let t0 = history.undo_delete_layer_tile_at(0).unwrap();
+        assert_eq!(t0.0, 0);
+        assert_eq!(t0.1, 0);
+        assert_eq!(t0.2, &[10, 20, 30]);
+
+        let t1 = history.undo_delete_layer_tile_at(1).unwrap();
+        assert_eq!(t1.0, 1);
+        assert_eq!(t1.1, 0);
+        assert_eq!(t1.2, &[40, 50, 60]);
+
+        assert!(history.commit_undo());
+        assert!(!history.can_undo());
+        assert!(history.can_redo());
+        assert_eq!(history.peek_redo_command_type(), 3);
+
+        assert!(history.commit_redo());
+        assert!(history.can_undo());
+        assert!(!history.can_redo());
     }
 
     #[test]
