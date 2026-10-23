@@ -147,11 +147,6 @@ $GRAPHITE_PHYSICS_GLSL
                 }
 
                 vec3 srcColor = uColor.rgb;
-                if (uBrushMode == 1) {
-                    // Soften harsh ink-black into natural matte charcoal/graphite pencil grey
-                    vec3 graphiteTone = vec3(0.25, 0.26, 0.28);
-                    srcColor = mix(srcColor, max(srcColor, graphiteTone), 0.70);
-                }
 
                 // Empty tile / front-buffer pixel: direct premultiplied stamp
                 if (dst.a <= 0.002) {
@@ -171,19 +166,7 @@ $GRAPHITE_PHYSICS_GLSL
                     return;
                 }
 
-                if (uBrushMode == 2) {
-                    // Paintbrush: Subtractive Kubelka-Munk optical absorption mixing
-                    // Real pigments absorb wavelengths (e.g. Yellow + Blue yields vibrant Green!)
-                    vec3 dstUnpremul = dst.rgb / max(dst.a, 0.001);
-                    vec3 absDst = -log(max(dstUnpremul, vec3(0.008)));
-                    vec3 absSrc = -log(max(srcColor, vec3(0.008)));
-                    float mixWeight = clamp(dabAlpha * 0.70, 0.0, 0.95);
-                    vec3 absMixed = mix(absDst, absSrc, mixWeight);
-                    vec3 pigmentMixed = clamp(exp(-absMixed), 0.0, 1.0);
 
-                    fragColor = vec4(pigmentMixed * outAlpha, outAlpha);
-                    return;
-                }
 
                 // Standard Porter-Duff Over digital art blending
                 vec3 outPremul = srcColor * dabAlpha + dst.rgb * (1.0 - dabAlpha);
@@ -245,10 +228,6 @@ $GRAPHITE_PHYSICS_GLSL
                 }
 
                 vec3 srcColor = uColor.rgb;
-                if (uBrushMode == 1) {
-                    vec3 graphiteTone = vec3(0.25, 0.26, 0.28);
-                    srcColor = mix(srcColor, max(srcColor, graphiteTone), 0.70);
-                }
 
                 fragColor = vec4(srcColor * dabAlpha, dabAlpha);
             }
