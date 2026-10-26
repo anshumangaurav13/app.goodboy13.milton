@@ -17,6 +17,9 @@ data class ToolActions(
     val onSizeBezierConfigChange: (BezierControlPoints) -> Unit = {},
     val onOpacityBezierConfigChange: (BezierControlPoints) -> Unit = {},
     val onTiltBezierConfigChange: (BezierControlPoints) -> Unit = {},
+    val onGrainTypeChange: (Int) -> Unit = {},
+    val onGrainScaleChange: (Float) -> Unit = {},
+    val onGrainDepthChange: (Float) -> Unit = {},
     val onToggleEyedropper: () -> Unit = {}
 )
 

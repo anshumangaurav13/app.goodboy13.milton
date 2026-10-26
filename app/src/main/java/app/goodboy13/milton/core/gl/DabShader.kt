@@ -26,9 +26,22 @@ class DabShader {
     private var uPressureLoc: Int = -1
     private var uWorldOffsetLoc: Int = -1
     private var uIsEraserLoc: Int = -1
+    private var uGrainTypeLoc: Int = -1
+    private var uGrainScaleLoc: Int = -1
+    private var uGrainDepthLoc: Int = -1
+
+    var grainType: Int = 1
+    var grainScale: Float = 1.0f
+    var grainDepth: Float = 0.60f
 
     var usesFramebufferFetch: Boolean = false
         private set
+
+    fun setGrainParams(type: Int, scale: Float, depth: Float) {
+        grainType = type
+        grainScale = scale
+        grainDepth = depth
+    }
 
     fun initGl() {
         val vertexShaderCode = """
@@ -71,6 +84,9 @@ class DabShader {
             uniform int uBrushMode; // 0 = Pen, 1 = Pencil, 2 = Paintbrush
             uniform float uPressure;
             uniform int uIsEraser;
+            uniform int uGrainType;
+            uniform float uGrainScale;
+            uniform float uGrainDepth;
 
             layout(location = 0) inout vec4 fragColor;
 
@@ -166,8 +182,6 @@ $GRAPHITE_PHYSICS_GLSL
                     return;
                 }
 
-
-
                 // Standard Porter-Duff Over digital art blending
                 vec3 outPremul = srcColor * dabAlpha + dst.rgb * (1.0 - dabAlpha);
                 fragColor = vec4(clamp(outPremul, 0.0, 1.0), clamp(outAlpha, 0.0, 1.0));
@@ -189,6 +203,9 @@ $GRAPHITE_PHYSICS_GLSL
             uniform int uBrushMode;
             uniform float uPressure;
             uniform int uIsEraser;
+            uniform int uGrainType;
+            uniform float uGrainScale;
+            uniform float uGrainDepth;
 
             out vec4 fragColor;
 
@@ -252,6 +269,9 @@ $GRAPHITE_PHYSICS_GLSL
         uPressureLoc = GLES30.glGetUniformLocation(programId, "uPressure")
         uWorldOffsetLoc = GLES30.glGetUniformLocation(programId, "uWorldOffset")
         uIsEraserLoc = GLES30.glGetUniformLocation(programId, "uIsEraser")
+        uGrainTypeLoc = GLES30.glGetUniformLocation(programId, "uGrainType")
+        uGrainScaleLoc = GLES30.glGetUniformLocation(programId, "uGrainScale")
+        uGrainDepthLoc = GLES30.glGetUniformLocation(programId, "uGrainDepth")
 
         // Setup static Unit Quad in VBO + VAO
         val vaos = IntArray(1)
@@ -295,6 +315,9 @@ $GRAPHITE_PHYSICS_GLSL
         if (programId == 0) return
         GLES30.glUseProgram(programId)
         GLES30.glUniformMatrix4fv(uProjectionLoc, 1, false, projectionMatrix, 0)
+        if (uGrainTypeLoc != -1) GLES30.glUniform1i(uGrainTypeLoc, grainType)
+        if (uGrainScaleLoc != -1) GLES30.glUniform1f(uGrainScaleLoc, grainScale)
+        if (uGrainDepthLoc != -1) GLES30.glUniform1f(uGrainDepthLoc, grainDepth)
         GLES30.glBindVertexArray(vaoId)
     }
 
@@ -385,12 +408,69 @@ $GRAPHITE_PHYSICS_GLSL
 
     companion object {
         private const val GRAPHITE_HASH_FUNCTIONS_GLSL = """
-            // Persistent 2D integer paper tooth hash (identical to Graphite Lab)
-            float paperTooth(vec2 p) {
-                ivec2 ip = ivec2(floor(p));
-                uint h = (uint(ip.x) * 374761393u + uint(ip.y) * 668265263u) ^ 0x5bf03635u;
-                h = (h ^ (h >> 13u)) * 1274126177u;
-                return float((h ^ (h >> 16u)) & 0xffffu) / 65535.0;
+            // 2D pseudo-random hash generator
+            float hash12(vec2 p) {
+                vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+                p3 += dot(p3, p3.yzx + 33.33);
+                return fract((p3.x + p3.y) * p3.z);
+            }
+
+            // Smooth 2D value noise with cubic Hermite interpolation
+            float valueNoise(vec2 p) {
+                vec2 i = floor(p);
+                vec2 f = fract(p);
+                vec2 u = f * f * (3.0 - 2.0 * f);
+                float a = hash12(i);
+                float b = hash12(i + vec2(1.0, 0.0));
+                float c = hash12(i + vec2(0.0, 1.0));
+                float d = hash12(i + vec2(1.0, 1.0));
+                return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+            }
+
+            // Multi-octave procedural paper tooth evaluation (world-space stationary coordinates)
+            // 0: Smooth (Hot Press), 1: Medium (Cold Press), 2: Rough (Charcoal), 3: Canvas (Linen), 4: Laid (Ribbed Wire)
+            float evaluatePaperGrain(vec2 worldPos, int grainType, float grainScale) {
+                vec2 p = worldPos / max(grainScale * 3.5, 0.5);
+
+                if (grainType == 0) {
+                    // Smooth (Hot Press): delicate high-frequency micro-grain
+                    float n1 = valueNoise(p * 2.2);
+                    float n2 = valueNoise(p * 4.5);
+                    return clamp(n1 * 0.65 + n2 * 0.35, 0.0, 1.0);
+                } else if (grainType == 1) {
+                    // Medium (Cold Press): classic natural paper tooth
+                    float n1 = valueNoise(p * 0.7);
+                    float n2 = valueNoise(p * 1.5);
+                    float n3 = valueNoise(p * 3.2);
+                    return clamp(n1 * 0.50 + n2 * 0.35 + n3 * 0.15, 0.0, 1.0);
+                } else if (grainType == 2) {
+                    // Rough (Charcoal / Torchon): granulating ridges and deep hollow pockets
+                    float n1 = valueNoise(p * 0.4);
+                    float n2 = valueNoise(p * 0.9);
+                    float n3 = valueNoise(p * 2.0);
+                    float base = n1 * 0.55 + n2 * 0.35 + n3 * 0.10;
+                    return smoothstep(0.20, 0.80, base);
+                } else if (grainType == 3) {
+                    // Canvas (Linen Weave): orthogonal woven warp-and-weft fabric
+                    vec2 cp = p * 0.45;
+                    cp += vec2(valueNoise(cp * 0.4), valueNoise(cp * 0.4 + vec2(12.3, 45.6))) * 0.25;
+                    float warp = sin(cp.x * 6.283185);
+                    float weft = sin(cp.y * 6.283185);
+                    float weave = (warp * sin(cp.y * 3.141592) + weft * cos(cp.x * 3.141592)) * 0.5 + 0.5;
+                    float micro = valueNoise(p * 1.6) * 0.20;
+                    return clamp(weave * 0.80 + micro, 0.0, 1.0);
+                } else if (grainType == 4) {
+                    // Laid (Ribbed Wire): antique wire laid lines and vertical chain marks
+                    vec2 lp = p * 0.45;
+                    lp.x += valueNoise(lp * 0.3) * 0.18;
+                    float laid = sin(lp.y * 4.712389) * 0.5 + 0.5;
+                    float chain = smoothstep(0.85, 1.0, cos(lp.x * 0.628318) * 0.5 + 0.5);
+                    float pulp = valueNoise(p * 1.0) * 0.25;
+                    return clamp(laid * 0.60 + chain * 0.25 + pulp, 0.0, 1.0);
+                }
+
+                // Default Cold Press fallback
+                return valueNoise(p);
             }
 
             // High-frequency stochastic micro-particle deposition hash per dab stamp
@@ -407,17 +487,19 @@ $GRAPHITE_PHYSICS_GLSL
                     // 1. Soft lead contact edge falloff (smooth feathering instead of harsh cutoff)
                     float leadEdge = smoothstep(1.0, 0.50, dist);
 
-                    // 2. Paper tooth texture (microscopic paper fiber peaks and valleys)
-                    float tooth = paperTooth(pixelCoord);
+                    // 2. Multi-octave procedural paper tooth (fixed to world coordinates)
+                    float rawTooth = evaluatePaperGrain(vWorldPos, uGrainType, uGrainScale);
                     float pRand = particleHash(pixelCoord, vDabCenter);
 
-                    // 3. Pressure modulates paper fiber penetration:
-                    // Low pressure: graphite catches mostly on fiber peaks (distinct visible tooth texture)
-                    // High pressure: graphite compresses into the tooth valleys for rich solid shading
+                    // 3. Stylus pressure modulates fiber penetration & burnishing:
+                    // Low pressure: graphite catches mostly on peaks (strong tooth)
+                    // High pressure: graphite burnishes and compresses into valleys (solid shading)
                     float pressureNorm = clamp(uPressure, 0.0, 1.0);
-                    float toothCoverage = mix(0.38 + 0.62 * tooth, 0.72 + 0.28 * tooth, pressureNorm);
+                    float toothMod = (rawTooth - 0.5) * 2.0;
+                    float contrast = mix(0.65, 0.20, pressureNorm) * uGrainDepth;
+                    float toothCoverage = clamp(0.70 + toothMod * contrast, 0.05, 1.0);
 
-                    // 4. Delicate micro-particle grain variance (±12% analog roughness)
+                    // 4. Delicate micro-particle grain variance
                     float microGrain = 0.88 + 0.24 * pRand;
 
                     // 5. Dense, continuous graphite deposition (responsive to lead hardness & stylus pressure)

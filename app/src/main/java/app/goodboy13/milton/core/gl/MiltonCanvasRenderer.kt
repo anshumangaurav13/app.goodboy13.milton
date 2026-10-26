@@ -130,6 +130,10 @@ class MiltonCanvasRenderer(
         engine.requestTrimBudget()
     }
 
+    fun setGrainParams(type: Int, scale: Float, depth: Float) {
+        engine.setGrainParams(type, scale, depth)
+    }
+
     fun deleteLayer(canvasView: MiltonCanvasView, layerId: Long) {
         if (!layerManager.canDeleteLayer()) return
         engine.enqueueCommand(

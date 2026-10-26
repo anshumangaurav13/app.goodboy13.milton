@@ -45,7 +45,10 @@ data class BrushProperties(
     var stabilizer: Float = BrushDefaults.getDefaultStabilizer(BrushType.PENCIL),
     var sizeBezierConfig: BezierControlPoints = BrushDefaults.getDefaultSizeBezier(BrushType.PENCIL),
     var opacityBezierConfig: BezierControlPoints = BrushDefaults.getDefaultOpacityBezier(BrushType.PENCIL),
-    var tiltBezierConfig: BezierControlPoints = BrushDefaults.getDefaultTiltBezier(BrushType.PENCIL)
+    var tiltBezierConfig: BezierControlPoints = BrushDefaults.getDefaultTiltBezier(BrushType.PENCIL),
+    var grainType: Int = BrushDefaults.getDefaultGrainType(BrushType.PENCIL),
+    var grainScale: Float = BrushDefaults.getDefaultGrainScale(BrushType.PENCIL),
+    var grainDepth: Float = BrushDefaults.getDefaultGrainDepth(BrushType.PENCIL)
 ) {
     // Legacy alias
     var bezierConfig: BezierControlPoints
@@ -60,6 +63,9 @@ data class BrushProperties(
     private val savedSizeBeziers = BrushType.values().associateWith { BrushDefaults.getDefaultSizeBezier(it) }.toMutableMap()
     private val savedOpacityBeziers = BrushType.values().associateWith { BrushDefaults.getDefaultOpacityBezier(it) }.toMutableMap()
     private val savedTiltBeziers = BrushType.values().associateWith { BrushDefaults.getDefaultTiltBezier(it) }.toMutableMap()
+    private val savedGrainTypes = BrushType.values().associateWith { BrushDefaults.getDefaultGrainType(it) }.toMutableMap()
+    private val savedGrainScales = BrushType.values().associateWith { BrushDefaults.getDefaultGrainScale(it) }.toMutableMap()
+    private val savedGrainDepths = BrushType.values().associateWith { BrushDefaults.getDefaultGrainDepth(it) }.toMutableMap()
 
     fun applyPreset(type: BrushType, saveCurrentFirst: Boolean = true) {
         if (saveCurrentFirst) {
@@ -71,6 +77,9 @@ data class BrushProperties(
             savedSizeBeziers[brushType] = sizeBezierConfig
             savedOpacityBeziers[brushType] = opacityBezierConfig
             savedTiltBeziers[brushType] = tiltBezierConfig
+            savedGrainTypes[brushType] = grainType
+            savedGrainScales[brushType] = grainScale
+            savedGrainDepths[brushType] = grainDepth
         }
 
         brushType = type
@@ -82,6 +91,9 @@ data class BrushProperties(
         sizeBezierConfig = savedSizeBeziers[type] ?: BrushDefaults.getDefaultSizeBezier(type)
         opacityBezierConfig = savedOpacityBeziers[type] ?: BrushDefaults.getDefaultOpacityBezier(type)
         tiltBezierConfig = savedTiltBeziers[type] ?: BrushDefaults.getDefaultTiltBezier(type)
+        grainType = savedGrainTypes[type] ?: BrushDefaults.getDefaultGrainType(type)
+        grainScale = savedGrainScales[type] ?: BrushDefaults.getDefaultGrainScale(type)
+        grainDepth = savedGrainDepths[type] ?: BrushDefaults.getDefaultGrainDepth(type)
         minRadius = (size * 0.12f).coerceAtLeast(1.2f)
 
         val preset = BrushDefaults.getPreset(type)
@@ -103,6 +115,9 @@ data class BrushProperties(
             savedSizeBeziers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolSizeBezier(context, t, savedSizeBeziers[t] ?: BrushDefaults.getDefaultSizeBezier(t))
             savedOpacityBeziers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolOpacityBezier(context, t, savedOpacityBeziers[t] ?: BrushDefaults.getDefaultOpacityBezier(t))
             savedTiltBeziers[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolTiltBezier(context, t, savedTiltBeziers[t] ?: BrushDefaults.getDefaultTiltBezier(t))
+            savedGrainTypes[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolGrainType(context, t, savedGrainTypes[t] ?: BrushDefaults.getDefaultGrainType(t))
+            savedGrainScales[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolGrainScale(context, t, savedGrainScales[t] ?: BrushDefaults.getDefaultGrainScale(t))
+            savedGrainDepths[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolGrainDepth(context, t, savedGrainDepths[t] ?: BrushDefaults.getDefaultGrainDepth(t))
         }
         val active = app.goodboy13.milton.core.preferences.ToolPreferences.loadActiveBrushType(context)
         applyPreset(active, saveCurrentFirst = false)
@@ -117,6 +132,9 @@ data class BrushProperties(
         savedSizeBeziers[brushType] = sizeBezierConfig
         savedOpacityBeziers[brushType] = opacityBezierConfig
         savedTiltBeziers[brushType] = tiltBezierConfig
+        savedGrainTypes[brushType] = grainType
+        savedGrainScales[brushType] = grainScale
+        savedGrainDepths[brushType] = grainDepth
         app.goodboy13.milton.core.preferences.ToolPreferences.saveActiveBrushType(context, brushType)
         for (t in BrushType.values()) {
             savedSizes[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolSize(context, t, it) }
@@ -127,6 +145,9 @@ data class BrushProperties(
             savedSizeBeziers[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolSizeBezier(context, t, it) }
             savedOpacityBeziers[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolOpacityBezier(context, t, it) }
             savedTiltBeziers[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolTiltBezier(context, t, it) }
+            savedGrainTypes[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolGrainType(context, t, it) }
+            savedGrainScales[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolGrainScale(context, t, it) }
+            savedGrainDepths[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolGrainDepth(context, t, it) }
         }
     }
 }

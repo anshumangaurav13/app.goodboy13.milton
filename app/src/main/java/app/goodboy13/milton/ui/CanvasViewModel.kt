@@ -198,6 +198,9 @@ class CanvasViewModel : ViewModel() {
                     sizeBezierConfig = canvasView.sizeBezierConfig,
                     opacityBezierConfig = canvasView.opacityBezierConfig,
                     tiltBezierConfig = canvasView.tiltBezierConfig,
+                    grainType = canvasView.grainType,
+                    grainScale = canvasView.grainScale,
+                    grainDepth = canvasView.grainDepth,
                     recentColors = recents
                 )
             )
@@ -215,7 +218,10 @@ class CanvasViewModel : ViewModel() {
                     brushStabilizer = canvasView.brushStabilizer,
                     sizeBezierConfig = canvasView.sizeBezierConfig,
                     opacityBezierConfig = canvasView.opacityBezierConfig,
-                    tiltBezierConfig = canvasView.tiltBezierConfig
+                    tiltBezierConfig = canvasView.tiltBezierConfig,
+                    grainType = canvasView.grainType,
+                    grainScale = canvasView.grainScale,
+                    grainDepth = canvasView.grainDepth
                 ),
                 viewport = state.viewport.copy(
                     isCanvasFlipped = canvasView.isCanvasFlipped
@@ -304,7 +310,10 @@ class CanvasViewModel : ViewModel() {
                     brushStabilizer = canvasView.brushStabilizer,
                     sizeBezierConfig = canvasView.sizeBezierConfig,
                     opacityBezierConfig = canvasView.opacityBezierConfig,
-                    tiltBezierConfig = canvasView.tiltBezierConfig
+                    tiltBezierConfig = canvasView.tiltBezierConfig,
+                    grainType = canvasView.grainType,
+                    grainScale = canvasView.grainScale,
+                    grainDepth = canvasView.grainDepth
                 )
             )
         }
@@ -464,6 +473,30 @@ class CanvasViewModel : ViewModel() {
             app.goodboy13.milton.core.preferences.ToolPreferences.saveToolTiltBezier(ctx, canvasView.brushType, config)
         }
         _uiState.update { it.copy(tool = it.tool.copy(tiltBezierConfig = config)) }
+    }
+
+    fun setGrainType(type: Int, canvasView: MiltonCanvasView) {
+        canvasView.grainType = type
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveToolGrainType(ctx, canvasView.brushType, type)
+        }
+        _uiState.update { it.copy(tool = it.tool.copy(grainType = type)) }
+    }
+
+    fun setGrainScale(scale: Float, canvasView: MiltonCanvasView) {
+        canvasView.grainScale = scale
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveToolGrainScale(ctx, canvasView.brushType, scale)
+        }
+        _uiState.update { it.copy(tool = it.tool.copy(grainScale = scale)) }
+    }
+
+    fun setGrainDepth(depth: Float, canvasView: MiltonCanvasView) {
+        canvasView.grainDepth = depth
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveToolGrainDepth(ctx, canvasView.brushType, depth)
+        }
+        _uiState.update { it.copy(tool = it.tool.copy(grainDepth = depth)) }
     }
 
     fun toggleEyedropper(canvasView: MiltonCanvasView) {

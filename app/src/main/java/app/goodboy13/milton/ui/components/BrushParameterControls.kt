@@ -465,6 +465,12 @@ fun ToolParametersFloatingWindow(
     onOpacityBezierConfigChange: (BezierControlPoints) -> Unit,
     tiltBezierConfig: BezierControlPoints = BezierControlPoints(),
     onTiltBezierConfigChange: (BezierControlPoints) -> Unit = {},
+    grainType: Int = app.goodboy13.milton.core.constants.BrushDefaults.GRAIN_MEDIUM,
+    onGrainTypeChange: (Int) -> Unit = {},
+    grainScale: Float = 1.0f,
+    onGrainScaleChange: (Float) -> Unit = {},
+    grainDepth: Float = 0.60f,
+    onGrainDepthChange: (Float) -> Unit = {},
     onClose: () -> Unit,
     containerWidth: Int,
     containerHeight: Int,
@@ -472,6 +478,7 @@ fun ToolParametersFloatingWindow(
     modifier: Modifier = Modifier
 ) {
     var activeCurveDynamics by remember { mutableStateOf(ActiveCurveDynamics.NONE) }
+    var isTextureExpanded by remember { mutableStateOf(false) }
 
     DraggableFloatingWindow(
         title = brushType.displayName,
@@ -651,6 +658,163 @@ fun ToolParametersFloatingWindow(
                             onConfigChange = onTiltBezierConfigChange,
                             curveColor = Color(0xFF80DEEA)
                         )
+                    }
+
+                    // 4. Paper Texture Collapsible Card
+                    val grainNames = app.goodboy13.milton.core.constants.BrushDefaults.GRAIN_NAMES
+                    val currentGrainName = grainNames.getOrElse(grainType) { "Medium" }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF22262E))
+                            .border(
+                                1.dp,
+                                if (isTextureExpanded) Color(0xFFFFCC80).copy(alpha = 0.85f) else Color(0x35FFFFFF),
+                                RoundedCornerShape(10.dp)
+                            )
+                            .clickable { isTextureExpanded = !isTextureExpanded }
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Paper Texture",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.White.copy(alpha = 0.85f)
+                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = currentGrainName,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFFFCC80)
+                                )
+                                Icon(
+                                    imageVector = if (isTextureExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = if (isTextureExpanded) "Collapse" else "Expand",
+                                    tint = Color(0xFFFFCC80),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    AnimatedVisibility(visible = isTextureExpanded) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF181B20))
+                                .border(1.dp, Color(0x25FFFFFF), RoundedCornerShape(10.dp))
+                                .padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            // Preset buttons Row 1: Smooth, Medium, Rough
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                listOf(
+                                    0 to "Smooth",
+                                    1 to "Medium",
+                                    2 to "Rough"
+                                ).forEach { (id, name) ->
+                                    val isSelected = grainType == id
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(28.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (isSelected) Color(0xFFFFCC80).copy(alpha = 0.25f) else Color(0xFF22262E))
+                                            .border(
+                                                width = if (isSelected) 1.5.dp else 1.dp,
+                                                color = if (isSelected) Color(0xFFFFCC80) else Color(0x35FFFFFF),
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .clickable { onGrainTypeChange(id) },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = name,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) Color(0xFFFFCC80) else Color.White.copy(alpha = 0.75f),
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Preset buttons Row 2: Canvas, Laid
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                listOf(
+                                    3 to "Canvas",
+                                    4 to "Laid"
+                                ).forEach { (id, name) ->
+                                    val isSelected = grainType == id
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(28.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (isSelected) Color(0xFFFFCC80).copy(alpha = 0.25f) else Color(0xFF22262E))
+                                            .border(
+                                                width = if (isSelected) 1.5.dp else 1.dp,
+                                                color = if (isSelected) Color(0xFFFFCC80) else Color(0x35FFFFFF),
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .clickable { onGrainTypeChange(id) },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = name,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) Color(0xFFFFCC80) else Color.White.copy(alpha = 0.75f),
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Slider 1: Scale (25% .. 400%)
+                            ValueDragControl(
+                                label = "Scale",
+                                value = grainScale * 100f,
+                                onValueChange = { onGrainScaleChange(it / 100f) },
+                                valueRange = 25f..400f,
+                                unit = "%",
+                                displayDecimals = 0,
+                                fillColor = Color(0xFFFFCC80),
+                                height = 34.dp
+                            )
+
+                            // Slider 2: Depth / Roughness (0% .. 100%)
+                            ValueDragControl(
+                                label = "Depth",
+                                value = grainDepth * 100f,
+                                onValueChange = { onGrainDepthChange(it / 100f) },
+                                valueRange = 0f..100f,
+                                unit = "%",
+                                displayDecimals = 0,
+                                fillColor = Color(0xFFFFCC80),
+                                height = 34.dp
+                            )
+                        }
                     }
 
                 }

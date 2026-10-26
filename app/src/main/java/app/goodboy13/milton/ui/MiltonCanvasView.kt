@@ -67,6 +67,11 @@ class MiltonCanvasView @JvmOverloads constructor(
         renderer.onRequestRedraw = {
             post { requestRedraw() }
         }
+        renderer.setGrainParams(
+            brushEngine.properties.grainType,
+            brushEngine.properties.grainScale,
+            brushEngine.properties.grainDepth
+        )
     }
 
     private val gestureDetector = CanvasGestureDetector(object : CanvasGestureDetector.GestureListener {
@@ -155,6 +160,11 @@ class MiltonCanvasView @JvmOverloads constructor(
         set(value) {
             brushEngine.properties.applyPreset(value)
             isEraserMode = (value == app.goodboy13.milton.core.brush.BrushType.ERASER)
+            renderer.setGrainParams(
+                brushEngine.properties.grainType,
+                brushEngine.properties.grainScale,
+                brushEngine.properties.grainDepth
+            )
         }
 
     var isEraserMode: Boolean = false
@@ -230,6 +240,27 @@ class MiltonCanvasView @JvmOverloads constructor(
         get() = brushEngine.properties.sizeBezierConfig
         set(value) {
             brushEngine.properties.sizeBezierConfig = value
+        }
+
+    var grainType: Int
+        get() = brushEngine.properties.grainType
+        set(value) {
+            brushEngine.properties.grainType = value
+            renderer.setGrainParams(value, brushEngine.properties.grainScale, brushEngine.properties.grainDepth)
+        }
+
+    var grainScale: Float
+        get() = brushEngine.properties.grainScale
+        set(value) {
+            brushEngine.properties.grainScale = value
+            renderer.setGrainParams(brushEngine.properties.grainType, value, brushEngine.properties.grainDepth)
+        }
+
+    var grainDepth: Float
+        get() = brushEngine.properties.grainDepth
+        set(value) {
+            brushEngine.properties.grainDepth = value
+            renderer.setGrainParams(brushEngine.properties.grainType, brushEngine.properties.grainScale, value)
         }
 
     var backgroundColorRgb: Int
@@ -398,6 +429,11 @@ class MiltonCanvasView @JvmOverloads constructor(
     fun loadToolPreferences(context: Context) {
         brushEngine.properties.loadPreferences(context)
         brushColorRgb = app.goodboy13.milton.core.preferences.ToolPreferences.loadBrushColor(context, brushColorRgb)
+        renderer.setGrainParams(
+            brushEngine.properties.grainType,
+            brushEngine.properties.grainScale,
+            brushEngine.properties.grainDepth
+        )
     }
 
     fun saveToolPreferences(context: Context) {

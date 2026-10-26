@@ -166,6 +166,31 @@ object ToolPreferences {
         )
     }
 
+    // --- Per-Tool Grain / Paper Texture ---
+    fun saveToolGrainType(context: Context, type: BrushType, grainType: Int) {
+        getPrefs(context).edit().putInt("grain_type_${type.name}", grainType).apply()
+    }
+
+    fun loadToolGrainType(context: Context, type: BrushType, defaultType: Int = BrushDefaults.getDefaultGrainType(type)): Int {
+        return getPrefs(context).getInt("grain_type_${type.name}", defaultType)
+    }
+
+    fun saveToolGrainScale(context: Context, type: BrushType, grainScale: Float) {
+        getPrefs(context).edit().putFloat("grain_scale_${type.name}", grainScale).apply()
+    }
+
+    fun loadToolGrainScale(context: Context, type: BrushType, defaultScale: Float = BrushDefaults.getDefaultGrainScale(type)): Float {
+        return getPrefs(context).getFloat("grain_scale_${type.name}", defaultScale)
+    }
+
+    fun saveToolGrainDepth(context: Context, type: BrushType, grainDepth: Float) {
+        getPrefs(context).edit().putFloat("grain_depth_${type.name}", grainDepth).apply()
+    }
+
+    fun loadToolGrainDepth(context: Context, type: BrushType, defaultDepth: Float = BrushDefaults.getDefaultGrainDepth(type)): Float {
+        return getPrefs(context).getFloat("grain_depth_${type.name}", defaultDepth)
+    }
+
     // --- Color ---
     fun saveBrushColor(context: Context, colorRgb: Int) {
         getPrefs(context).edit().putInt(KEY_BRUSH_COLOR, colorRgb).apply()

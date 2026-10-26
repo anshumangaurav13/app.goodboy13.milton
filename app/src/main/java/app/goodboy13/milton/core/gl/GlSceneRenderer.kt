@@ -123,6 +123,10 @@ class GlSceneRenderer {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
     }
 
+    fun setGrainParams(type: Int, scale: Float, depth: Float) {
+        dabShader.setGrainParams(type, scale, depth)
+    }
+
     fun computeFinalMvpMatrix(viewport: Viewport, bufferInfo: BufferInfo, transform: FloatArray): FloatArray {
         if (viewport.nativePtr != 0L) {
             MiltonNative.viewportComputeFinalMvp(

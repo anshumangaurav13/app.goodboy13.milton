@@ -232,6 +232,9 @@ class MainActivity : ComponentActivity() {
                         onSizeBezierConfigChange = { viewModel.setSizeBezierConfig(it, canvasView) },
                         onOpacityBezierConfigChange = { viewModel.setOpacityBezierConfig(it, canvasView) },
                         onTiltBezierConfigChange = { viewModel.setTiltBezierConfig(it, canvasView) },
+                        onGrainTypeChange = { viewModel.setGrainType(it, canvasView) },
+                        onGrainScaleChange = { viewModel.setGrainScale(it, canvasView) },
+                        onGrainDepthChange = { viewModel.setGrainDepth(it, canvasView) },
                         onToggleEyedropper = { viewModel.toggleEyedropper(canvasView) }
                     ),
                     viewport = ViewportActions(

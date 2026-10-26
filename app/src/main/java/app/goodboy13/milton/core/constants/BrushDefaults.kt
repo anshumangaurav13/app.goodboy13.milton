@@ -18,7 +18,10 @@ data class ToolPreset(
     val isEraser: Boolean = false,
     val sizeBezier: BezierControlPoints = PressureCurveDefaults.STANDARD,
     val opacityBezier: BezierControlPoints = PressureCurveDefaults.STANDARD,
-    val tiltBezier: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f)
+    val tiltBezier: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f),
+    val grainType: Int = 1,
+    val grainScale: Float = 1.0f,
+    val grainDepth: Float = 0.60f
 )
 
 /**
@@ -128,4 +131,15 @@ object BrushDefaults {
     fun getDefaultSizeBezier(type: BrushType): BezierControlPoints = getPreset(type).sizeBezier
     fun getDefaultOpacityBezier(type: BrushType): BezierControlPoints = getPreset(type).opacityBezier
     fun getDefaultTiltBezier(type: BrushType): BezierControlPoints = getPreset(type).tiltBezier
+    fun getDefaultGrainType(type: BrushType): Int = getPreset(type).grainType
+    fun getDefaultGrainScale(type: BrushType): Float = getPreset(type).grainScale
+    fun getDefaultGrainDepth(type: BrushType): Float = getPreset(type).grainDepth
+
+    const val GRAIN_SMOOTH = 0
+    const val GRAIN_MEDIUM = 1
+    const val GRAIN_ROUGH = 2
+    const val GRAIN_CANVAS = 3
+    const val GRAIN_LAID = 4
+
+    val GRAIN_NAMES = listOf("Smooth", "Medium", "Rough", "Canvas", "Laid")
 }

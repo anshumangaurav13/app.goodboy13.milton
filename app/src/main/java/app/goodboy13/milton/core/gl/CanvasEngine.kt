@@ -65,6 +65,10 @@ class CanvasEngine(
         commandQueue.enqueue(command)
     }
 
+    fun setGrainParams(type: Int, scale: Float, depth: Float) {
+        sceneRenderer.setGrainParams(type, scale, depth)
+    }
+
     fun clear() {
         commandQueue.clear()
         dabsToCommit.clear()
