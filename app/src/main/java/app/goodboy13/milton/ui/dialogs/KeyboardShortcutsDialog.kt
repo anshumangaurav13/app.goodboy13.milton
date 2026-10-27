@@ -65,7 +65,7 @@ fun KeyboardShortcutsDialog(
             color = Color(0xFFA5D6A7),
             items = listOf(
                 ShortcutItem(listOf("M"), "Horizontal Canvas Flip toggle"),
-                ShortcutItem(listOf("Ctrl", "+", "0"), "Reset Canvas View (Pan to center, 50% Zoom)"),
+                ShortcutItem(listOf("Ctrl", "+", "0"), "Reset Canvas View (Toggle 50% / 100% Zoom, center view)"),
                 ShortcutItem(listOf("Ctrl", "+", "1"), "Cycle between zoom levels 50% and 100%"),
                 ShortcutItem(listOf("Shift", "+", "R"), "Reset Rotation to 0°")
             )

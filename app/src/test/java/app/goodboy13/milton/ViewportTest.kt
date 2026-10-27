@@ -235,4 +235,21 @@ class ViewportTest {
         assertEquals(screenX, screenCoords[0], 0.01f)
         assertEquals(screenY, screenCoords[1], 0.01f)
     }
+
+    @Test
+    fun testPreserveCenterOnResize() {
+        val viewport = Viewport().apply {
+            updateScreenSize(2944, 1840)
+            panX = 1472f
+            panY = 920f
+            zoom = 0.5f
+            rotationDegrees = 35f
+        }
+        val oldCenterWorld = viewport.screenToWorld(2944 * 0.5f, 1840 * 0.5f)
+        viewport.preserveCenterOnResize(1840, 2944, 2944, 1840)
+        val newCenterWorld = viewport.screenToWorld(1840 * 0.5f, 2944 * 0.5f)
+
+        assertEquals(oldCenterWorld.x, newCenterWorld.x, 0.01f)
+        assertEquals(oldCenterWorld.y, newCenterWorld.y, 0.01f)
+    }
 }

@@ -152,11 +152,10 @@ fun TabletTopBar(
                     .padding(horizontal = 2.dp)
             )
 
-            // Zoom Lock Toggle Button (Clicking toggles zoom lock)
+            // Zoom Indicator & Quick Toggle (Lock toggles lock; text toggles 50%/100%)
             Surface(
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .clickable { onToggleZoomLock() }
                     .background(if (isZoomLocked) Color(0x2FFF9800) else Color.Transparent)
                     .border(
                         width = 1.dp,
@@ -174,14 +173,17 @@ fun TabletTopBar(
                         imageVector = if (isZoomLocked) Icons.Default.Lock else Icons.Default.LockOpen,
                         contentDescription = if (isZoomLocked) "Zoom Locked" else "Zoom Unlocked",
                         tint = if (isZoomLocked) Color(0xFFFFB74D) else Color(0x88FFFFFF),
-                        modifier = Modifier.size(13.dp)
+                        modifier = Modifier
+                            .size(13.dp)
+                            .clickable { onToggleZoomLock() }
                     )
                     val zoomPct = (zoomLevel * 100).roundToInt()
                     Text(
                         text = "$zoomPct%",
                         fontSize = 12.sp,
                         fontWeight = if (isZoomLocked) FontWeight.Bold else FontWeight.Medium,
-                        color = if (isZoomLocked) Color(0xFFFFB74D) else Color(0xDDFFFFFF)
+                        color = if (isZoomLocked) Color(0xFFFFB74D) else Color(0xDDFFFFFF),
+                        modifier = Modifier.clickable { onResetCanvas() }
                     )
                 }
             }

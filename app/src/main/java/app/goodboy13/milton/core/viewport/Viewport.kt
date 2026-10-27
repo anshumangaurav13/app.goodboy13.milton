@@ -92,6 +92,29 @@ class Viewport(
     }
 
     /**
+     * Updates screen size while preserving whichever world coordinate was located at the visible center
+     * of the canvas before the resize/orientation change.
+     */
+    fun preserveCenterOnResize(newWidth: Int, newHeight: Int, oldWidth: Int, oldHeight: Int) {
+        if (oldWidth <= 0 || oldHeight <= 0) {
+            updateScreenSize(newWidth, newHeight)
+            return
+        }
+        val centerWorld = screenToWorld(oldWidth * 0.5f, oldHeight * 0.5f)
+        updateScreenSize(newWidth, newHeight)
+
+        val newCenterX = newWidth * 0.5f
+        val newCenterY = newHeight * 0.5f
+        val rad = Math.toRadians(rotationDegrees.toDouble())
+        val cosR = kotlin.math.cos(rad).toFloat()
+        val sinR = kotlin.math.sin(rad).toFloat()
+        val rx = (centerWorld.x * cosR - centerWorld.y * sinR) * zoom
+        val ry = (centerWorld.x * sinR + centerWorld.y * cosR) * zoom
+        panX = newCenterX - rx
+        panY = newCenterY - ry
+    }
+
+    /**
      * Converts a 2D screen coordinate (sx, sy) into world coordinate space without heap allocation.
      * Writes results into [outCoords] where index 0 is worldX and index 1 is worldY.
      */

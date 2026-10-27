@@ -10,6 +10,8 @@ import android.view.SurfaceView
 import androidx.graphics.lowlatency.GLFrontBufferedRenderer
 import app.goodboy13.milton.core.brush.BrushDab
 import app.goodboy13.milton.core.brush.BrushEngine
+import app.goodboy13.milton.core.brush.BrushType
+import app.goodboy13.milton.core.brush.PencilDynamics
 import app.goodboy13.milton.core.gl.DabPacket
 import app.goodboy13.milton.core.gl.MiltonCanvasRenderer
 import app.goodboy13.milton.core.history.AddLayerCommand
@@ -389,9 +391,18 @@ class MiltonCanvasView @JvmOverloads constructor(
     private var springStartBrushSize: Float = 35f
     private var springLastAngle: Float = 0f
 
+    private var lastStylusScreenX: Float = 0f
+    private var lastStylusScreenY: Float = 0f
+    private var lastStylusAlignment: Float = 0f
+
     fun resetCanvas() {
+        val currentZoom = renderer.viewport.zoom
+        val targetZoom = if (kotlin.math.abs(currentZoom - 0.5f) < 0.08f) 1.0f else 0.5f
         renderer.viewport.reset()
-        frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
+        if (targetZoom != 0.5f) {
+            renderer.viewport.zoom = targetZoom
+        }
+        requestRedraw()
         post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
     }
 
@@ -477,13 +488,13 @@ class MiltonCanvasView @JvmOverloads constructor(
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        renderer.viewport.updateScreenSize(w, h)
+        renderer.viewport.preserveCenterOnResize(w, h, oldw, oldh)
         if (oldw == 0 && oldh == 0) {
             renderer.viewport.reset()
         }
         frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
         post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
-        Log.i(TAG, "onSizeChanged: width=$w, height=$h")
+        Log.i(TAG, "onSizeChanged: width=$w, height=$h (preserved visible center)")
     }
 
     override fun onHoverEvent(event: MotionEvent): Boolean {
@@ -912,14 +923,23 @@ class MiltonCanvasView @JvmOverloads constructor(
 
         val rawTilt = event.getAxisValue(MotionEvent.AXIS_TILT, stylusIndex)
         val tilt = if (rawTilt > 0.05f) (rawTilt / 1.5707963f).coerceIn(0f, 1f) else 0f
+        val orientation = event.getAxisValue(MotionEvent.AXIS_ORIENTATION, stylusIndex)
 
         when (action) {
             MotionEvent.ACTION_DOWN -> {
                 brushEngine.properties.isEraser = isEraserMode || isHardwareEraser
                 val isEraser = brushEngine.properties.isEraser
-                Log.i(TAG, "Stylus DOWN at screen=($sx, $sy), world=(${worldPos.x}, ${worldPos.y}), pressure=$pressure, tilt=$tilt, isEraser=$isEraser")
+                lastStylusScreenX = sx
+                lastStylusScreenY = sy
+                lastStylusAlignment = 0f
+                val downTilt = if (brushEngine.properties.brushType == BrushType.PENCIL) {
+                    0f
+                } else {
+                    tilt
+                }
+                Log.i(TAG, "Stylus DOWN at screen=($sx, $sy), world=(${worldPos.x}, ${worldPos.y}), pressure=$pressure, tilt=$downTilt, isEraser=$isEraser")
                 val startHead = strokeRingBuffer.headIndex
-                brushEngine.startStroke(worldPos.x, worldPos.y, pressure, event.eventTime, tilt, strokeRingBuffer)
+                brushEngine.startStroke(worldPos.x, worldPos.y, pressure, event.eventTime, downTilt, strokeRingBuffer)
                 val addedCount = (strokeRingBuffer.headIndex - startHead).toInt()
                 if (addedCount > 0) {
                     renderer.queueRingDabs(strokeRingBuffer, startHead, addedCount)
@@ -935,6 +955,7 @@ class MiltonCanvasView @JvmOverloads constructor(
 
             MotionEvent.ACTION_MOVE -> {
                 val isEraser = brushEngine.properties.isEraser
+                val isPencil = (brushEngine.properties.brushType == BrushType.PENCIL)
                 val startHead = strokeRingBuffer.headIndex
 
                 // Unpack sub-frame historical points for maximum curve smoothness without heap churn
@@ -948,11 +969,38 @@ class MiltonCanvasView @JvmOverloads constructor(
                     renderer.viewport.screenToWorld(hx, hy, touchCoords)
                     val htiltRaw = event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, stylusIndex, h)
                     val htilt = if (htiltRaw > 0.05f) (htiltRaw / 1.5707963f).coerceIn(0f, 1f) else tilt
-                    brushEngine.addPoint(touchCoords[0], touchCoords[1], hp, ht, htilt, strokeRingBuffer)
+                    val horientation = event.getHistoricalAxisValue(MotionEvent.AXIS_ORIENTATION, stylusIndex, h)
+
+                    val hdx = hx - lastStylusScreenX
+                    val hdy = hy - lastStylusScreenY
+                    lastStylusAlignment = PencilDynamics.computeAlignment(hdx, hdy, htiltRaw, horientation, lastStylusAlignment)
+                    if (kotlin.math.hypot(hdx, hdy) > 0.2f) {
+                        lastStylusScreenX = hx
+                        lastStylusScreenY = hy
+                    }
+
+                    val effectiveHtilt = if (isPencil) {
+                        PencilDynamics.computeEffectiveTilt(htilt, lastStylusAlignment)
+                    } else {
+                        htilt
+                    }
+                    brushEngine.addPoint(touchCoords[0], touchCoords[1], hp, ht, effectiveHtilt, strokeRingBuffer)
                 }
 
                 // Add current point
-                brushEngine.addPoint(worldPos.x, worldPos.y, pressure, event.eventTime, tilt, strokeRingBuffer)
+                val cdx = sx - lastStylusScreenX
+                val cdy = sy - lastStylusScreenY
+                lastStylusAlignment = PencilDynamics.computeAlignment(cdx, cdy, rawTilt, orientation, lastStylusAlignment)
+                if (kotlin.math.hypot(cdx, cdy) > 0.2f) {
+                    lastStylusScreenX = sx
+                    lastStylusScreenY = sy
+                }
+                val effectiveTilt = if (isPencil) {
+                    PencilDynamics.computeEffectiveTilt(tilt, lastStylusAlignment)
+                } else {
+                    tilt
+                }
+                brushEngine.addPoint(worldPos.x, worldPos.y, pressure, event.eventTime, effectiveTilt, strokeRingBuffer)
 
                 val addedCount = (strokeRingBuffer.headIndex - startHead).toInt()
                 if (addedCount > 0) {
@@ -969,6 +1017,7 @@ class MiltonCanvasView @JvmOverloads constructor(
 
             MotionEvent.ACTION_UP -> {
                 Log.i(TAG, "Stylus UP at screen=($sx, $sy)")
+                lastStylusAlignment = 0f
                 val isEraser = brushEngine.properties.isEraser
                 val startHead = strokeRingBuffer.headIndex
                 brushEngine.endStroke(strokeRingBuffer)
@@ -987,6 +1036,7 @@ class MiltonCanvasView @JvmOverloads constructor(
 
             MotionEvent.ACTION_CANCEL -> {
                 Log.i(TAG, "Stylus CANCEL")
+                lastStylusAlignment = 0f
                 brushEngine.endStroke()
                 renderer.clearPendingDabs()
                 frontBufferedRenderer?.cancel()
