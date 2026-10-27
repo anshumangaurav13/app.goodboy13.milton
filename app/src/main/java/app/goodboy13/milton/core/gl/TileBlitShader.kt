@@ -2,6 +2,7 @@ package app.goodboy13.milton.core.gl
 
 import android.opengl.GLES30
 import android.util.Log
+import app.goodboy13.milton.core.constants.PaletteDefaults
 import app.goodboy13.milton.core.tile.TileCoord
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -168,7 +169,7 @@ class TileBlitShader {
         }
     }
 
-    fun begin(mvpMatrix: FloatArray, flipY: Boolean = true, backgroundColorRgb: Int = 0xFFF6F4ED.toInt(), showBorders: Boolean = false) {
+    fun begin(mvpMatrix: FloatArray, flipY: Boolean = true, backgroundColorRgb: Int = PaletteDefaults.CANVAS_BACKGROUND_DEFAULT, showBorders: Boolean = false) {
         if (programId == 0) return
         GLES30.glUseProgram(programId)
         GLES30.glUniformMatrix4fv(uMvpMatrixLoc, 1, false, mvpMatrix, 0)

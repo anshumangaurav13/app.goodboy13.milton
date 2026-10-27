@@ -13,7 +13,7 @@ object PaletteDefaults {
     val FOREST_GREEN: Int = 0xFF388E3C.toInt()
     val AMBER_ORANGE: Int = 0xFFF57C00.toInt()
     val PAPER_WHITE: Int = 0xFFFFFFFF.toInt()
-    val CANVAS_BACKGROUND_DEFAULT: Int = 0xFFF6F4ED.toInt()
+    val CANVAS_BACKGROUND_DEFAULT: Int = PAPER_WHITE
 
     /** Canonical default drawing color (Deep rich carbon graphite). */
     val DEFAULT_BRUSH_COLOR: Int = CARBON_GRAPHITE

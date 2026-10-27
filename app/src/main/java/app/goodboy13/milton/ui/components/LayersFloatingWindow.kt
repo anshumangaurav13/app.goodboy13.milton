@@ -1,5 +1,6 @@
 package app.goodboy13.milton.ui.components
 
+import app.goodboy13.milton.core.constants.PaletteDefaults
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -103,7 +104,7 @@ fun LayersFloatingWindow(
     onMoveLayerDown: (Long) -> Unit,
     onReorderLayer: (fromStorageIndex: Int, toStorageIndex: Int) -> Unit = { _, _ -> },
     onReorderLayers: (List<Long>) -> Unit = {},
-    backgroundColorRgb: Int = 0xFFF6F4ED.toInt(),
+    backgroundColorRgb: Int = PaletteDefaults.CANVAS_BACKGROUND_DEFAULT,
     onChangeBackgroundColor: (Int) -> Unit = {},
     onClose: () -> Unit,
     containerWidth: Int,

@@ -3,6 +3,7 @@ package app.goodboy13.milton.core.storage
 import android.content.Context
 import android.os.Debug
 import android.util.Log
+import app.goodboy13.milton.core.constants.PaletteDefaults
 import app.goodboy13.milton.ui.MiltonCanvasView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -192,7 +193,7 @@ class ProjectCatalogRepository(private val context: Context) {
 
         val newMeta = DocumentMetadata(
             title = "Untitled Artwork",
-            backgroundColorRgb = 0xFFF6F4ED.toInt(),
+            backgroundColorRgb = PaletteDefaults.CANVAS_BACKGROUND_DEFAULT,
             viewportPanX = defaultPanX,
             viewportPanY = defaultPanY,
             viewportZoom = 0.5f,

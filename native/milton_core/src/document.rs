@@ -81,7 +81,7 @@ impl MiltonDocument {
         Self {
             layers: Vec::new(),
             active_layer_id: 1,
-            background_color_rgb: 0xFFF6F4ED_u32 as i32,
+            background_color_rgb: 0xFFFFFFFF_u32 as i32,
         }
     }
 

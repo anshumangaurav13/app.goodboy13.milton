@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.goodboy13.milton.core.brush.BrushType
+import app.goodboy13.milton.core.constants.PaletteDefaults
 import app.goodboy13.milton.core.layer.Layer
 import app.goodboy13.milton.core.model.BezierControlPoints
 import app.goodboy13.milton.core.model.PressureCurveDefaults
@@ -67,7 +68,7 @@ class CanvasViewModel : ViewModel() {
             ),
             document = DocumentUiState(
                 documentTitle = "Untitled Artwork",
-                canvasBackgroundColor = 0xFFF6F4ED.toInt()
+                canvasBackgroundColor = PaletteDefaults.CANVAS_BACKGROUND_DEFAULT
             )
         )
     )

@@ -7,6 +7,7 @@ import androidx.graphics.lowlatency.BufferInfo
 import androidx.graphics.lowlatency.GLFrontBufferedRenderer
 import androidx.graphics.opengl.egl.EGLManager
 import app.goodboy13.milton.core.brush.BrushDab
+import app.goodboy13.milton.core.constants.PaletteDefaults
 import app.goodboy13.milton.core.memory.NativeDabRingBuffer
 import app.goodboy13.milton.core.history.UndoManager
 import app.goodboy13.milton.core.layer.LayerManager
@@ -75,8 +76,8 @@ class MiltonCanvasRenderer(
     val thumbnailRenderer get() = sceneRenderer.thumbnailRenderer
     val strokeCompositeShader get() = sceneRenderer.strokeCompositeShader
 
-    // Clean neutral canvas background color (paper default: Warm Paper #f6f4ed)
-    var backgroundColorRgb: Int = 0xFFF6F4ED.toInt()
+    // Clean neutral canvas background color (default: Pure White)
+    var backgroundColorRgb: Int = PaletteDefaults.CANVAS_BACKGROUND_DEFAULT
 
     var onLayerThumbnailUpdated: ((layerId: Long, bitmap: Bitmap?) -> Unit)?
         get() = engine.onLayerThumbnailUpdated

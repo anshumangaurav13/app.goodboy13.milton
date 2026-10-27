@@ -1,5 +1,6 @@
 package app.goodboy13.milton.core.storage
 
+import app.goodboy13.milton.core.constants.PaletteDefaults
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -11,7 +12,7 @@ data class DocumentMetadata(
     val version: Int = 1,
     var createdAt: Long = System.currentTimeMillis(),
     var modifiedAt: Long = System.currentTimeMillis(),
-    var backgroundColorRgb: Int = 0xFFF6F4ED.toInt(),
+    var backgroundColorRgb: Int = PaletteDefaults.CANVAS_BACKGROUND_DEFAULT,
     var viewportPanX: Float = 0f,
     var viewportPanY: Float = 0f,
     var viewportZoom: Float = 0.5f,
@@ -69,7 +70,7 @@ data class DocumentMetadata(
                 version = root.optInt("version", 1),
                 createdAt = root.optLong("createdAt", System.currentTimeMillis()),
                 modifiedAt = root.optLong("modifiedAt", System.currentTimeMillis()),
-                backgroundColorRgb = root.optInt("backgroundColorRgb", 0xFFF6F4ED.toInt()),
+                backgroundColorRgb = root.optInt("backgroundColorRgb", PaletteDefaults.CANVAS_BACKGROUND_DEFAULT),
                 viewportPanX = root.optDouble("viewportPanX", 0.0).toFloat(),
                 viewportPanY = root.optDouble("viewportPanY", 0.0).toFloat(),
                 viewportZoom = root.optDouble("viewportZoom", 0.5).toFloat(),
