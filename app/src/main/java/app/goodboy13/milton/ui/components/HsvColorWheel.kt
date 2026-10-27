@@ -6,6 +6,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -24,6 +25,36 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 import kotlin.math.sqrt
+
+/**
+ * Coordinate mapping for the inner color square:
+ * - Top-left (0, 0): Pure White (S=0, V=1)
+ * - Bottom-left (0, 1): Pure Black (S=0, V=0)
+ * - Entire right edge (1, y): Pure Hue (S=1, V=1)
+ * - Top edge (x, 0): Tint ramp from White to Pure Hue (V=1, S=x)
+ * - Bottom edge (x, 1): Shade ramp from Black to Pure Hue (V=x, S=1)
+ */
+object ColorSquareMapping {
+    fun touchToSv(nx: Float, ny: Float): Pair<Float, Float> {
+        val x = nx.coerceIn(0f, 1f)
+        val y = ny.coerceIn(0f, 1f)
+        val v = (1f - y * (1f - x)).coerceIn(0f, 1f)
+        val s = if (v > 0.001f) (x / v).coerceIn(0f, 1f) else 0f
+        return Pair(s, v)
+    }
+
+    fun svToCoordinates(saturation: Float, value: Float, fallbackY: Float = 0.5f): Pair<Float, Float> {
+        val s = saturation.coerceIn(0f, 1f)
+        val v = value.coerceIn(0f, 1f)
+        val x = (s * v).coerceIn(0f, 1f)
+        val y = if (x < 0.999f) {
+            ((1f - v) / (1f - x)).coerceIn(0f, 1f)
+        } else {
+            fallbackY.coerceIn(0f, 1f)
+        }
+        return Pair(x, y)
+    }
+}
 
 enum class WheelTouchMode {
     NONE,
@@ -49,6 +80,8 @@ fun HsvColorWheel(
     wheelSize: Dp = 150.dp
 ) {
     var touchMode by remember { mutableStateOf(WheelTouchMode.NONE) }
+    var currentTouchX by remember { mutableFloatStateOf(0.5f) }
+    var currentTouchY by remember { mutableFloatStateOf(0.5f) }
 
     val currentHue by rememberUpdatedState(hue)
     val currentSaturation by rememberUpdatedState(saturation)
@@ -100,6 +133,8 @@ fun HsvColorWheel(
                         // If current color is neutral (grayscale/graphite/white), touching a hue should give that vibrant hue!
                         if (curSat < 0.05f) {
                             curSat = 1.0f
+                            currentTouchX = 1.0f
+                            currentTouchY = 0.5f
                             onSaturationChangeState(1.0f)
                             if (curVal < 0.20f) {
                                 curVal = 1.0f
@@ -107,8 +142,13 @@ fun HsvColorWheel(
                             }
                         }
                     } else {
-                        curSat = ((down.position.x - sqLeft) / sqSize).coerceIn(0f, 1f)
-                        curVal = (1f - (down.position.y - sqTop) / sqSize).coerceIn(0f, 1f)
+                        val nx = ((down.position.x - sqLeft) / sqSize).coerceIn(0f, 1f)
+                        val ny = ((down.position.y - sqTop) / sqSize).coerceIn(0f, 1f)
+                        currentTouchX = nx
+                        currentTouchY = ny
+                        val (mappedS, mappedV) = ColorSquareMapping.touchToSv(nx, ny)
+                        curSat = mappedS
+                        curVal = mappedV
                         onSaturationChangeState(curSat)
                         onValueChangeState(curVal)
                     }
@@ -129,11 +169,18 @@ fun HsvColorWheel(
                                 onHueChangeState(angle)
                                 if (curSat < 0.05f) {
                                     curSat = 1.0f
+                                    currentTouchX = 1.0f
+                                    currentTouchY = 0.5f
                                     onSaturationChangeState(1.0f)
                                 }
                             } else {
-                                curSat = ((change.position.x - sqLeft) / sqSize).coerceIn(0f, 1f)
-                                curVal = (1f - (change.position.y - sqTop) / sqSize).coerceIn(0f, 1f)
+                                val nx = ((change.position.x - sqLeft) / sqSize).coerceIn(0f, 1f)
+                                val ny = ((change.position.y - sqTop) / sqSize).coerceIn(0f, 1f)
+                                currentTouchX = nx
+                                currentTouchY = ny
+                                val (mappedS, mappedV) = ColorSquareMapping.touchToSv(nx, ny)
+                                curSat = mappedS
+                                curVal = mappedV
                                 onSaturationChangeState(curSat)
                                 onValueChangeState(curVal)
                             }
@@ -196,31 +243,24 @@ fun HsvColorWheel(
         val topLeft = Offset(sqLeft, sqTop)
         val rectSize = Size(sqSize, sqSize)
 
-        // Pure Hue base fill
-        val pureHueColor = Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 1f, 1f)))
+        // 1. Vertical White-to-Black gradient (Left edge: White at top, Black at bottom)
         drawRect(
-            color = pureHueColor,
-            topLeft = topLeft,
-            size = rectSize
-        )
-
-        // Horizontal White (S=0) to Transparent (S=1)
-        drawRect(
-            brush = Brush.horizontalGradient(
-                colors = listOf(Color.White, Color.White.copy(alpha = 0f)),
-                startX = sqLeft,
-                endX = sqRight
+            brush = Brush.verticalGradient(
+                colors = listOf(Color.White, Color.Black),
+                startY = sqTop,
+                endY = sqBottom
             ),
             topLeft = topLeft,
             size = rectSize
         )
 
-        // Vertical Transparent (V=1) to Black (V=0)
+        // 2. Horizontal Transparent-to-PureHue gradient (Right edge: Pure Hue)
+        val pureHueColor = Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 1f, 1f)))
         drawRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(Color.Transparent, Color.Black),
-                startY = sqTop,
-                endY = sqBottom
+            brush = Brush.horizontalGradient(
+                colors = listOf(pureHueColor.copy(alpha = 0f), pureHueColor),
+                startX = sqLeft,
+                endX = sqRight
             ),
             topLeft = topLeft,
             size = rectSize
@@ -235,8 +275,13 @@ fun HsvColorWheel(
         )
 
         // SV Crosshair Indicator
-        val svX = sqLeft + saturation * sqSize
-        val svY = sqTop + (1f - value) * sqSize
+        val (coordX, coordY) = if (touchMode == WheelTouchMode.SV) {
+            Pair(currentTouchX, currentTouchY)
+        } else {
+            ColorSquareMapping.svToCoordinates(saturation, value, fallbackY = currentTouchY)
+        }
+        val svX = sqLeft + coordX * sqSize
+        val svY = sqTop + coordY * sqSize
 
         drawCircle(
             color = Color(0x66000000),
