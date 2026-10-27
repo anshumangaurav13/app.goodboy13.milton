@@ -377,38 +377,6 @@ fun BezierCurveGraph(
             }
         }
 
-        // Start & End percentage scrubbers side-by-side
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            ValueDragControl(
-                label = "Start",
-                value = (config.minPercent * 100f).roundToInt().toFloat(),
-                onValueChange = { newMin ->
-                    onConfigChange(config.copy(minPercent = (newMin / 100f).coerceIn(0f, 1.0f)))
-                },
-                valueRange = 0f..100f,
-                unit = "%",
-                displayDecimals = 0,
-                fillColor = handleStartColor,
-                height = 30.dp,
-                modifier = Modifier.weight(1f)
-            )
-            ValueDragControl(
-                label = "End",
-                value = (config.maxPercent * 100f).roundToInt().toFloat(),
-                onValueChange = { newMax ->
-                    onConfigChange(config.copy(maxPercent = (newMax / 100f).coerceIn(0f, 1.0f)))
-                },
-                valueRange = 0f..100f,
-                unit = "%",
-                displayDecimals = 0,
-                fillColor = handleEndColor,
-                height = 30.dp,
-                modifier = Modifier.weight(1f)
-            )
-        }
 
         // Preset Chips: single horizontal row of mini curve icons
         if (presets.isNotEmpty()) {

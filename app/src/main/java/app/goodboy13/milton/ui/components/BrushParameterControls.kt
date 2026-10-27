@@ -115,11 +115,11 @@ fun ValueDragControl(
                             // Dragging right (dx > 0) or up (dy > 0) increases value; left / down decreases
                             val delta = dx + dy
 
-                            val factor = if (span > 150f) {
+                            val factor = if (unit != "%" && span > 150f) {
                                 // Non-linear proportional sensitivity: sensitive & precise at small sizes, accelerating at large sizes
                                 (0.02f + 0.007f * accumulatedValue).coerceIn(0.02f, 7.0f)
                             } else {
-                                // Percentage ranges (e.g. 1..100%): responsive sweep
+                                // Percentage ranges (e.g. 1..100%, 0..200%, 25..400%): responsive sweep
                                 (span / 300f).coerceAtLeast(0.25f)
                             }
 
@@ -245,7 +245,7 @@ fun StrokePreviewBox(
                 val strokeAlpha = (minAlpha + (maxAlpha - minAlpha) * normOpacityY).coerceIn(0.08f, 1.0f)
 
                 // Scaled stroke thickness for preview box using tiltBezierConfig
-                val tiltResponse = if (brushType == BrushType.PENCIL) tiltBezierConfig.solveY(brushTilt) else 0f
+                val tiltResponse = if (brushType == BrushType.PENCIL) tiltBezierConfig.solveY(brushTilt.coerceIn(0f, 1f)) else 0f
                 val tiltFactor = if (brushType == BrushType.PENCIL) 1.0f + tiltResponse * (brushTilt * 1.5f) else 1.0f
                 val previewWidth = (1.5f + (brushSize / 1000f).coerceIn(0f, 1f) * 18f) * (0.30f + 0.70f * mappedSizeP) * tiltFactor
 
@@ -633,7 +633,7 @@ fun ToolParametersFloatingWindow(
                             label = "Tilt",
                             value = brushTilt * 100f,
                             onValueChange = { onBrushTiltChange(it / 100f) },
-                            valueRange = 0f..100f,
+                            valueRange = 0f..200f,
                             unit = "%",
                             displayDecimals = 0,
                             fillColor = Color(0xFF80DEEA),
