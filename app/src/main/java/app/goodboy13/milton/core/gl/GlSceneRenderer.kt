@@ -785,29 +785,72 @@ class GlSceneRenderer {
             }
 
             val visibleBounds = viewport.getVisibleWorldBounds()
-            tileBlitShader.begin(exportMvp, flipY = true, backgroundColorRgb = backgroundColorRgb)
-            for (layer in layers) {
-                if (!layer.isVisible || layer.opacity <= 0.001f) continue
-                val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds, maxRestores = Int.MAX_VALUE)
-                if (visibleTiles.isEmpty()) continue
+            val textureArrayId = GlTexturePool.textureArrayId
+            val useArrayBlit = GlTexturePool.usesTextureArray && tileArrayBlitShader.isReady && textureArrayId != 0
 
-                tileBlitShader.setOpacity(layer.opacity)
-                for (tile in visibleTiles) {
-                    if (!tile.isInitialized || !tile.hasContent) {
-                        if (tile.isOnDisk) {
+            if (useArrayBlit) {
+                tileArrayBlitShader.begin(exportMvp, true, textureArrayId, false)
+                for (layer in layers) {
+                    if (!layer.isVisible || layer.opacity <= 0.001f) continue
+                    val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds, maxRestores = Int.MAX_VALUE)
+                    if (visibleTiles.isEmpty()) continue
+
+                    val batchTiles = mutableListOf<RasterTile>()
+                    val fallbackTiles = mutableListOf<RasterTile>()
+                    for (tile in visibleTiles) {
+                        if (!tile.isInitialized && tile.isOnDisk) {
                             tile.ensureResident(layer.tileMap.cacheDir)
                         }
+                        if (!tile.isInitialized || !tile.hasContent) continue
+                        if (tile.sliceIndex >= 0) {
+                            batchTiles.add(tile)
+                        } else {
+                            fallbackTiles.add(tile)
+                        }
                     }
-                    if (tile.isInitialized && tile.hasContent) {
-                        tileBlitShader.renderTile(
-                            worldLeft = tile.coord.worldLeft,
-                            worldTop = tile.coord.worldTop,
-                            textureId = tile.textureId
-                        )
+
+                    if (batchTiles.isNotEmpty()) {
+                        tileArrayBlitShader.renderTilesBatch(batchTiles, layer.opacity, TileCoord.TILE_SIZE.toFloat())
+                    }
+                    if (fallbackTiles.isNotEmpty()) {
+                        tileArrayBlitShader.end()
+                        tileBlitShader.begin(exportMvp, true, backgroundColorRgb = 0, showBorders = false)
+                        tileBlitShader.setOpacity(layer.opacity)
+                        for (tile in fallbackTiles) {
+                            tileBlitShader.renderTile(
+                                worldLeft = tile.coord.worldLeft,
+                                worldTop = tile.coord.worldTop,
+                                textureId = tile.textureId
+                            )
+                        }
+                        tileBlitShader.end()
+                        tileArrayBlitShader.begin(exportMvp, true, textureArrayId, false)
                     }
                 }
+                tileArrayBlitShader.end()
+            } else {
+                tileBlitShader.begin(exportMvp, flipY = true, backgroundColorRgb = backgroundColorRgb, showBorders = false)
+                for (layer in layers) {
+                    if (!layer.isVisible || layer.opacity <= 0.001f) continue
+                    val visibleTiles = layer.tileMap.getVisibleTiles(visibleBounds, maxRestores = Int.MAX_VALUE)
+                    if (visibleTiles.isEmpty()) continue
+
+                    tileBlitShader.setOpacity(layer.opacity)
+                    for (tile in visibleTiles) {
+                        if (!tile.isInitialized && tile.isOnDisk) {
+                            tile.ensureResident(layer.tileMap.cacheDir)
+                        }
+                        if (tile.isInitialized && tile.hasContent) {
+                            tileBlitShader.renderTile(
+                                worldLeft = tile.coord.worldLeft,
+                                worldTop = tile.coord.worldTop,
+                                textureId = tile.textureId
+                            )
+                        }
+                    }
+                }
+                tileBlitShader.end()
             }
-            tileBlitShader.end()
 
             val buf = ByteBuffer.allocateDirect(exportWidth * exportHeight * 4)
                 .order(ByteOrder.nativeOrder())

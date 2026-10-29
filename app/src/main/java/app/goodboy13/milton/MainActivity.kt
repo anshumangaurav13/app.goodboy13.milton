@@ -3,6 +3,7 @@ package app.goodboy13.milton
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -42,6 +43,8 @@ import app.goodboy13.milton.ui.state.ToolActions
 import app.goodboy13.milton.ui.state.ViewportActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+
+private const val TAG = "MainActivity"
 
 /**
  * Host Activity for Milton Canvas.
@@ -290,16 +293,32 @@ class MainActivity : ComponentActivity() {
                         },
                         onExportPng = {
                             viewModel.exportArtworkImage(canvasView, storageManager, this@MainActivity, true) { cacheFile, mime, title ->
-                                val shareIntent = CanvasExportEngine.createShareIntent(this@MainActivity, cacheFile, mime, title)
-                                startActivity(Intent.createChooser(shareIntent, "Export Artwork"))
-                                Toast.makeText(this@MainActivity, "Saved to Pictures/Milton & ready to share", Toast.LENGTH_SHORT).show()
+                                try {
+                                    val shareIntent = CanvasExportEngine.createShareIntent(this@MainActivity, cacheFile, mime, title)
+                                    val chooser = Intent.createChooser(shareIntent, "Export Artwork").apply {
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    startActivity(chooser)
+                                    Toast.makeText(this@MainActivity, "Saved to Pictures/Milton & ready to share", Toast.LENGTH_SHORT).show()
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Failed to launch share chooser", e)
+                                    Toast.makeText(this@MainActivity, "Saved to Pictures/Milton", Toast.LENGTH_SHORT).show()
+                                }
                             }
                         },
                         onExportJpg = {
                             viewModel.exportArtworkImage(canvasView, storageManager, this@MainActivity, false) { cacheFile, mime, title ->
-                                val shareIntent = CanvasExportEngine.createShareIntent(this@MainActivity, cacheFile, mime, title)
-                                startActivity(Intent.createChooser(shareIntent, "Export Artwork"))
-                                Toast.makeText(this@MainActivity, "Saved to Pictures/Milton & ready to share", Toast.LENGTH_SHORT).show()
+                                try {
+                                    val shareIntent = CanvasExportEngine.createShareIntent(this@MainActivity, cacheFile, mime, title)
+                                    val chooser = Intent.createChooser(shareIntent, "Export Artwork").apply {
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    startActivity(chooser)
+                                    Toast.makeText(this@MainActivity, "Saved to Pictures/Milton & ready to share", Toast.LENGTH_SHORT).show()
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Failed to launch share chooser", e)
+                                    Toast.makeText(this@MainActivity, "Saved to Pictures/Milton", Toast.LENGTH_SHORT).show()
+                                }
                             }
                         },
                         onImportMilton = { importMiltonLauncher.launch(arrayOf("*/*")) },

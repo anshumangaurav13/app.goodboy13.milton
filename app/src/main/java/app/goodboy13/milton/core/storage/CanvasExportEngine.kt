@@ -37,7 +37,7 @@ object CanvasExportEngine {
         layerManager: LayerManager,
         backgroundColorRgb: Int,
         storageManager: DocumentStorageManager? = null,
-        maxDimension: Int = 8192
+        maxDimension: Int = 4096
     ): Bitmap {
         val screenW = viewport.screenWidth.toFloat()
         val screenH = viewport.screenHeight.toFloat()
@@ -119,8 +119,6 @@ object CanvasExportEngine {
                                 if (MiltonNative.swapReadTile(layer.tileMap.cacheDir.absolutePath, 0L, tile.coord.tx, tile.coord.ty, bytes)) {
                                     bytes
                                 } else null
-                            } else if (tile.isInitialized) {
-                                tile.readPixels()
                             } else null
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to read pixels for tile ${tile.coord}: ${e.message}")
@@ -151,11 +149,18 @@ object CanvasExportEngine {
     }
 
     private fun flipPixelsVertically(src: ByteArray, width: Int, height: Int): ByteArray {
-        val dst = ByteArray(src.size)
-        require(app.goodboy13.milton.core.native.MiltonNative.flipPixelsVertically(src, width, height, dst)) {
-            "Native pixel vertical flip failed"
+        val expectedSize = width * height * 4
+        if (src.size < expectedSize) {
+            Log.w(TAG, "flipPixelsVertically: buffer size ${src.size} < expected $expectedSize")
+            return src
         }
-        return dst
+        val dst = ByteArray(src.size)
+        val success = try {
+            MiltonNative.flipPixelsVertically(src, width, height, dst)
+        } catch (e: Throwable) {
+            false
+        }
+        return if (success) dst else src
     }
 
     /**
@@ -171,15 +176,6 @@ object CanvasExportEngine {
         val exportDir = File(context.cacheDir, "exports")
         exportDir.mkdirs()
         val file = File(exportDir, filename)
-
-        if (format == Bitmap.CompressFormat.PNG) {
-            val byteBuf = java.nio.ByteBuffer.allocate(bitmap.width * bitmap.height * 4)
-            bitmap.copyPixelsToBuffer(byteBuf)
-            val raw = byteBuf.array()
-            if (MiltonNative.exportCanvasPng(bitmap.width, bitmap.height, raw, file.absolutePath)) {
-                return file
-            }
-        }
 
         FileOutputStream(file).use { out ->
             bitmap.compress(format, quality, out)

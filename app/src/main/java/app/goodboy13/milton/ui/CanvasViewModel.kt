@@ -2,6 +2,8 @@ package app.goodboy13.milton.ui
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.util.Log
+import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.goodboy13.milton.core.brush.BrushType
@@ -839,42 +841,51 @@ class CanvasViewModel : ViewModel() {
         onReadyToShare: (cacheFile: File, mimeType: String, docTitle: String) -> Unit
     ) {
         viewModelScope.launch(Dispatchers.IO) {
-            val title = _uiState.value.document.documentTitle
-            storageManager.flushAutosaveNow(title, canvasView)
+            try {
+                val title = _uiState.value.document.documentTitle
+                storageManager.flushAutosaveNow(title, canvasView)
 
-            val bitmap = canvasView.renderer.renderVisibleAreaGl(
-                canvasView = canvasView,
-                maxDimension = 8192
-            ) ?: CanvasExportEngine.renderVisibleAreaToBitmap(
-                viewport = canvasView.renderer.viewport,
-                layerManager = canvasView.layerManager,
-                backgroundColorRgb = canvasView.backgroundColorRgb,
-                storageManager = storageManager
-            )
+                val bitmap = canvasView.renderer.renderVisibleAreaGl(
+                    canvasView = canvasView,
+                    maxDimension = 4096
+                ) ?: CanvasExportEngine.renderVisibleAreaToBitmap(
+                    viewport = canvasView.renderer.viewport,
+                    layerManager = canvasView.layerManager,
+                    backgroundColorRgb = canvasView.backgroundColorRgb,
+                    storageManager = storageManager,
+                    maxDimension = 4096
+                )
 
-            val ext = if (isPng) "png" else "jpg"
-            val format = if (isPng) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
-            val quality = if (isPng) 100 else 94
-            val safeTitle = title.replace(Regex("[^a-zA-Z0-9_-]"), "_").ifEmpty { "artwork" }
-            val filename = "${safeTitle}_${System.currentTimeMillis()}.$ext"
+                val ext = if (isPng) "png" else "jpg"
+                val format = if (isPng) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+                val quality = if (isPng) 100 else 94
+                val safeTitle = title.replace(Regex("[^a-zA-Z0-9_-]"), "_").ifEmpty { "artwork" }
+                val filename = "${safeTitle}_${System.currentTimeMillis()}.$ext"
 
-            val cacheFile = CanvasExportEngine.saveToExportCache(
-                context,
-                bitmap,
-                filename,
-                format,
-                quality
-            )
-            CanvasExportEngine.saveToPublicPictures(
-                context,
-                bitmap,
-                filename,
-                isPng
-            )
+                val cacheFile = CanvasExportEngine.saveToExportCache(
+                    context,
+                    bitmap,
+                    filename,
+                    format,
+                    quality
+                )
+                CanvasExportEngine.saveToPublicPictures(
+                    context,
+                    bitmap,
+                    filename,
+                    isPng
+                )
+                bitmap.recycle()
 
-            withContext(Dispatchers.Main) {
-                val mimeType = if (isPng) "image/png" else "image/jpeg"
-                onReadyToShare(cacheFile, mimeType, title)
+                withContext(Dispatchers.Main) {
+                    val mimeType = if (isPng) "image/png" else "image/jpeg"
+                    onReadyToShare(cacheFile, mimeType, title)
+                }
+            } catch (e: Throwable) {
+                Log.e("CanvasViewModel", "Failed to export artwork image", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -886,18 +897,25 @@ class CanvasViewModel : ViewModel() {
         onReadyToShare: (miltonFile: File, docTitle: String) -> Unit
     ) {
         viewModelScope.launch(Dispatchers.IO) {
-            val title = _uiState.value.document.documentTitle
-            storageManager.flushAutosaveNow(title, canvasView)
+            try {
+                val title = _uiState.value.document.documentTitle
+                storageManager.flushAutosaveNow(title, canvasView)
 
-            val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
-            val safeTitle = title.replace(Regex("[^a-zA-Z0-9_-]"), "_").ifEmpty { "artwork" }
-            val miltonFile = File(exportDir, "${safeTitle}.milton")
+                val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+                val safeTitle = title.replace(Regex("[^a-zA-Z0-9_-]"), "_").ifEmpty { "artwork" }
+                val miltonFile = File(exportDir, "${safeTitle}.milton")
 
-            storageManager.exportToMiltonZip(title, canvasView, miltonFile)
-            CanvasExportEngine.saveToPublicDownloads(context, miltonFile, "${safeTitle}.milton")
+                storageManager.exportToMiltonZip(title, canvasView, miltonFile)
+                CanvasExportEngine.saveToPublicDownloads(context, miltonFile, "${safeTitle}.milton")
 
-            withContext(Dispatchers.Main) {
-                onReadyToShare(miltonFile, title)
+                withContext(Dispatchers.Main) {
+                    onReadyToShare(miltonFile, title)
+                }
+            } catch (e: Throwable) {
+                Log.e("CanvasViewModel", "Failed to export milton project", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Milton export failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }

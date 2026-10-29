@@ -195,8 +195,8 @@ class MiltonCanvasRenderer(
      */
     fun renderVisibleAreaGl(
         canvasView: MiltonCanvasView,
-        maxDimension: Int = 8192,
-        timeoutMs: Long = 2000
+        maxDimension: Int = 4096,
+        timeoutMs: Long = 10000
     ): Bitmap? {
         val screenW = viewport.screenWidth.toFloat()
         val screenH = viewport.screenHeight.toFloat()
