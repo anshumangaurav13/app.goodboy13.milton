@@ -50,14 +50,28 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
-private enum class DragMode {
-    NONE,
-    TRANSLATE,
-    ROTATE,
-    SCALE_TL,
-    SCALE_TR,
-    SCALE_BR,
-    SCALE_BL
+enum class GizmoCorner {
+    TopLeft,
+    TopRight,
+    BottomRight,
+    BottomLeft
+}
+
+sealed interface GizmoInteractionState {
+    data object Idle : GizmoInteractionState
+    data class Translating(
+        val initialTouchScreen: Vec2,
+        val initialSessionTrans: Vec2
+    ) : GizmoInteractionState
+    data class Rotating(
+        val initialRotation: Float,
+        val initialAngleToPivot: Float
+    ) : GizmoInteractionState
+    data class Scaling(
+        val corner: GizmoCorner,
+        val initialDistToPivot: Float,
+        val initialScale: Vec2
+    ) : GizmoInteractionState
 }
 
 @Composable
@@ -186,13 +200,7 @@ private fun TransformSessionOverlay(
     val currentIsCanvasFlipped by rememberUpdatedState(isCanvasFlipped)
     val currentOnToggleFlipCanvas by rememberUpdatedState(onToggleFlipCanvas)
 
-    var dragMode by remember { mutableStateOf(DragMode.NONE) }
-    var initialTouchScreen by remember { mutableStateOf(Vec2(0f, 0f)) }
-    var initialSessionTrans by remember { mutableStateOf(Vec2(0f, 0f)) }
-    var initialScale by remember { mutableStateOf(Vec2(1f, 1f)) }
-    var initialRotation by remember { mutableStateOf(0f) }
-    var initialDistToPivot by remember { mutableStateOf(1f) }
-    var initialAngleToPivot by remember { mutableStateOf(0f) }
+    var interactionState by remember { mutableStateOf<GizmoInteractionState>(GizmoInteractionState.Idle) }
 
     fun computeCorners(sess: TransformSession): List<Vec2> {
         val src = sess.srcBounds
@@ -244,103 +252,124 @@ private fun TransformSessionOverlay(
                     onDragStart = { offset ->
                         val touch = Vec2(offset.x, offset.y)
                         val sess = currentSession
-                            val vp = currentViewport
+                        val vp = currentViewport
 
-                            val curCorners = computeCorners(sess).map { vp.worldToScreen(it.x, it.y) }
-                            val cp0 = curCorners[0]
-                            val cp1 = curCorners[1]
-                            val cp2 = curCorners[2]
-                            val cp3 = curCorners[3]
+                        val curCorners = computeCorners(sess).map { vp.worldToScreen(it.x, it.y) }
+                        val cp0 = curCorners[0]
+                        val cp1 = curCorners[1]
+                        val cp2 = curCorners[2]
+                        val cp3 = curCorners[3]
 
-                            val curPivotWorld = Vec2(sess.pivotX + sess.translationX, sess.pivotY + sess.translationY)
-                            val curPivotScreen = vp.worldToScreen(curPivotWorld.x, curPivotWorld.y)
+                        val curPivotWorld = Vec2(sess.pivotX + sess.translationX, sess.pivotY + sess.translationY)
+                        val curPivotScreen = vp.worldToScreen(curPivotWorld.x, curPivotWorld.y)
 
-                            val curTopCenter = Vec2((cp0.x + cp1.x) * 0.5f, (cp0.y + cp1.y) * 0.5f)
-                            val curBoxCenter = Vec2((cp0.x + cp1.x + cp2.x + cp3.x) * 0.25f, (cp0.y + cp1.y + cp2.y + cp3.y) * 0.25f)
-                            val cOutX = curTopCenter.x - curBoxCenter.x
-                            val cOutY = curTopCenter.y - curBoxCenter.y
-                            val cOutLen = hypot(cOutX, cOutY).coerceAtLeast(0.001f)
-                            val curRotHandle = Vec2(curTopCenter.x + (cOutX / cOutLen) * 36f, curTopCenter.y + (cOutY / cOutLen) * 36f)
+                        val curTopCenter = Vec2((cp0.x + cp1.x) * 0.5f, (cp0.y + cp1.y) * 0.5f)
+                        val curBoxCenter = Vec2((cp0.x + cp1.x + cp2.x + cp3.x) * 0.25f, (cp0.y + cp1.y + cp2.y + cp3.y) * 0.25f)
+                        val cOutX = curTopCenter.x - curBoxCenter.x
+                        val cOutY = curTopCenter.y - curBoxCenter.y
+                        val cOutLen = hypot(cOutX, cOutY).coerceAtLeast(0.001f)
+                        val curRotHandle = Vec2(curTopCenter.x + (cOutX / cOutLen) * 36f, curTopCenter.y + (cOutY / cOutLen) * 36f)
 
-                            val handleHitRadius = 36f
-                            if (hypot(touch.x - curRotHandle.x, touch.y - curRotHandle.y) <= handleHitRadius) {
-                                dragMode = DragMode.ROTATE
-                                initialAngleToPivot = atan2(touch.y - curPivotScreen.y, touch.x - curPivotScreen.x)
-                            } else if (hypot(touch.x - cp0.x, touch.y - cp0.y) <= handleHitRadius) {
-                                dragMode = DragMode.SCALE_TL
-                                initialDistToPivot = hypot(touch.x - curPivotScreen.x, touch.y - curPivotScreen.y).coerceAtLeast(10f)
-                            } else if (hypot(touch.x - cp1.x, touch.y - cp1.y) <= handleHitRadius) {
-                                dragMode = DragMode.SCALE_TR
-                                initialDistToPivot = hypot(touch.x - curPivotScreen.x, touch.y - curPivotScreen.y).coerceAtLeast(10f)
-                            } else if (hypot(touch.x - cp2.x, touch.y - cp2.y) <= handleHitRadius) {
-                                dragMode = DragMode.SCALE_BR
-                                initialDistToPivot = hypot(touch.x - curPivotScreen.x, touch.y - curPivotScreen.y).coerceAtLeast(10f)
-                            } else if (hypot(touch.x - cp3.x, touch.y - cp3.y) <= handleHitRadius) {
-                                dragMode = DragMode.SCALE_BL
-                                initialDistToPivot = hypot(touch.x - curPivotScreen.x, touch.y - curPivotScreen.y).coerceAtLeast(10f)
-                            } else if (isPointInPolygon(touch, curCorners)) {
-                                dragMode = DragMode.TRANSLATE
-                            } else {
-                                dragMode = DragMode.NONE
-                            }
-
-                            initialTouchScreen = touch
-                            initialSessionTrans = Vec2(sess.translationX, sess.translationY)
-                            initialScale = Vec2(sess.scaleX, sess.scaleY)
-                            initialRotation = sess.rotationRad
-                        },
-                        onDrag = { change, _ ->
-                            if (dragMode != DragMode.NONE) {
+                        val handleHitRadius = 36f
+                        val initialScale = Vec2(sess.scaleX, sess.scaleY)
+                        if (hypot(touch.x - curRotHandle.x, touch.y - curRotHandle.y) <= handleHitRadius) {
+                            val initialAngleToPivot = atan2(touch.y - curPivotScreen.y, touch.x - curPivotScreen.x)
+                            interactionState = GizmoInteractionState.Rotating(
+                                initialRotation = sess.rotationRad,
+                                initialAngleToPivot = initialAngleToPivot
+                            )
+                        } else if (hypot(touch.x - cp0.x, touch.y - cp0.y) <= handleHitRadius) {
+                            val initialDistToPivot = hypot(touch.x - curPivotScreen.x, touch.y - curPivotScreen.y).coerceAtLeast(10f)
+                            interactionState = GizmoInteractionState.Scaling(
+                                corner = GizmoCorner.TopLeft,
+                                initialDistToPivot = initialDistToPivot,
+                                initialScale = initialScale
+                            )
+                        } else if (hypot(touch.x - cp1.x, touch.y - cp1.y) <= handleHitRadius) {
+                            val initialDistToPivot = hypot(touch.x - curPivotScreen.x, touch.y - curPivotScreen.y).coerceAtLeast(10f)
+                            interactionState = GizmoInteractionState.Scaling(
+                                corner = GizmoCorner.TopRight,
+                                initialDistToPivot = initialDistToPivot,
+                                initialScale = initialScale
+                            )
+                        } else if (hypot(touch.x - cp2.x, touch.y - cp2.y) <= handleHitRadius) {
+                            val initialDistToPivot = hypot(touch.x - curPivotScreen.x, touch.y - curPivotScreen.y).coerceAtLeast(10f)
+                            interactionState = GizmoInteractionState.Scaling(
+                                corner = GizmoCorner.BottomRight,
+                                initialDistToPivot = initialDistToPivot,
+                                initialScale = initialScale
+                            )
+                        } else if (hypot(touch.x - cp3.x, touch.y - cp3.y) <= handleHitRadius) {
+                            val initialDistToPivot = hypot(touch.x - curPivotScreen.x, touch.y - curPivotScreen.y).coerceAtLeast(10f)
+                            interactionState = GizmoInteractionState.Scaling(
+                                corner = GizmoCorner.BottomLeft,
+                                initialDistToPivot = initialDistToPivot,
+                                initialScale = initialScale
+                            )
+                        } else if (isPointInPolygon(touch, curCorners)) {
+                            interactionState = GizmoInteractionState.Translating(
+                                initialTouchScreen = touch,
+                                initialSessionTrans = Vec2(sess.translationX, sess.translationY)
+                            )
+                        } else {
+                            interactionState = GizmoInteractionState.Idle
+                        }
+                    },
+                    onDrag = { change, _ ->
+                        when (val state = interactionState) {
+                            is GizmoInteractionState.Idle -> {}
+                            is GizmoInteractionState.Translating -> {
                                 change.consume()
                                 val currentTouch = Vec2(change.position.x, change.position.y)
                                 val vp = currentViewport
-
-                                when (dragMode) {
-                                    DragMode.TRANSLATE -> {
-                                        val startWorld = vp.screenToWorld(initialTouchScreen.x, initialTouchScreen.y)
-                                        val curWorld = vp.screenToWorld(currentTouch.x, currentTouch.y)
-                                        val dwx = curWorld.x - startWorld.x
-                                        val dwy = curWorld.y - startWorld.y
-                                        currentOnUpdateTransform(
-                                            initialSessionTrans.x + dwx,
-                                            initialSessionTrans.y + dwy,
-                                            null, null, null, null, null
-                                        )
-                                    }
-                                    DragMode.ROTATE -> {
-                                        val sess = currentSession
-                                        val pWorld = Vec2(sess.pivotX + sess.translationX, sess.pivotY + sess.translationY)
-                                        val pScreen = vp.worldToScreen(pWorld.x, pWorld.y)
-                                        val currentAngle = atan2(currentTouch.y - pScreen.y, currentTouch.x - pScreen.x)
-                                        val deltaAngle = currentAngle - initialAngleToPivot
-                                        val effDelta = if (vp.isFlippedHorizontally) -deltaAngle else deltaAngle
-                                        currentOnUpdateTransform(
-                                            null, null, null, null,
-                                            initialRotation + effDelta,
-                                            null, null
-                                        )
-                                    }
-                                    DragMode.SCALE_TL, DragMode.SCALE_TR, DragMode.SCALE_BR, DragMode.SCALE_BL -> {
-                                        val sess = currentSession
-                                        val pWorld = Vec2(sess.pivotX + sess.translationX, sess.pivotY + sess.translationY)
-                                        val pScreen = vp.worldToScreen(pWorld.x, pWorld.y)
-                                        val currentDist = hypot(currentTouch.x - pScreen.x, currentTouch.y - pScreen.y)
-                                        val ratio = (currentDist / initialDistToPivot).coerceIn(0.05f, 20f)
-                                        currentOnUpdateTransform(
-                                            null, null,
-                                            (initialScale.x * ratio).coerceIn(0.05f, 20f),
-                                            (initialScale.y * ratio).coerceIn(0.05f, 20f),
-                                            null, null, null
-                                        )
-                                    }
-                                    DragMode.NONE -> {}
-                                }
+                                val startWorld = vp.screenToWorld(state.initialTouchScreen.x, state.initialTouchScreen.y)
+                                val curWorld = vp.screenToWorld(currentTouch.x, currentTouch.y)
+                                val dwx = curWorld.x - startWorld.x
+                                val dwy = curWorld.y - startWorld.y
+                                currentOnUpdateTransform(
+                                    state.initialSessionTrans.x + dwx,
+                                    state.initialSessionTrans.y + dwy,
+                                    null, null, null, null, null
+                                )
                             }
-                        },
-                        onDragEnd = { dragMode = DragMode.NONE },
-                        onDragCancel = { dragMode = DragMode.NONE }
-                    )
-                }
+                            is GizmoInteractionState.Rotating -> {
+                                change.consume()
+                                val currentTouch = Vec2(change.position.x, change.position.y)
+                                val vp = currentViewport
+                                val sess = currentSession
+                                val pWorld = Vec2(sess.pivotX + sess.translationX, sess.pivotY + sess.translationY)
+                                val pScreen = vp.worldToScreen(pWorld.x, pWorld.y)
+                                val currentAngle = atan2(currentTouch.y - pScreen.y, currentTouch.x - pScreen.x)
+                                val deltaAngle = currentAngle - state.initialAngleToPivot
+                                val effDelta = if (vp.isFlippedHorizontally) -deltaAngle else deltaAngle
+                                currentOnUpdateTransform(
+                                    null, null, null, null,
+                                    state.initialRotation + effDelta,
+                                    null, null
+                                )
+                            }
+                            is GizmoInteractionState.Scaling -> {
+                                change.consume()
+                                val currentTouch = Vec2(change.position.x, change.position.y)
+                                val vp = currentViewport
+                                val sess = currentSession
+                                val pWorld = Vec2(sess.pivotX + sess.translationX, sess.pivotY + sess.translationY)
+                                val pScreen = vp.worldToScreen(pWorld.x, pWorld.y)
+                                val currentDist = hypot(currentTouch.x - pScreen.x, currentTouch.y - pScreen.y)
+                                val ratio = (currentDist / state.initialDistToPivot).coerceIn(0.05f, 20f)
+                                currentOnUpdateTransform(
+                                    null, null,
+                                    (state.initialScale.x * ratio).coerceIn(0.05f, 20f),
+                                    (state.initialScale.y * ratio).coerceIn(0.05f, 20f),
+                                    null, null, null
+                                )
+                            }
+                        }
+                    },
+                    onDragEnd = { interactionState = GizmoInteractionState.Idle },
+                    onDragCancel = { interactionState = GizmoInteractionState.Idle }
+                )
+            }
     }
 
     Box(modifier = modifier.fillMaxSize()) {

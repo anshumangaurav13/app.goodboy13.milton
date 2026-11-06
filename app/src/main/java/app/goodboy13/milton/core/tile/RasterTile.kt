@@ -10,35 +10,90 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
+ * Formal residence states for a 512x512 RasterTile chunk on the infinite canvas.
+ */
+sealed interface TileResidenceState {
+    /** Tile exists in coordinate map but occupies neither VRAM nor disk storage. */
+    object VirtualEmpty : TileResidenceState
+
+    /** Tile is resident in VRAM backed by OpenGL texture/FBO. */
+    data class Resident(
+        val textureId: Int,
+        val fboId: Int,
+        val sliceIndex: Int,
+        val hasContent: Boolean = false
+    ) : TileResidenceState
+
+    /** Tile has content evicted to disk cache to maintain VRAM memory budget. */
+    object SwappedToDisk : TileResidenceState
+}
+
+/**
  * A single 512x512 raster chunk of the infinite canvas.
  * Backed by an OpenGL ES 3.0 RGBA texture and Framebuffer Object (FBO).
+ * Lifecycle is governed by an explicit [TileResidenceState] state machine.
  */
 class RasterTile(
     val coord: TileCoord,
     var onStateChanged: ((RasterTile) -> Unit)? = null
 ) {
-    var textureId: Int = 0
-        private set
-    var fboId: Int = 0
-        private set
-    var sliceIndex: Int = -1
+    var residenceState: TileResidenceState = TileResidenceState.VirtualEmpty
         private set
 
-    var isInitialized: Boolean = false
-        private set
+    val textureId: Int get() = when (val s = residenceState) {
+        is TileResidenceState.Resident -> s.textureId
+        else -> 0
+    }
+
+    val fboId: Int get() = when (val s = residenceState) {
+        is TileResidenceState.Resident -> s.fboId
+        else -> 0
+    }
+
+    val sliceIndex: Int get() = when (val s = residenceState) {
+        is TileResidenceState.Resident -> s.sliceIndex
+        else -> -1
+    }
+
+    val isInitialized: Boolean get() = residenceState is TileResidenceState.Resident
     val isResident: Boolean get() = isInitialized
     var isDirty: Boolean = false
 
     var lastAccessTime: Long = System.nanoTime()
-    var hasContent: Boolean = false
+
+    var hasContent: Boolean
+        get() = when (val s = residenceState) {
+            is TileResidenceState.Resident -> s.hasContent
+            is TileResidenceState.SwappedToDisk -> true
+            else -> false
+        }
         set(value) {
-            val changed = field != value
-            field = value
-            if (changed) {
-                onStateChanged?.invoke(this)
+            when (val s = residenceState) {
+                is TileResidenceState.Resident -> {
+                    if (s.hasContent != value) {
+                        residenceState = s.copy(hasContent = value)
+                        onStateChanged?.invoke(this)
+                    }
+                }
+                is TileResidenceState.SwappedToDisk -> {
+                    if (!value) {
+                        residenceState = TileResidenceState.VirtualEmpty
+                        onStateChanged?.invoke(this)
+                    }
+                }
+                is TileResidenceState.VirtualEmpty -> {}
             }
         }
-    var isOnDisk: Boolean = false
+
+    var isOnDisk: Boolean
+        get() = residenceState is TileResidenceState.SwappedToDisk
+        set(value) {
+            if (value) {
+                residenceState = TileResidenceState.SwappedToDisk
+            } else if (residenceState is TileResidenceState.SwappedToDisk) {
+                residenceState = TileResidenceState.VirtualEmpty
+            }
+        }
 
     private val prevFbo = IntArray(1)
     private val prevViewport = IntArray(4)
@@ -47,11 +102,13 @@ class RasterTile(
         if (isInitialized) return
 
         val entry = GlTexturePool.acquire()
-        textureId = entry.textureId
-        fboId = entry.fboId
-        sliceIndex = entry.sliceIndex
+        residenceState = TileResidenceState.Resident(
+            textureId = entry.textureId,
+            fboId = entry.fboId,
+            sliceIndex = entry.sliceIndex,
+            hasContent = false
+        )
 
-        isInitialized = true
         isDirty = true
         onStateChanged?.invoke(this)
     }
@@ -227,9 +284,10 @@ class RasterTile(
 
     fun evictToDisk(cacheDir: File?) {
         if (!isInitialized) return
-        if (!hasContent || cacheDir == null) {
+        val currentHasContent = hasContent
+        if (!currentHasContent || cacheDir == null) {
             releaseGl()
-            isOnDisk = false
+            residenceState = TileResidenceState.VirtualEmpty
             return
         }
 
@@ -249,12 +307,15 @@ class RasterTile(
             }
             unbindFbo()
             if (ok) {
-                isOnDisk = true
+                residenceState = TileResidenceState.SwappedToDisk
+            } else {
+                residenceState = TileResidenceState.VirtualEmpty
             }
         } catch (e: Exception) {
             Log.e("RasterTile", "Failed to evict tile $coord to disk", e)
+            residenceState = TileResidenceState.VirtualEmpty
         } finally {
-            releaseGl()
+            releaseGlInternal()
         }
     }
 
@@ -299,8 +360,6 @@ class RasterTile(
         } catch (e: Exception) {
             Log.e("RasterTile", "Failed to restore tile $coord from disk", e)
             initGl()
-        } finally {
-            isOnDisk = false
         }
     }
 
@@ -310,25 +369,32 @@ class RasterTile(
                 cacheDir.absolutePath, 0L, coord.tx, coord.ty
             )
         }
-        isOnDisk = false
+        if (residenceState is TileResidenceState.SwappedToDisk) {
+            residenceState = TileResidenceState.VirtualEmpty
+        }
     }
 
     fun releaseGl() {
-        if (textureId != 0 && fboId != 0) {
-            GlTexturePool.release(textureId, fboId, sliceIndex)
-            textureId = 0
-            fboId = 0
-            sliceIndex = -1
-        } else if (fboId != 0) {
-            val fbos = intArrayOf(fboId)
-            GLES30.glDeleteFramebuffers(1, fbos, 0)
-            fboId = 0
-        } else if (textureId != 0) {
-            val textures = intArrayOf(textureId)
-            GLES30.glDeleteTextures(1, textures, 0)
-            textureId = 0
+        releaseGlInternal()
+        if (residenceState !is TileResidenceState.SwappedToDisk) {
+            residenceState = TileResidenceState.VirtualEmpty
         }
-        isInitialized = false
         onStateChanged?.invoke(this)
+    }
+
+    private fun releaseGlInternal() {
+        val curTex = textureId
+        val curFbo = fboId
+        val curSlice = sliceIndex
+
+        if (curTex != 0 && curFbo != 0) {
+            GlTexturePool.release(curTex, curFbo, curSlice)
+        } else if (curFbo != 0) {
+            val fbos = intArrayOf(curFbo)
+            GLES30.glDeleteFramebuffers(1, fbos, 0)
+        } else if (curTex != 0) {
+            val textures = intArrayOf(curTex)
+            GLES30.glDeleteTextures(1, textures, 0)
+        }
     }
 }

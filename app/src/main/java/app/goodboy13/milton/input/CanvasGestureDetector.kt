@@ -11,6 +11,44 @@ import kotlin.math.hypot
 /**
  * Handles multi-touch gestures: single-finger pan, 2-finger pinch-zoom, and 2-finger rotation with fling inertia.
  */
+/**
+ * Formal states for multi-touch gesture detection and velocity fling inertia.
+ */
+sealed interface CanvasGestureState {
+    object Idle : CanvasGestureState
+
+    data class TapEvaluating(
+        val startTimeMs: Long,
+        var initialX: Float,
+        var initialY: Float,
+        var maxPointers: Int = 1,
+        var maxMovement: Float = 0f
+    ) : CanvasGestureState
+
+    data class Panning(
+        var previousX: Float,
+        var previousY: Float,
+        var totalMovement: Float
+    ) : CanvasGestureState
+
+    data class PinchZoomRotating(
+        var previousX: Float,
+        var previousY: Float,
+        var previousSpan: Float,
+        var previousAngle: Float,
+        var totalMovement: Float
+    ) : CanvasGestureState
+
+    data class Flinging(
+        var vx: Float,
+        var vy: Float
+    ) : CanvasGestureState
+}
+
+/**
+ * Handles multi-touch gestures: single-finger pan, 2-finger pinch-zoom, and 2-finger rotation with fling inertia.
+ * Governed by an explicit [CanvasGestureState] finite state machine.
+ */
 class CanvasGestureDetector(
     private val listener: GestureListener
 ) {
@@ -33,40 +71,41 @@ class CanvasGestureDetector(
     var isZoomLocked: Boolean = false
     var isRotationLocked: Boolean = false
 
+    var state: CanvasGestureState = CanvasGestureState.Idle
+        private set
+
+    val isGesturing: Boolean
+        get() = state is CanvasGestureState.Panning || state is CanvasGestureState.PinchZoomRotating
+
+    val isFlinging: Boolean
+        get() = state is CanvasGestureState.Flinging
+
     private var previousX: Float = 0f
     private var previousY: Float = 0f
     private var previousSpan: Float = 0f
     private var previousAngle: Float = 0f
-    private var isGesturing: Boolean = false
 
-    private var gestureTotalMovement: Float = 0f
-    private var sessionMaxPointers: Int = 0
-    private var sessionStartTime: Long = 0L
-    private var sessionMaxMovement: Float = 0f
     private var velocityTracker: VelocityTracker? = null
 
     // Fling inertia animation
-    private var flingVx: Float = 0f
-    private var flingVy: Float = 0f
     private val flingVelocities = FloatArray(2)
     private val flingDeltas = FloatArray(2)
     private val gestureResults = FloatArray(8)
-    private var isFlinging: Boolean = false
     private val choreographer = Choreographer.getInstance()
     private val flingCallback = object : Choreographer.FrameCallback {
         private var lastFrameTimeNs: Long = 0L
 
         override fun doFrame(frameTimeNs: Long) {
-            if (!isFlinging) return
+            val flingState = state as? CanvasGestureState.Flinging ?: return
 
             if (lastFrameTimeNs > 0L) {
                 val dt = ((frameTimeNs - lastFrameTimeNs) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
                 if (MiltonNative.isNativeAvailable()) {
-                    flingVelocities[0] = flingVx
-                    flingVelocities[1] = flingVy
+                    flingVelocities[0] = flingState.vx
+                    flingVelocities[1] = flingState.vy
                     val isStopped = MiltonNative.viewportStepFling(dt, flingVelocities, flingDeltas)
-                    flingVx = flingVelocities[0]
-                    flingVy = flingVelocities[1]
+                    flingState.vx = flingVelocities[0]
+                    flingState.vy = flingVelocities[1]
                     if (isStopped) {
                         stopFling()
                         return
@@ -74,21 +113,21 @@ class CanvasGestureDetector(
                     listener.onPanZoomRotate(0f, 0f, flingDeltas[0], flingDeltas[1], 1.0f, 0f)
                 } else {
                     val decay = Math.pow(0.0001, dt.toDouble()).toFloat()
-                    flingVx *= decay
-                    flingVy *= decay
+                    flingState.vx *= decay
+                    flingState.vy *= decay
 
-                    if (abs(flingVx) < 35f && abs(flingVy) < 35f) {
+                    if (abs(flingState.vx) < 35f && abs(flingState.vy) < 35f) {
                         stopFling()
                         return
                     }
 
-                    val dx = flingVx * dt
-                    val dy = flingVy * dt
+                    val dx = flingState.vx * dt
+                    val dy = flingState.vy * dt
                     listener.onPanZoomRotate(0f, 0f, dx, dy, 1.0f, 0f)
                 }
             }
             lastFrameTimeNs = frameTimeNs
-            if (isFlinging) {
+            if (state is CanvasGestureState.Flinging) {
                 choreographer.postFrameCallback(this)
             }
         }
@@ -99,8 +138,8 @@ class CanvasGestureDetector(
     }
 
     fun stopFling() {
-        if (isFlinging) {
-            isFlinging = false
+        if (state is CanvasGestureState.Flinging) {
+            state = CanvasGestureState.Idle
             choreographer.removeFrameCallback(flingCallback)
             flingCallback.reset()
             listener.onGestureEnd()
@@ -109,12 +148,18 @@ class CanvasGestureDetector(
 
     fun startFling(vx: Float, vy: Float) {
         val speed = hypot(vx.toDouble(), vy.toDouble()).toFloat()
-        if (speed < 400f) return
+        if (speed < 400f) {
+            if (isGesturing) {
+                listener.onGestureEnd()
+            }
+            state = CanvasGestureState.Idle
+            return
+        }
 
         stopFling()
-        flingVx = (vx * 0.45f).coerceIn(-2500f, 2500f)
-        flingVy = (vy * 0.45f).coerceIn(-2500f, 2500f)
-        isFlinging = true
+        val clampedVx = (vx * 0.45f).coerceIn(-2500f, 2500f)
+        val clampedVy = (vy * 0.45f).coerceIn(-2500f, 2500f)
+        state = CanvasGestureState.Flinging(clampedVx, clampedVy)
         flingCallback.reset()
         listener.onGestureStart()
         choreographer.postFrameCallback(flingCallback)
@@ -129,20 +174,23 @@ class CanvasGestureDetector(
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 stopFling()
-                gestureTotalMovement = 0f
-                sessionMaxMovement = 0f
-                sessionMaxPointers = 1
-                sessionStartTime = System.currentTimeMillis()
-                isGesturing = false
                 previousX = event.x
                 previousY = event.y
+                state = CanvasGestureState.TapEvaluating(
+                    startTimeMs = System.currentTimeMillis(),
+                    initialX = event.x,
+                    initialY = event.y,
+                    maxPointers = 1,
+                    maxMovement = 0f
+                )
             }
 
             MotionEvent.ACTION_POINTER_DOWN -> {
                 stopFling()
                 val count = event.pointerCount
-                if (count > sessionMaxPointers) {
-                    sessionMaxPointers = count
+                val tapEval = state as? CanvasGestureState.TapEvaluating
+                if (tapEval != null && count > tapEval.maxPointers) {
+                    tapEval.maxPointers = count
                 }
                 if (count >= 2) {
                     val p0x = event.getX(0)
@@ -174,15 +222,31 @@ class CanvasGestureDetector(
                     val dx = curX - previousX
                     val dy = curY - previousY
                     val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
-                    gestureTotalMovement += dist
-                    sessionMaxMovement += dist
 
-                    if (gestureTotalMovement > 10f && !isGesturing) {
-                        isGesturing = true
-                        listener.onGestureStart()
-                    }
-                    if (isGesturing) {
-                        listener.onPanZoomRotate(previousX, previousY, curX, curY, 1.0f, 0f)
+                    when (val s = state) {
+                        is CanvasGestureState.TapEvaluating -> {
+                            s.maxMovement += dist
+                            if (s.maxMovement > 10f) {
+                                state = CanvasGestureState.Panning(
+                                    previousX = previousX,
+                                    previousY = previousY,
+                                    totalMovement = s.maxMovement
+                                )
+                                listener.onGestureStart()
+                                listener.onPanZoomRotate(previousX, previousY, curX, curY, 1.0f, 0f)
+                            }
+                        }
+                        is CanvasGestureState.Panning -> {
+                            s.totalMovement += dist
+                            s.previousX = curX
+                            s.previousY = curY
+                            listener.onPanZoomRotate(previousX, previousY, curX, curY, 1.0f, 0f)
+                        }
+                        else -> {
+                            state = CanvasGestureState.Panning(previousX, previousY, dist)
+                            listener.onGestureStart()
+                            listener.onPanZoomRotate(previousX, previousY, curX, curY, 1.0f, 0f)
+                        }
                     }
                     previousX = curX
                     previousY = curY
@@ -235,18 +299,41 @@ class CanvasGestureDetector(
                     val dx = curX - previousX
                     val dy = curY - previousY
                     val moveDist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
-                    gestureTotalMovement += moveDist
-                    sessionMaxMovement += moveDist
 
-                    if (!isGesturing) {
-                        if (gestureTotalMovement > 12f || zoomDelta > 14f || abs(angleDelta) > 2.5f) {
-                            isGesturing = true
-                            listener.onGestureStart()
+                    when (val s = state) {
+                        is CanvasGestureState.TapEvaluating -> {
+                            s.maxMovement += moveDist
+                            if (s.maxMovement > 12f || zoomDelta > 14f || abs(angleDelta) > 2.5f) {
+                                state = CanvasGestureState.PinchZoomRotating(
+                                    previousX = curX,
+                                    previousY = curY,
+                                    previousSpan = curSpan,
+                                    previousAngle = curAngle,
+                                    totalMovement = s.maxMovement
+                                )
+                                listener.onGestureStart()
+                                listener.onPanZoomRotate(previousX, previousY, curX, curY, zoomFactor, appliedAngle)
+                            }
                         }
-                    }
-
-                    if (isGesturing) {
-                        listener.onPanZoomRotate(previousX, previousY, curX, curY, zoomFactor, appliedAngle)
+                        is CanvasGestureState.PinchZoomRotating -> {
+                            s.totalMovement += moveDist
+                            s.previousX = curX
+                            s.previousY = curY
+                            s.previousSpan = curSpan
+                            s.previousAngle = curAngle
+                            listener.onPanZoomRotate(previousX, previousY, curX, curY, zoomFactor, appliedAngle)
+                        }
+                        else -> {
+                            state = CanvasGestureState.PinchZoomRotating(
+                                previousX = curX,
+                                previousY = curY,
+                                previousSpan = curSpan,
+                                previousAngle = curAngle,
+                                totalMovement = moveDist
+                            )
+                            listener.onGestureStart()
+                            listener.onPanZoomRotate(previousX, previousY, curX, curY, zoomFactor, appliedAngle)
+                        }
                     }
 
                     previousX = curX
@@ -291,25 +378,31 @@ class CanvasGestureDetector(
             }
 
             MotionEvent.ACTION_UP -> {
-                val duration = System.currentTimeMillis() - sessionStartTime
-                val isTap = !isGesturing && duration < 320L && sessionMaxMovement < 28f
+                val tapEval = state as? CanvasGestureState.TapEvaluating
+                val wasGesturing = isGesturing
 
-                if (isTap) {
-                    if (sessionMaxPointers == 2) {
-                        listener.onUndo()
-                    } else if (sessionMaxPointers == 3) {
-                        listener.onRedo()
+                if (tapEval != null) {
+                    val duration = System.currentTimeMillis() - tapEval.startTimeMs
+                    val isTap = duration < 320L && tapEval.maxMovement < 28f
+                    if (isTap) {
+                        if (tapEval.maxPointers == 2) {
+                            listener.onUndo()
+                        } else if (tapEval.maxPointers == 3) {
+                            listener.onRedo()
+                        }
                     }
-                } else if (isGesturing) {
+                    state = CanvasGestureState.Idle
+                } else if (wasGesturing) {
                     velocityTracker?.computeCurrentVelocity(1000)
                     val vx = velocityTracker?.xVelocity ?: 0f
                     val vy = velocityTracker?.yVelocity ?: 0f
                     startFling(vx, vy)
-                    listener.onGestureEnd()
+                } else {
+                    state = CanvasGestureState.Idle
                 }
+
                 velocityTracker?.recycle()
                 velocityTracker = null
-                isGesturing = false
             }
 
             MotionEvent.ACTION_CANCEL -> {
@@ -317,9 +410,9 @@ class CanvasGestureDetector(
                 if (isGesturing) {
                     listener.onGestureEnd()
                 }
+                state = CanvasGestureState.Idle
                 velocityTracker?.recycle()
                 velocityTracker = null
-                isGesturing = false
             }
         }
         return true

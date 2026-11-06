@@ -5,17 +5,29 @@ import app.goodboy13.milton.core.model.BezierControlPoints
 import app.goodboy13.milton.core.native.MiltonNative
 
 /**
+ * Formal states for a continuous stylus stroke generation session.
+ */
+sealed interface StrokeLifecycleState {
+    object Idle : StrokeLifecycleState
+    data class InProgress(val startTimeMs: Long) : StrokeLifecycleState
+}
+
+/**
  * Converts continuous stylus stroke coordinates into discrete equidistant raster dabs.
  * Supports rate-invariant, time-decay lazy brush stabilization.
  * Fully backed by native Rust (`milton_core::brush::BrushEngine`) writing directly
  * into off-heap [NativeDabRingBuffer] for zero-allocation performance.
+ * Lifecycle is governed by an explicit [StrokeLifecycleState] state machine.
  */
 class BrushEngine(val properties: BrushProperties = BrushProperties()) {
 
     var nativeEnginePtr: Long = 0L
         private set
 
-    private var isStrokeActive: Boolean = false
+    var strokeState: StrokeLifecycleState = StrokeLifecycleState.Idle
+        private set
+
+    val isStrokeActive: Boolean get() = strokeState is StrokeLifecycleState.InProgress
     private val localCompatRing = NativeDabRingBuffer(capacity = 8192)
 
     init {
@@ -86,7 +98,8 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
     ) {
         if (nativeEnginePtr != 0L) {
             syncNativeProperties()
-            isStrokeActive = true
+            val startMs = if (eventTimeMillis > 0L) eventTimeMillis else System.currentTimeMillis()
+            strokeState = StrokeLifecycleState.InProgress(startMs)
             val placed = MiltonNative.brushStartStroke(
                 nativeEnginePtr,
                 worldX,
@@ -134,8 +147,8 @@ class BrushEngine(val properties: BrushProperties = BrushProperties()) {
      */
     fun endStroke(outRing: NativeDabRingBuffer) {
         if (nativeEnginePtr != 0L) {
-            if (!isStrokeActive) return
-            isStrokeActive = false
+            if (strokeState is StrokeLifecycleState.Idle) return
+            strokeState = StrokeLifecycleState.Idle
             val placed = MiltonNative.brushEndStroke(
                 nativeEnginePtr,
                 outRing.byteBuffer,

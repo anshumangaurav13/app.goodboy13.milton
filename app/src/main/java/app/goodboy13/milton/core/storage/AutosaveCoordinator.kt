@@ -16,8 +16,20 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /**
+ * Formal states for background autosave coordination and session persistence.
+ */
+sealed interface AutosaveState {
+    object InSync : AutosaveState
+    data class DirtyStaging(val pendingCount: Int) : AutosaveState
+    data class Debouncing(val pendingCount: Int) : AutosaveState
+    object Saving : AutosaveState
+    object RestoringSession : AutosaveState
+}
+
+/**
  * Coordinates low-overhead background auto-saving, dirty tile staging,
  * and session state persistence for the active canvas artwork.
+ * Lifecycle is governed by an explicit [AutosaveState] state machine.
  */
 class AutosaveCoordinator(
     private val context: Context,
@@ -34,10 +46,21 @@ class AutosaveCoordinator(
 
     private var autosaveJob: Job? = null
 
+    var state: AutosaveState = AutosaveState.InSync
+        private set
+
     var activeProjectId: String? = null
     var hasUnsavedChanges: Boolean = false
     @Volatile
     var isRestoringSession: Boolean = false
+        set(value) {
+            field = value
+            if (value) {
+                state = AutosaveState.RestoringSession
+            } else if (state is AutosaveState.RestoringSession) {
+                state = if (hasUnsavedChanges) AutosaveState.DirtyStaging(pendingCompressedTiles.size) else AutosaveState.InSync
+            }
+        }
 
     val autosaveDir: File get() = File(context.filesDir, AUTOSAVE_DIR_NAME).apply { mkdirs() }
     val autosaveTilesDir: File get() = File(autosaveDir, TILES_DIR_NAME).apply { mkdirs() }
@@ -117,6 +140,7 @@ class AutosaveCoordinator(
     ) {
         if (isRestoringSession) return
         hasUnsavedChanges = true
+        state = AutosaveState.Debouncing(pendingCompressedTiles.size)
         autosaveJob?.cancel()
         autosaveJob = scope.launch {
             delay(AUTOSAVE_DEBOUNCE_MS)
@@ -142,6 +166,7 @@ class AutosaveCoordinator(
         documentTitle: String,
         canvasView: MiltonCanvasView
     ) {
+        state = AutosaveState.Saving
         try {
             val renderer = canvasView.renderer
             val layerManager = renderer.layerManager
@@ -224,8 +249,16 @@ class AutosaveCoordinator(
             tempManifest.writeText(metadata.toJson())
             tempManifest.renameTo(autosaveManifestFile)
 
+            hasUnsavedChanges = false
+            state = if (pendingCompressedTiles.isNotEmpty()) {
+                AutosaveState.DirtyStaging(pendingCompressedTiles.size)
+            } else {
+                AutosaveState.InSync
+            }
+
             Log.i(TAG, "Autosaved project '$documentTitle' with ${metadata.layers.size} layers successfully")
         } catch (e: Exception) {
+            state = AutosaveState.DirtyStaging(pendingCompressedTiles.size)
             Log.e(TAG, "Autosave failed", e)
         }
     }

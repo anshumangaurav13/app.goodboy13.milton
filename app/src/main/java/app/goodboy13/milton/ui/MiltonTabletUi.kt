@@ -56,6 +56,8 @@ import app.goodboy13.milton.ui.state.ToolActions
 import app.goodboy13.milton.ui.state.ToolUiState
 import app.goodboy13.milton.ui.state.ViewportActions
 import app.goodboy13.milton.ui.state.ViewportUiState
+import app.goodboy13.milton.ui.state.WorkspaceLayoutMode
+import app.goodboy13.milton.ui.state.WorkspaceWindowsState
 import app.goodboy13.milton.ui.topbar.TabletTopBar
 import app.goodboy13.milton.ui.topbar.TabletTopLeftBar
 
@@ -87,33 +89,33 @@ fun MiltonTabletUi(
         }
     }
 
-    var showColorPaletteWindow by remember { mutableStateOf(false) }
-    var showLayersWindow by remember { mutableStateOf(false) }
-    var showToolParametersWindow by remember { mutableStateOf(false) }
+    var workspaceLayout by remember {
+        mutableStateOf<WorkspaceLayoutMode>(
+            if (state.viewport.isZenMode) WorkspaceLayoutMode.Zen() else WorkspaceLayoutMode.Standard()
+        )
+    }
+
+    val showToolParametersWindow = (workspaceLayout as? WorkspaceLayoutMode.Standard)?.windows?.toolParameters == true
+    val showColorPaletteWindow = (workspaceLayout as? WorkspaceLayoutMode.Standard)?.windows?.colorPalette == true
+    val showLayersWindow = (workspaceLayout as? WorkspaceLayoutMode.Standard)?.windows?.layers == true
+
     var showKeyboardShortcutsDialog by remember { mutableStateOf(false) }
-
-
-    // Preserve window open/closed states across fullscreen (Zen mode) toggles
-    var preZenToolParams by remember { mutableStateOf(false) }
-    var preZenColorPalette by remember { mutableStateOf(false) }
-    var preZenLayers by remember { mutableStateOf(false) }
 
     val toolParamsWindowState = rememberFloatingWindowState(initialX = 64f, initialY = 100f)
     val colorWindowState = rememberFloatingWindowState(initialX = 64f, initialY = 120f)
     val layersWindowState = rememberFloatingWindowState(initialX = 1400f, initialY = 40f)
 
     LaunchedEffect(state.viewport.isZenMode) {
-        if (state.viewport.isZenMode) {
-            preZenToolParams = showToolParametersWindow
-            preZenColorPalette = showColorPaletteWindow
-            preZenLayers = showLayersWindow
-            showToolParametersWindow = false
-            showColorPaletteWindow = false
-            showLayersWindow = false
+        workspaceLayout = if (state.viewport.isZenMode) {
+            when (val cur = workspaceLayout) {
+                is WorkspaceLayoutMode.Standard -> WorkspaceLayoutMode.Zen(savedWindows = cur.windows)
+                is WorkspaceLayoutMode.Zen -> cur
+            }
         } else {
-            showToolParametersWindow = preZenToolParams
-            showColorPaletteWindow = preZenColorPalette
-            showLayersWindow = preZenLayers
+            when (val cur = workspaceLayout) {
+                is WorkspaceLayoutMode.Zen -> WorkspaceLayoutMode.Standard(windows = cur.savedWindows)
+                is WorkspaceLayoutMode.Standard -> cur
+            }
         }
     }
 
@@ -216,13 +218,23 @@ fun MiltonTabletUi(
             TabletToolRail(
                 activeBrush = state.tool.brushType,
                 onSelectBrush = actions.tool.onBrushTypeChange,
-                onOpenToolParameters = { showToolParametersWindow = !showToolParametersWindow },
+                onOpenToolParameters = {
+                    val cur = workspaceLayout
+                    if (cur is WorkspaceLayoutMode.Standard) {
+                        workspaceLayout = cur.copy(windows = cur.windows.copy(toolParameters = !cur.windows.toolParameters))
+                    }
+                },
                 size = state.tool.brushSize,
                 onSizeChange = actions.tool.onBrushSizeChange,
                 opacity = state.tool.brushOpacity,
                 onOpacityChange = actions.tool.onBrushOpacityChange,
                 colorRgb = state.tool.brushColorRgb,
-                onOpenColorPicker = { showColorPaletteWindow = !showColorPaletteWindow }
+                onOpenColorPicker = {
+                    val cur = workspaceLayout
+                    if (cur is WorkspaceLayoutMode.Standard) {
+                        workspaceLayout = cur.copy(windows = cur.windows.copy(colorPalette = !cur.windows.colorPalette))
+                    }
+                }
             )
         }
 
@@ -253,7 +265,12 @@ fun MiltonTabletUi(
                 onGrainScaleChange = actions.tool.onGrainScaleChange,
                 grainDepth = state.tool.grainDepth,
                 onGrainDepthChange = actions.tool.onGrainDepthChange,
-                onClose = { showToolParametersWindow = false },
+                onClose = {
+                    val cur = workspaceLayout
+                    if (cur is WorkspaceLayoutMode.Standard) {
+                        workspaceLayout = cur.copy(windows = cur.windows.copy(toolParameters = false))
+                    }
+                },
                 containerWidth = containerW,
                 containerHeight = containerH,
                 state = toolParamsWindowState
@@ -281,7 +298,12 @@ fun MiltonTabletUi(
                     isRotationLocked = state.viewport.isRotationLocked,
                     onToggleRotationLock = actions.viewport.onToggleRotationLock,
                     isLayersOpen = showLayersWindow,
-                    onToggleLayers = { showLayersWindow = !showLayersWindow },
+                    onToggleLayers = {
+                        val cur = workspaceLayout
+                        if (cur is WorkspaceLayoutMode.Standard) {
+                            workspaceLayout = cur.copy(windows = cur.windows.copy(layers = !cur.windows.layers))
+                        }
+                    },
                     onResetCanvas = actions.viewport.onResetCanvas,
                     onToggleZenMode = { actions.viewport.onToggleZenMode(true) }
                 )
@@ -343,7 +365,12 @@ fun MiltonTabletUi(
                 recentColors = state.tool.recentColors,
                 isEyedropperActive = state.tool.isEyedropperActive,
                 onToggleEyedropper = actions.tool.onToggleEyedropper,
-                onClose = { showColorPaletteWindow = false },
+                onClose = {
+                    val cur = workspaceLayout
+                    if (cur is WorkspaceLayoutMode.Standard) {
+                        workspaceLayout = cur.copy(windows = cur.windows.copy(colorPalette = false))
+                    }
+                },
                 containerWidth = containerW,
                 containerHeight = containerH,
                 state = colorWindowState
@@ -370,7 +397,12 @@ fun MiltonTabletUi(
                 onReorderLayers = actions.layers.onReorderLayers,
                 backgroundColorRgb = state.document.canvasBackgroundColor,
                 onChangeBackgroundColor = actions.document.onCanvasBackgroundColorChange,
-                onClose = { showLayersWindow = false },
+                onClose = {
+                    val cur = workspaceLayout
+                    if (cur is WorkspaceLayoutMode.Standard) {
+                        workspaceLayout = cur.copy(windows = cur.windows.copy(layers = false))
+                    }
+                },
                 containerWidth = containerW,
                 containerHeight = containerH,
                 state = layersWindowState

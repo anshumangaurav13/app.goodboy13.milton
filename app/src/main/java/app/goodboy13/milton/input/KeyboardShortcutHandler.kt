@@ -44,35 +44,49 @@ interface KeyboardShortcutActions {
 }
 
 /**
+ * State object representing physically held keyboard modifier keys.
+ */
+data class ModifierKeysState(
+    val isSpaceHeld: Boolean = false,
+    val isCtrlHeld: Boolean = false,
+    val isAltHeld: Boolean = false,
+    val isRHeld: Boolean = false,
+    val isShiftHeld: Boolean = false
+) {
+    val isAnyHeld: Boolean
+        get() = isSpaceHeld || isCtrlHeld || isAltHeld || isRHeld || isShiftHeld
+}
+
+/**
  * Dispatches physical keyboard events into Milton actions and tracks spring-loaded modifier states.
  */
 class KeyboardShortcutHandler(
     private val actions: KeyboardShortcutActions
 ) {
-    var isSpaceHeld: Boolean = false
-        private set
-    var isCtrlHeld: Boolean = false
-        private set
-    var isAltHeld: Boolean = false
-        private set
-    var isRHeld: Boolean = false
-        private set
-    var isShiftHeld: Boolean = false
+    var modifierState: ModifierKeysState = ModifierKeysState()
         private set
 
+    val isSpaceHeld: Boolean get() = modifierState.isSpaceHeld
+    val isCtrlHeld: Boolean get() = modifierState.isCtrlHeld
+    val isAltHeld: Boolean get() = modifierState.isAltHeld
+    val isRHeld: Boolean get() = modifierState.isRHeld
+    val isShiftHeld: Boolean get() = modifierState.isShiftHeld
+
     fun resetModifiers() {
-        if (isSpaceHeld || isCtrlHeld || isAltHeld || isRHeld || isShiftHeld) {
-            isSpaceHeld = false
-            isCtrlHeld = false
-            isAltHeld = false
-            isRHeld = false
-            isShiftHeld = false
+        if (modifierState.isAnyHeld) {
+            modifierState = ModifierKeysState()
             actions.onModifierChanged(false, false, false, false, false)
         }
     }
 
     private fun updateModifiers() {
-        actions.onModifierChanged(isSpaceHeld, isCtrlHeld, isAltHeld, isRHeld, isShiftHeld)
+        actions.onModifierChanged(
+            modifierState.isSpaceHeld,
+            modifierState.isCtrlHeld,
+            modifierState.isAltHeld,
+            modifierState.isRHeld,
+            modifierState.isShiftHeld
+        )
     }
 
     fun handleKeyDown(keyCode: Int, event: KeyEvent): Boolean {
@@ -80,28 +94,28 @@ class KeyboardShortcutHandler(
         when (keyCode) {
             KeyEvent.KEYCODE_SPACE -> {
                 if (!isSpaceHeld) {
-                    isSpaceHeld = true
+                    modifierState = modifierState.copy(isSpaceHeld = true)
                     updateModifiers()
                 }
                 return true
             }
             KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_CTRL_RIGHT -> {
                 if (!isCtrlHeld) {
-                    isCtrlHeld = true
+                    modifierState = modifierState.copy(isCtrlHeld = true)
                     updateModifiers()
                 }
                 return true
             }
             KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_ALT_RIGHT -> {
                 if (!isAltHeld) {
-                    isAltHeld = true
+                    modifierState = modifierState.copy(isAltHeld = true)
                     updateModifiers()
                 }
                 return true
             }
             KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_SHIFT_RIGHT -> {
                 if (!isShiftHeld) {
-                    isShiftHeld = true
+                    modifierState = modifierState.copy(isShiftHeld = true)
                     updateModifiers()
                 }
                 return true
@@ -116,7 +130,7 @@ class KeyboardShortcutHandler(
                 }
                 // R alone is spring-loaded rotation modifier
                 if (!isRHeld) {
-                    isRHeld = true
+                    modifierState = modifierState.copy(isRHeld = true)
                     updateModifiers()
                 }
                 return true
@@ -253,31 +267,31 @@ class KeyboardShortcutHandler(
         when (keyCode) {
             KeyEvent.KEYCODE_SPACE -> {
                 if (isSpaceHeld) {
-                    isSpaceHeld = false
+                    modifierState = modifierState.copy(isSpaceHeld = false)
                     changed = true
                 }
             }
             KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_CTRL_RIGHT -> {
                 if (isCtrlHeld) {
-                    isCtrlHeld = false
+                    modifierState = modifierState.copy(isCtrlHeld = false)
                     changed = true
                 }
             }
             KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_ALT_RIGHT -> {
                 if (isAltHeld) {
-                    isAltHeld = false
+                    modifierState = modifierState.copy(isAltHeld = false)
                     changed = true
                 }
             }
             KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_SHIFT_RIGHT -> {
                 if (isShiftHeld) {
-                    isShiftHeld = false
+                    modifierState = modifierState.copy(isShiftHeld = false)
                     changed = true
                 }
             }
             KeyEvent.KEYCODE_R -> {
                 if (isRHeld) {
-                    isRHeld = false
+                    modifierState = modifierState.copy(isRHeld = false)
                     changed = true
                 }
             }

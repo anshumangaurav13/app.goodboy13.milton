@@ -21,6 +21,7 @@ import app.goodboy13.milton.ui.state.DocumentUiState
 import app.goodboy13.milton.ui.state.LayersUiState
 import app.goodboy13.milton.ui.state.ToolUiState
 import app.goodboy13.milton.ui.state.ViewportUiState
+import app.goodboy13.milton.ui.state.WorkspaceLayoutMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -655,7 +656,20 @@ class CanvasViewModel : ViewModel() {
     }
 
     fun setZenMode(isZen: Boolean) {
-        _uiState.update { it.copy(viewport = it.viewport.copy(isZenMode = isZen)) }
+        _uiState.update { current ->
+            val newLayout = if (isZen) {
+                when (val cur = current.viewport.layoutMode) {
+                    is WorkspaceLayoutMode.Standard -> WorkspaceLayoutMode.Zen(savedWindows = cur.windows)
+                    is WorkspaceLayoutMode.Zen -> cur
+                }
+            } else {
+                when (val cur = current.viewport.layoutMode) {
+                    is WorkspaceLayoutMode.Zen -> WorkspaceLayoutMode.Standard(windows = cur.savedWindows)
+                    is WorkspaceLayoutMode.Standard -> cur
+                }
+            }
+            current.copy(viewport = current.viewport.copy(layoutMode = newLayout))
+        }
     }
 
     fun setUndoRedoState(canUndo: Boolean, canRedo: Boolean) {

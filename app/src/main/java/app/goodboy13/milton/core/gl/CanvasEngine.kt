@@ -18,8 +18,20 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
+ * Formal phases for stroke execution, front-buffer rendering, and tile FBO commitment.
+ */
+sealed interface StrokeCommitPhase {
+    object Idle : StrokeCommitPhase
+    object FrontBufferStreaming : StrokeCommitPhase
+    object PendingCommit : StrokeCommitPhase
+    data class Stamping(val batchCount: Int) : StrokeCommitPhase
+    object Committed : StrokeCommitPhase
+}
+
+/**
  * Domain engine coordinating canvas business logic, layer management, undo history,
  * stroke commitments, and render commands sent to [GlSceneRenderer].
+ * Stroke processing pipeline is governed by an explicit [StrokeCommitPhase] state machine.
  */
 class CanvasEngine(
     val layerManager: LayerManager = LayerManager(),
@@ -30,6 +42,9 @@ class CanvasEngine(
     companion object {
         private const val TAG = "CanvasEngine"
     }
+
+    var commitPhase: StrokeCommitPhase = StrokeCommitPhase.Idle
+        private set
 
     data class UndoRedoState(
         val canUndo: Boolean = false,
@@ -73,6 +88,7 @@ class CanvasEngine(
         commandQueue.clear()
         dabsToCommit.clear()
         ringDabsToCommit.clear()
+        commitPhase = StrokeCommitPhase.Idle
         sceneRenderer.resetSmudgeCarrier()
     }
 
@@ -90,6 +106,7 @@ class CanvasEngine(
         val activeLayer = layerManager.activeLayer
         if (!activeLayer.isVisible || activeLayer.opacity <= 0.001f) return
 
+        commitPhase = StrokeCommitPhase.FrontBufferStreaming
         sceneRenderer.renderFrontBufferDabs(
             dabs = dabs,
             activeLayerOpacity = activeLayer.opacity,
@@ -115,6 +132,7 @@ class CanvasEngine(
         val activeLayer = layerManager.activeLayer
         if (!activeLayer.isVisible || activeLayer.opacity <= 0.001f) return
 
+        commitPhase = StrokeCommitPhase.FrontBufferStreaming
         sceneRenderer.renderFrontBufferRingDabs(
             ringBuffer = ringBuffer,
             startHead = startHead,
@@ -217,6 +235,7 @@ class CanvasEngine(
 
         // 2. Commit dabs into active layer tile FBOs
         if (ringDabsToCommit.isNotEmpty()) {
+            commitPhase = StrokeCommitPhase.Stamping(ringDabsToCommit.size)
             val activeLayer = layerManager.activeLayer
             capturedLayerId = activeLayer.id
 
@@ -233,11 +252,13 @@ class CanvasEngine(
             }
 
             if (isStrokeDone) {
+                commitPhase = StrokeCommitPhase.Committed
                 undoManager.commitStroke(activeLayer.id, activeLayer.tileMap)
                 pendingTrimBudget.set(true)
                 sceneRenderer.resetSmudgeCarrier()
             }
         } else if (dabsToCommit.isNotEmpty()) {
+            commitPhase = StrokeCommitPhase.Stamping(dabsToCommit.size)
             val activeLayer = layerManager.activeLayer
             capturedLayerId = activeLayer.id
 
@@ -250,10 +271,12 @@ class CanvasEngine(
             )
 
             if (isStrokeDone) {
+                commitPhase = StrokeCommitPhase.Committed
                 undoManager.commitStroke(activeLayer.id, activeLayer.tileMap)
                 pendingTrimBudget.set(true)
             }
         } else if (isStrokeDone) {
+            commitPhase = StrokeCommitPhase.Committed
             val activeLayer = layerManager.activeLayer
             undoManager.commitStroke(activeLayer.id, activeLayer.tileMap)
             pendingTrimBudget.set(true)
@@ -311,6 +334,10 @@ class CanvasEngine(
         // 7. Enforce VRAM tile memory budget
         if (pendingTrimBudget.compareAndSet(true, false)) {
             layerManager.trimAllToBudget(visibleBounds)
+        }
+
+        if (commitPhase is StrokeCommitPhase.Committed) {
+            commitPhase = StrokeCommitPhase.Idle
         }
     }
 
@@ -377,6 +404,7 @@ class CanvasEngine(
 
     fun markStrokeFinished() {
         pendingStrokeFinished.set(true)
+        commitPhase = StrokeCommitPhase.PendingCommit
     }
 
     fun requestTrimBudget() {

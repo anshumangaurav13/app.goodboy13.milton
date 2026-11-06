@@ -272,12 +272,42 @@ class MiltonCanvasView @JvmOverloads constructor(
             requestRedraw()
         }
 
+    /**
+     * Formal states for eyedropper reticle interaction and color sampling.
+     */
+    sealed interface EyedropperInteractionState {
+        object Inactive : EyedropperInteractionState
+        data class Hovering(val screenX: Float, val screenY: Float, val sampledColor: Int) : EyedropperInteractionState
+        data class Touching(val screenX: Float, val screenY: Float, val sampledColor: Int) : EyedropperInteractionState
+    }
+
+    /**
+     * Formal modes for touch and stylus input arbitration.
+     */
+    sealed interface CanvasInputMode {
+        object Idle : CanvasInputMode
+        data class EyedropperSampling(val isHover: Boolean) : CanvasInputMode
+        data class SpringLoaded(val mode: SpringLoadedMode) : CanvasInputMode
+        object MultiTouchGesturing : CanvasInputMode
+        data class StylusDrawing(val isEraser: Boolean) : CanvasInputMode
+        data class StylusLasso(val forLiquify: Boolean) : CanvasInputMode
+        data class StylusLiquifyDeforming(val mode: app.goodboy13.milton.core.liquify.LiquifyMode) : CanvasInputMode
+    }
+
+    var eyedropperInteractionState: EyedropperInteractionState = EyedropperInteractionState.Inactive
+        private set
+
+    val isEyedropperTouching: Boolean get() = eyedropperInteractionState is EyedropperInteractionState.Touching
+    val isEyedropperHovering: Boolean get() = eyedropperInteractionState is EyedropperInteractionState.Hovering
+
+    var currentInputMode: CanvasInputMode = CanvasInputMode.Idle
+        private set
+
     var isEyedropperMode: Boolean = false
         set(value) {
             field = value
             if (!value) {
-                isEyedropperHovering = false
-                isEyedropperTouching = false
+                eyedropperInteractionState = EyedropperInteractionState.Inactive
                 onEyedropperReticleChanged?.invoke(EyedropperReticleState(isVisible = false))
             }
         }
@@ -289,8 +319,6 @@ class MiltonCanvasView @JvmOverloads constructor(
     private var lastSampledColor: Int = 0xFF000000.toInt()
     private var lastEyedropperScreenX: Float = 0f
     private var lastEyedropperScreenY: Float = 0f
-    private var isEyedropperTouching: Boolean = false
-    private var isEyedropperHovering: Boolean = false
 
     fun undo() {
         renderer.requestUndo()
@@ -362,20 +390,21 @@ class MiltonCanvasView @JvmOverloads constructor(
                 frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
                 post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
             } else if (activeSpringMode == SpringLoadedMode.EYEDROPPER) {
-                isEyedropperTouching = false
-                isEyedropperHovering = false
+                eyedropperInteractionState = EyedropperInteractionState.Inactive
                 onEyedropperReticleChanged?.invoke(EyedropperReticleState(isVisible = false))
                 onColorPicked?.invoke(lastSampledColor)
             }
             activeSpringMode = SpringLoadedMode.NONE
+            currentInputMode = CanvasInputMode.Idle
         }
 
         if (!alt && altWasHeld) {
-            isEyedropperHovering = false
             if (activeSpringMode == SpringLoadedMode.EYEDROPPER) {
                 activeSpringMode = SpringLoadedMode.NONE
+                currentInputMode = CanvasInputMode.Idle
             }
             if (!isEyedropperMode) {
+                eyedropperInteractionState = EyedropperInteractionState.Inactive
                 onEyedropperReticleChanged?.invoke(EyedropperReticleState(isVisible = false))
             }
         }
@@ -516,8 +545,11 @@ class MiltonCanvasView @JvmOverloads constructor(
         val isEyedropperActive = isEyedropperMode || isAltHeld
 
         if (!isEyedropperActive) {
-            if (isEyedropperHovering) {
-                isEyedropperHovering = false
+            if (eyedropperInteractionState is EyedropperInteractionState.Hovering) {
+                eyedropperInteractionState = EyedropperInteractionState.Inactive
+                if (currentInputMode is CanvasInputMode.EyedropperSampling) {
+                    currentInputMode = CanvasInputMode.Idle
+                }
                 onEyedropperReticleChanged?.invoke(EyedropperReticleState(isVisible = false))
             }
             return false
@@ -525,7 +557,8 @@ class MiltonCanvasView @JvmOverloads constructor(
 
         when (action) {
             MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
-                isEyedropperHovering = true
+                currentInputMode = CanvasInputMode.EyedropperSampling(isHover = true)
+                eyedropperInteractionState = EyedropperInteractionState.Hovering(event.x, event.y, lastSampledColor)
                 lastEyedropperScreenX = event.x
                 lastEyedropperScreenY = event.y
                 val worldPos = renderer.viewport.screenToWorld(event.x, event.y)
@@ -542,8 +575,11 @@ class MiltonCanvasView @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_HOVER_EXIT -> {
-                isEyedropperHovering = false
-                if (!isEyedropperTouching) {
+                if (eyedropperInteractionState !is EyedropperInteractionState.Touching) {
+                    eyedropperInteractionState = EyedropperInteractionState.Inactive
+                    if (currentInputMode is CanvasInputMode.EyedropperSampling) {
+                        currentInputMode = CanvasInputMode.Idle
+                    }
                     onEyedropperReticleChanged?.invoke(
                         EyedropperReticleState(isVisible = false)
                     )
@@ -557,7 +593,9 @@ class MiltonCanvasView @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             requestUnbufferedDispatch(event)
-            isEyedropperHovering = false
+            if (eyedropperInteractionState is EyedropperInteractionState.Hovering) {
+                eyedropperInteractionState = EyedropperInteractionState.Inactive
+            }
         }
 
         val action = event.actionMasked
@@ -570,23 +608,9 @@ class MiltonCanvasView @JvmOverloads constructor(
             lastEyedropperScreenY = event.y
 
             when (action) {
-                MotionEvent.ACTION_DOWN -> {
-                    isEyedropperTouching = true
-                    isEyedropperHovering = false
-                    renderer.requestColorPick(worldPos.x, worldPos.y)
-                    requestRedraw()
-                    onEyedropperReticleChanged?.invoke(
-                        EyedropperReticleState(
-                            screenX = event.x,
-                            screenY = event.y,
-                            color = lastSampledColor,
-                            isVisible = true
-                        )
-                    )
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    isEyedropperTouching = true
-                    isEyedropperHovering = false
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                    currentInputMode = CanvasInputMode.EyedropperSampling(isHover = false)
+                    eyedropperInteractionState = EyedropperInteractionState.Touching(event.x, event.y, lastSampledColor)
                     renderer.requestColorPick(worldPos.x, worldPos.y)
                     requestRedraw()
                     onEyedropperReticleChanged?.invoke(
@@ -599,8 +623,8 @@ class MiltonCanvasView @JvmOverloads constructor(
                     )
                 }
                 MotionEvent.ACTION_UP -> {
-                    isEyedropperTouching = false
-                    isEyedropperHovering = false
+                    eyedropperInteractionState = EyedropperInteractionState.Inactive
+                    currentInputMode = CanvasInputMode.Idle
                     isEyedropperMode = false
                     onEyedropperReticleChanged?.invoke(
                         EyedropperReticleState(isVisible = false)
@@ -609,8 +633,8 @@ class MiltonCanvasView @JvmOverloads constructor(
                     onColorPicked?.invoke(lastSampledColor)
                 }
                 MotionEvent.ACTION_CANCEL -> {
-                    isEyedropperTouching = false
-                    isEyedropperHovering = false
+                    eyedropperInteractionState = EyedropperInteractionState.Inactive
+                    currentInputMode = CanvasInputMode.Idle
                     isEyedropperMode = false
                     onEyedropperReticleChanged?.invoke(
                         EyedropperReticleState(isVisible = false)
@@ -648,6 +672,7 @@ class MiltonCanvasView @JvmOverloads constructor(
         // Dynamically activate spring mode if modifier is held (works on ACTION_DOWN, ACTION_POINTER_DOWN, or drag)
         if (desiredSpringMode != SpringLoadedMode.NONE && activeSpringMode == SpringLoadedMode.NONE) {
             activeSpringMode = desiredSpringMode
+            currentInputMode = CanvasInputMode.SpringLoaded(desiredSpringMode)
             springStartScreenX = px
             springStartScreenY = py
             springLastScreenX = px
@@ -663,16 +688,20 @@ class MiltonCanvasView @JvmOverloads constructor(
                 frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
                 post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
             } else if (activeSpringMode == SpringLoadedMode.EYEDROPPER) {
-                isEyedropperTouching = false
+                eyedropperInteractionState = EyedropperInteractionState.Inactive
                 onEyedropperReticleChanged?.invoke(EyedropperReticleState(isVisible = false))
                 onColorPicked?.invoke(lastSampledColor)
             }
             activeSpringMode = SpringLoadedMode.NONE
+            currentInputMode = CanvasInputMode.Idle
         }
 
         if (activeSpringMode != SpringLoadedMode.NONE || desiredSpringMode != SpringLoadedMode.NONE) {
             parent?.requestDisallowInterceptTouchEvent(true)
             val currentMode = if (activeSpringMode != SpringLoadedMode.NONE) activeSpringMode else desiredSpringMode
+            if (currentInputMode !is CanvasInputMode.SpringLoaded) {
+                currentInputMode = CanvasInputMode.SpringLoaded(currentMode)
+            }
 
             val isGestureEnding = (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) ||
                     (action == MotionEvent.ACTION_POINTER_UP && (stylusIndex != -1 && event.actionIndex == stylusIndex))
@@ -700,6 +729,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                             frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
                             post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
                             activeSpringMode = SpringLoadedMode.NONE
+                            currentInputMode = CanvasInputMode.Idle
                         }
                     }
                 }
@@ -731,6 +761,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                             frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
                             post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
                             activeSpringMode = SpringLoadedMode.NONE
+                            currentInputMode = CanvasInputMode.Idle
                         }
                     }
                 }
@@ -760,6 +791,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                             frontBufferedRenderer?.renderMultiBufferedLayer(emptyList())
                             post { onViewportChanged?.invoke(renderer.viewport.zoom, renderer.viewport.rotationDegrees) }
                             activeSpringMode = SpringLoadedMode.NONE
+                            currentInputMode = CanvasInputMode.Idle
                         }
                     }
                 }
@@ -779,6 +811,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                         isGestureEnding -> {
                             onBrushSizeChangedInteractively?.invoke(brushSize)
                             activeSpringMode = SpringLoadedMode.NONE
+                            currentInputMode = CanvasInputMode.Idle
                         }
                     }
                 }
@@ -788,7 +821,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                     lastEyedropperScreenY = py
                     when {
                         action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN || action == MotionEvent.ACTION_MOVE -> {
-                            isEyedropperTouching = true
+                            eyedropperInteractionState = EyedropperInteractionState.Touching(px, py, lastSampledColor)
                             renderer.requestColorPick(worldPos.x, worldPos.y)
                             requestRedraw()
                             onEyedropperReticleChanged?.invoke(
@@ -801,12 +834,13 @@ class MiltonCanvasView @JvmOverloads constructor(
                             )
                         }
                         isGestureEnding -> {
-                            isEyedropperTouching = false
+                            eyedropperInteractionState = EyedropperInteractionState.Inactive
                             onEyedropperReticleChanged?.invoke(
                                 EyedropperReticleState(isVisible = false)
                             )
                             onColorPicked?.invoke(lastSampledColor)
                             activeSpringMode = SpringLoadedMode.NONE
+                            currentInputMode = CanvasInputMode.Idle
                         }
                     }
                 }
@@ -817,7 +851,12 @@ class MiltonCanvasView @JvmOverloads constructor(
 
         // 3. Pure touch / fingers: Never draw! Route exclusively to gesture detector
         if (stylusIndex == -1) {
-            return gestureDetector.onTouchEvent(event)
+            currentInputMode = CanvasInputMode.MultiTouchGesturing
+            val handled = gestureDetector.onTouchEvent(event)
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                currentInputMode = CanvasInputMode.Idle
+            }
+            return handled
         }
 
         // 4. Hardware Stylus: Pure drawing
@@ -832,6 +871,7 @@ class MiltonCanvasView @JvmOverloads constructor(
 
         // 4a. Active Liquify Mode: stylus drags deform the mesh
         if (selectionManager.state.value is SelectionState.ActiveLiquify) {
+            currentInputMode = CanvasInputMode.StylusLiquifyDeforming(liquifyManager.currentMode)
             when (action) {
                 MotionEvent.ACTION_DOWN -> {
                     liquifyManager.onStylusDown(worldPos)
@@ -850,6 +890,7 @@ class MiltonCanvasView @JvmOverloads constructor(
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     liquifyManager.onStylusUp()
+                    currentInputMode = CanvasInputMode.Idle
                 }
             }
             return true
@@ -863,6 +904,7 @@ class MiltonCanvasView @JvmOverloads constructor(
 
             when (action) {
                 MotionEvent.ACTION_DOWN -> {
+                    currentInputMode = CanvasInputMode.StylusLasso(forLiquify = false)
                     selectionManager.startLasso(worldPos)
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -879,9 +921,11 @@ class MiltonCanvasView @JvmOverloads constructor(
                         setOf(activeId)
                     }
                     selectionManager.finishLasso(this, targets, forLiquify = false)
+                    currentInputMode = CanvasInputMode.Idle
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     selectionManager.cancelLasso()
+                    currentInputMode = CanvasInputMode.Idle
                 }
             }
             return true
@@ -891,6 +935,7 @@ class MiltonCanvasView @JvmOverloads constructor(
         if (brushType == app.goodboy13.milton.core.brush.BrushType.LIQUIFY) {
             when (action) {
                 MotionEvent.ACTION_DOWN -> {
+                    currentInputMode = CanvasInputMode.StylusLasso(forLiquify = true)
                     selectionManager.startLasso(worldPos)
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -907,9 +952,11 @@ class MiltonCanvasView @JvmOverloads constructor(
                         setOf(activeId)
                     }
                     selectionManager.finishLasso(this, targets, forLiquify = true)
+                    currentInputMode = CanvasInputMode.Idle
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     selectionManager.cancelLasso()
+                    currentInputMode = CanvasInputMode.Idle
                 }
             }
             return true
@@ -929,6 +976,7 @@ class MiltonCanvasView @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> {
                 brushEngine.properties.isEraser = isEraserMode || isHardwareEraser
                 val isEraser = brushEngine.properties.isEraser
+                currentInputMode = CanvasInputMode.StylusDrawing(isEraser)
                 lastStylusScreenX = sx
                 lastStylusScreenY = sy
                 lastStylusAlignment = 0f
@@ -1017,6 +1065,7 @@ class MiltonCanvasView @JvmOverloads constructor(
 
             MotionEvent.ACTION_UP -> {
                 Log.i(TAG, "Stylus UP at screen=($sx, $sy)")
+                currentInputMode = CanvasInputMode.Idle
                 lastStylusAlignment = 0f
                 val isEraser = brushEngine.properties.isEraser
                 val startHead = strokeRingBuffer.headIndex
@@ -1036,6 +1085,7 @@ class MiltonCanvasView @JvmOverloads constructor(
 
             MotionEvent.ACTION_CANCEL -> {
                 Log.i(TAG, "Stylus CANCEL")
+                currentInputMode = CanvasInputMode.Idle
                 lastStylusAlignment = 0f
                 brushEngine.endStroke()
                 renderer.clearPendingDabs()

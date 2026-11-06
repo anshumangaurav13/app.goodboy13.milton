@@ -12,6 +12,23 @@ import app.goodboy13.milton.ui.MiltonCanvasView
 import kotlin.math.floor
 
 /**
+ * State machine representing the active interaction lifecycle within a Liquify session.
+ */
+sealed interface LiquifyInteractionState {
+    /** No active liquify deformation is in progress or session is uninitialized. */
+    data object Inactive : LiquifyInteractionState
+
+    /** Active session is ready for interaction or actively processing stylus deformation. */
+    data class Active(
+        val isStroking: Boolean = false,
+        val lastStylusPos: Vec2? = null
+    ) : LiquifyInteractionState
+
+    /** Session is asynchronously baking deformed mesh vertices into sparse tile FBOs. */
+    data object Baking : LiquifyInteractionState
+}
+
+/**
  * Coordinates Liquify deformation sessions: transforms stylus events into mesh displacement,
  * manages tool parameter updates, and bakes deformed patches back into Milton's sparse TileMap.
  */
@@ -22,6 +39,12 @@ class LiquifyManager(
         private const val TAG = "LiquifyManager"
     }
 
+    var state: LiquifyInteractionState = LiquifyInteractionState.Inactive
+        private set
+
+    val isStroking: Boolean get() = (state as? LiquifyInteractionState.Active)?.isStroking == true
+    val lastStylusPos: Vec2? get() = (state as? LiquifyInteractionState.Active)?.lastStylusPos
+
     var currentBrushSize: Float = 300f
         private set
     var currentBrushStrength: Float = 0.50f
@@ -30,8 +53,6 @@ class LiquifyManager(
         private set
     var showMeshGrid: Boolean = false
         private set
-
-    private var lastStylusPos: Vec2? = null
 
     fun startLiquifyFromTransform(transformSession: TransformSession) {
         val mesh = LiquifyMesh(transformSession.srcBounds, transformSession.polygon)
@@ -47,16 +68,17 @@ class LiquifyManager(
             brushStrength = currentBrushStrength,
             showMeshGrid = showMeshGrid
         )
+        state = LiquifyInteractionState.Active()
         selectionManager.setLiquifyState(liquifySession)
     }
 
     fun onStylusDown(worldPos: Vec2) {
-        lastStylusPos = worldPos
+        state = LiquifyInteractionState.Active(isStroking = true, lastStylusPos = worldPos)
     }
 
     fun onStylusMove(worldPos: Vec2, pressure: Float, canvasView: MiltonCanvasView) {
         val last = lastStylusPos ?: run {
-            lastStylusPos = worldPos
+            state = LiquifyInteractionState.Active(isStroking = true, lastStylusPos = worldPos)
             return
         }
 
@@ -74,13 +96,13 @@ class LiquifyManager(
             mode = session.activeMode
         )
 
-        lastStylusPos = worldPos
+        state = LiquifyInteractionState.Active(isStroking = true, lastStylusPos = worldPos)
         selectionManager.updateLiquifyRevision(session)
         canvasView.requestRedraw()
     }
 
     fun onStylusUp() {
-        lastStylusPos = null
+        state = LiquifyInteractionState.Active(isStroking = false, lastStylusPos = null)
     }
 
     fun setMode(mode: LiquifyMode) {
@@ -127,6 +149,7 @@ class LiquifyManager(
         val current = selectionManager.state.value
         if (current !is SelectionState.ActiveLiquify) return
 
+        state = LiquifyInteractionState.Inactive
         // Dismiss overlay immediately on UI thread for instant responsiveness
         selectionManager.clearState()
 
@@ -154,6 +177,7 @@ class LiquifyManager(
         val current = selectionManager.state.value
         if (current !is SelectionState.ActiveLiquify) return
 
+        state = LiquifyInteractionState.Baking
         val session = current.session
         // Dismiss overlay immediately on UI thread
         selectionManager.clearState()
@@ -247,6 +271,7 @@ class LiquifyManager(
             } finally {
                 SelectionTransformManager.deletePatchTextures(session.layerPatches.values)
                 MiltonNative.selectionSessionEnd()
+                state = LiquifyInteractionState.Inactive
                 canvasView.post { canvasView.requestRedraw() }
             }
         }

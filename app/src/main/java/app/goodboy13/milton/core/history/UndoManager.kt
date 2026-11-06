@@ -76,9 +76,21 @@ data class UndoWorkItem(
     val afterRaw: ByteArray?
 )
 
+/**
+ * Formal states for undo/redo transaction capture and asynchronous compression.
+ */
+sealed interface HistoryTransactionState {
+    object Idle : HistoryTransactionState
+    data class RecordingPreStroke(val capturedTileCount: Int) : HistoryTransactionState
+    data class BackgroundCompressing(val workItemCount: Int) : HistoryTransactionState
+}
+
 class UndoManager(val maxHistorySize: Int = 30) {
 
     private var nativeHistoryPtr: Long = 0L
+
+    var transactionState: HistoryTransactionState = HistoryTransactionState.Idle
+        private set
 
     init {
         check(MiltonNative.isLoaded) { "MiltonNative core library must be loaded for UndoManager" }
@@ -140,6 +152,9 @@ class UndoManager(val maxHistorySize: Int = 30) {
         } finally {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, prevFbo[0])
         }
+        if (pendingPreStrokeRaw.isNotEmpty()) {
+            transactionState = HistoryTransactionState.RecordingPreStroke(pendingPreStrokeRaw.size)
+        }
     }
 
     fun capturePreStrokeTiles(tiles: Collection<RasterTile>) {
@@ -153,6 +168,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
         val key = layerId to coord
         if (!pendingPreStrokeRaw.containsKey(key)) {
             pendingPreStrokeRaw[key] = rawBytes
+            transactionState = HistoryTransactionState.RecordingPreStroke(pendingPreStrokeRaw.size)
         }
     }
 
@@ -161,6 +177,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
      */
     fun clearPending() {
         pendingPreStrokeRaw.clear()
+        transactionState = HistoryTransactionState.Idle
     }
 
     /**
@@ -201,8 +218,12 @@ class UndoManager(val maxHistorySize: Int = 30) {
         }
         pendingPreStrokeRaw.clear()
 
-        if (workItems.isEmpty()) return
+        if (workItems.isEmpty()) {
+            transactionState = HistoryTransactionState.Idle
+            return
+        }
 
+        transactionState = HistoryTransactionState.BackgroundCompressing(workItems.size)
         undoScope.launch(Dispatchers.Default) {
             val deltas = mutableListOf<TileDelta>()
 
@@ -280,6 +301,7 @@ class UndoManager(val maxHistorySize: Int = 30) {
                     d.fullAfterForAutosave = null
                 }
             }
+            transactionState = HistoryTransactionState.Idle
         }
     }
 

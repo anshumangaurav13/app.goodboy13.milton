@@ -33,6 +33,24 @@ data class ToolUiState(
 )
 
 /**
+ * State representing open floating utility windows in standard layout mode.
+ */
+data class WorkspaceWindowsState(
+    val toolParameters: Boolean = false,
+    val colorPalette: Boolean = false,
+    val layers: Boolean = false
+)
+
+/**
+ * State machine representing workspace layout: Standard workspace with configurable floating windows,
+ * or Zen mode (immersive distraction-free canvas) that tucks windows away while saving previous layout.
+ */
+sealed interface WorkspaceLayoutMode {
+    data class Standard(val windows: WorkspaceWindowsState = WorkspaceWindowsState()) : WorkspaceLayoutMode
+    data class Zen(val savedWindows: WorkspaceWindowsState = WorkspaceWindowsState()) : WorkspaceLayoutMode
+}
+
+/**
  * State representing camera viewport transform, locks, and history availability.
  */
 data class ViewportUiState(
@@ -43,9 +61,33 @@ data class ViewportUiState(
     val isRotationLocked: Boolean = false,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
-    val isZenMode: Boolean = false,
+    val layoutMode: WorkspaceLayoutMode = WorkspaceLayoutMode.Standard(),
     val isModifierHeld: Boolean = false
-)
+) {
+    val isZenMode: Boolean get() = layoutMode is WorkspaceLayoutMode.Zen
+
+    constructor(
+        zoomLevel: Float = 0.5f,
+        rotationDegrees: Float = 0f,
+        isCanvasFlipped: Boolean = false,
+        isZoomLocked: Boolean = false,
+        isRotationLocked: Boolean = false,
+        canUndo: Boolean = false,
+        canRedo: Boolean = false,
+        isZenMode: Boolean,
+        isModifierHeld: Boolean = false
+    ) : this(
+        zoomLevel = zoomLevel,
+        rotationDegrees = rotationDegrees,
+        isCanvasFlipped = isCanvasFlipped,
+        isZoomLocked = isZoomLocked,
+        isRotationLocked = isRotationLocked,
+        canUndo = canUndo,
+        canRedo = canRedo,
+        layoutMode = if (isZenMode) WorkspaceLayoutMode.Zen() else WorkspaceLayoutMode.Standard(),
+        isModifierHeld = isModifierHeld
+    )
+}
 
 /**
  * State representing document metadata, projects library catalog, and system storage metrics.
