@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -654,6 +655,56 @@ fun ToolParametersFloatingWindow(
     var activeAccordion by remember { mutableStateOf(AccordionPanel.NONE) }
     var isSavingPreset by remember { mutableStateOf(false) }
     var newPresetName by remember { mutableStateOf("") }
+    var presetToDelete by remember { mutableStateOf<String?>(null) }
+
+    if (presetToDelete != null) {
+        val nameToDelete = presetToDelete!!
+        AlertDialog(
+            onDismissRequest = { presetToDelete = null },
+            title = {
+                Text(
+                    text = "Delete Preset",
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "Delete \"$nameToDelete\"? This cannot be undone.",
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFFE57373))
+                        .clickable {
+                            onDeleteCustomPreset(nameToDelete)
+                            presetToDelete = null
+                        }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text("Delete", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFF2C313C))
+                        .clickable { presetToDelete = null }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text("Cancel", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
+                }
+            },
+            containerColor = Color(0xFF1E222A),
+            shape = RoundedCornerShape(12.dp)
+        )
+    }
 
     DraggableFloatingWindow(
         title = brushType.displayName,
@@ -767,17 +818,17 @@ fun ToolParametersFloatingWindow(
                                             if (p.isCustom) {
                                                 Box(
                                                     modifier = Modifier
-                                                        .size(14.dp)
+                                                        .size(16.dp)
                                                         .clip(CircleShape)
-                                                        .background(Color(0x33FFFFFF))
-                                                        .clickable { onDeleteCustomPreset(p.name) },
+                                                        .background(Color(0x35FFFFFF))
+                                                        .clickable { presetToDelete = p.name },
                                                     contentAlignment = Alignment.Center
                                                 ) {
-                                                    Text(
-                                                        text = "×",
-                                                        fontSize = 11.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color.White.copy(alpha = 0.85f)
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = "Delete Preset",
+                                                        tint = Color.White.copy(alpha = 0.90f),
+                                                        modifier = Modifier.size(9.dp)
                                                     )
                                                 }
                                             }
@@ -856,17 +907,17 @@ fun ToolParametersFloatingWindow(
                                             if (p.isCustom) {
                                                 Box(
                                                     modifier = Modifier
-                                                        .size(14.dp)
+                                                        .size(16.dp)
                                                         .clip(CircleShape)
-                                                        .background(Color(0x33FFFFFF))
-                                                        .clickable { onDeleteCustomPreset(p.name) },
+                                                        .background(Color(0x35FFFFFF))
+                                                        .clickable { presetToDelete = p.name },
                                                     contentAlignment = Alignment.Center
                                                 ) {
-                                                    Text(
-                                                        text = "×",
-                                                        fontSize = 11.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color.White.copy(alpha = 0.85f)
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = "Delete Preset",
+                                                        tint = Color.White.copy(alpha = 0.90f),
+                                                        modifier = Modifier.size(9.dp)
                                                     )
                                                 }
                                             }
