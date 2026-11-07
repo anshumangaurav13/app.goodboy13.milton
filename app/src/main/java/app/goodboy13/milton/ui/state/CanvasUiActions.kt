@@ -24,6 +24,8 @@ data class ToolActions(
     val onMinDensityChange: (Float) -> Unit = {},
     val onMaxDensityChange: (Float) -> Unit = {},
     val onSelectGraphitePreset: (app.goodboy13.milton.core.constants.GraphitePreset) -> Unit = {},
+    val onSaveCustomPreset: (String) -> Unit = {},
+    val onDeleteCustomPreset: (String) -> Unit = {},
     val onToggleEyedropper: () -> Unit = {}
 )
 

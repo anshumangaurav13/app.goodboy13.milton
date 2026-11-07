@@ -242,6 +242,8 @@ class MainActivity : ComponentActivity() {
                         onMinDensityChange = { viewModel.setMinDensity(it, canvasView) },
                         onMaxDensityChange = { viewModel.setMaxDensity(it, canvasView) },
                         onSelectGraphitePreset = { viewModel.selectGraphitePreset(it, canvasView) },
+                        onSaveCustomPreset = { viewModel.saveCurrentAsPreset(it, canvasView) },
+                        onDeleteCustomPreset = { viewModel.deleteCustomPreset(it) },
                         onToggleEyedropper = { viewModel.toggleEyedropper(canvasView) }
                     ),
                     viewport = ViewportActions(

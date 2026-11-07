@@ -30,11 +30,15 @@ data class ToolUiState(
     val minDensity: Float = BrushDefaults.DEFAULT_MIN_DENSITY,
     val maxDensity: Float = BrushDefaults.DEFAULT_MAX_DENSITY,
     val activePreset: String = BrushDefaults.DEFAULT_GRAPHITE_PRESET,
+    val customPresets: List<app.goodboy13.milton.core.constants.GraphitePreset> = emptyList(),
     val isEraserMode: Boolean = BrushDefaults.getDefaultIsEraser(BrushType.PENCIL),
     val isEyedropperActive: Boolean = false,
     val recentColors: List<Int> = PaletteDefaults.DEFAULT_RECENT_COLORS,
     val eyedropperReticleState: EyedropperReticleState = EyedropperReticleState()
-)
+) {
+    val allGraphitePresets: List<app.goodboy13.milton.core.constants.GraphitePreset>
+        get() = BrushDefaults.GRAPHITE_PRESETS + customPresets
+}
 
 /**
  * State representing open floating utility windows in standard layout mode.

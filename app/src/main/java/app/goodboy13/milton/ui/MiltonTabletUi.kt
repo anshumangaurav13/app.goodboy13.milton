@@ -273,6 +273,9 @@ fun MiltonTabletUi(
                 onMaxDensityChange = actions.tool.onMaxDensityChange,
                 activePreset = state.tool.activePreset,
                 onSelectGraphitePreset = actions.tool.onSelectGraphitePreset,
+                customPresets = state.tool.customPresets,
+                onSaveCustomPreset = actions.tool.onSaveCustomPreset,
+                onDeleteCustomPreset = actions.tool.onDeleteCustomPreset,
                 onClose = {
                     val cur = workspaceLayout
                     if (cur is WorkspaceLayoutMode.Standard) {

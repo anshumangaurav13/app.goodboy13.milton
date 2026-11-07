@@ -82,10 +82,14 @@ data class BrushProperties(
         particleNoise = preset.particleNoise
         grainDepth = preset.grainDepth
         grainType = preset.grainType
+        grainScale = preset.grainScale
         minDensity = preset.minDensity
         maxDensity = preset.maxDensity
         tilt = preset.tilt
         stabilizer = preset.stabilizer
+        sizeBezierConfig = preset.sizeBezier
+        opacityBezierConfig = preset.opacityBezier
+        tiltBezierConfig = preset.tiltBezier
         minRadius = (size * 0.12f).coerceAtLeast(1.2f)
     }
 

@@ -15,13 +15,18 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -49,6 +54,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -182,6 +188,167 @@ fun ValueDragControl(
 }
 
 /**
+ * Dual range drag control with interactive Min and Max handles in a single progress bar.
+ * Dragging near the left handle adjusts Min, near the right handle adjusts Max,
+ * and dragging the middle region shifts the entire flow window.
+ */
+@Composable
+fun RangeDragControl(
+    label: String,
+    minValue: Float,
+    maxValue: Float,
+    onRangeChange: (Float, Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
+    fillColor: Color = Color(0xFF81C784),
+    height: androidx.compose.ui.unit.Dp = 38.dp,
+    modifier: Modifier = Modifier
+) {
+    var isDragging by remember { mutableStateOf(false) }
+    val currentMinState = rememberUpdatedState(minValue)
+    val currentMaxState = rememberUpdatedState(maxValue)
+    val onRangeChangeState = rememberUpdatedState(onRangeChange)
+
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF22262E))
+            .border(
+                width = if (isDragging) 1.5.dp else 1.dp,
+                color = if (isDragging) fillColor.copy(alpha = 0.85f) else Color(0x35FFFFFF),
+                shape = RoundedCornerShape(10.dp)
+            )
+            .pointerInput(valueRange) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    isDragging = true
+                    val widthPx = size.width.toFloat().coerceAtLeast(1f)
+                    val span = valueRange.endInclusive - valueRange.start
+
+                    val minFrac = ((currentMinState.value - valueRange.start) / span).coerceIn(0f, 1f)
+                    val maxFrac = ((currentMaxState.value - valueRange.start) / span).coerceIn(0f, 1f)
+                    val touchFrac = (down.position.x / widthPx).coerceIn(0f, 1f)
+
+                    // Target: 0 = Min, 1 = Max, 2 = Window shift
+                    val distToMin = kotlin.math.abs(touchFrac - minFrac)
+                    val distToMax = kotlin.math.abs(touchFrac - maxFrac)
+                    val target = when {
+                        distToMin < 0.14f && distToMin <= distToMax -> 0
+                        distToMax < 0.14f -> 1
+                        touchFrac in minFrac..maxFrac -> 2
+                        touchFrac < minFrac -> 0
+                        else -> 1
+                    }
+
+                    var lastX = down.position.x
+                    down.consume()
+
+                    do {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull()
+                        if (change != null && change.pressed) {
+                            val curX = change.position.x
+                            val dx = curX - lastX
+                            lastX = curX
+
+                            val curMin = currentMinState.value
+                            val curMax = currentMaxState.value
+
+                            when (target) {
+                                0 -> {
+                                    val frac = (curX / widthPx).coerceIn(0f, 1f)
+                                    val newVal = (valueRange.start + frac * span).coerceIn(valueRange.start, curMax - 0.02f)
+                                    onRangeChangeState.value(newVal, curMax)
+                                }
+                                1 -> {
+                                    val frac = (curX / widthPx).coerceIn(0f, 1f)
+                                    val newVal = (valueRange.start + frac * span).coerceIn(curMin + 0.02f, valueRange.endInclusive)
+                                    onRangeChangeState.value(curMin, newVal)
+                                }
+                                2 -> {
+                                    val dVal = (dx / widthPx) * span
+                                    val windowSpan = curMax - curMin
+                                    val newMin = (curMin + dVal).coerceIn(valueRange.start, valueRange.endInclusive - windowSpan)
+                                    val newMax = (newMin + windowSpan).coerceIn(valueRange.start + windowSpan, valueRange.endInclusive)
+                                    onRangeChangeState.value(newMin, newMax)
+                                }
+                            }
+                            change.consume()
+                        }
+                    } while (event.changes.any { it.pressed })
+
+                    isDragging = false
+                }
+            }
+    ) {
+        val span = valueRange.endInclusive - valueRange.start
+        val minFrac = if (span > 0f) ((minValue - valueRange.start) / span).coerceIn(0f, 1f) else 0f
+        val maxFrac = if (span > 0f) ((maxValue - valueRange.start) / span).coerceIn(0f, 1f) else 1f
+        val widthDp = maxWidth
+
+        val leftOffsetDp = widthDp * minFrac
+        val fillWidthDp = (widthDp * (maxFrac - minFrac)).coerceAtLeast(4.dp)
+
+        // Range fill bar
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .offset(x = leftOffsetDp)
+                .width(fillWidthDp)
+                .background(fillColor.copy(alpha = if (isDragging) 0.35f else 0.22f))
+        )
+
+        // Min handle line
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .offset(x = leftOffsetDp)
+                .width(2.dp)
+                .background(fillColor.copy(alpha = 0.90f))
+        )
+
+        // Max handle line
+        val rightOffsetDp = (widthDp * maxFrac) - 2.dp
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .offset(x = rightOffsetDp.coerceAtLeast(0.dp))
+                .width(2.dp)
+                .background(fillColor.copy(alpha = 0.90f))
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White.copy(alpha = 0.75f),
+                maxLines = 1
+            )
+
+            Text(
+                text = "${(minValue * 100).roundToInt()}% – ${(maxValue * 100).roundToInt()}%",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (isDragging) fillColor else Color.White,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+enum class AccordionPanel {
+    NONE, SIZE_CURVE, OPACITY_CURVE, TILT_CURVE, PAPER_TEXTURE
+}
+
+/**
  * Dynamic S-curve stroke preview box matching active brush parameters and pressure curves.
  */
 @Composable
@@ -268,10 +435,6 @@ fun StrokePreviewBox(
             }
         }
     }
-}
-
-enum class ActiveCurveDynamics {
-    NONE, SIZE, OPACITY, TILT
 }
 
 /**
@@ -479,15 +642,18 @@ fun ToolParametersFloatingWindow(
     onMaxDensityChange: (Float) -> Unit = {},
     activePreset: String = app.goodboy13.milton.core.constants.BrushDefaults.DEFAULT_GRAPHITE_PRESET,
     onSelectGraphitePreset: (app.goodboy13.milton.core.constants.GraphitePreset) -> Unit = {},
+    customPresets: List<app.goodboy13.milton.core.constants.GraphitePreset> = emptyList(),
+    onSaveCustomPreset: (String) -> Unit = {},
+    onDeleteCustomPreset: (String) -> Unit = {},
     onClose: () -> Unit,
     containerWidth: Int,
     containerHeight: Int,
     state: FloatingWindowState,
     modifier: Modifier = Modifier
 ) {
-    var activeCurveDynamics by remember { mutableStateOf(ActiveCurveDynamics.NONE) }
-    var isTextureExpanded by remember { mutableStateOf(false) }
-    var isDepositionExpanded by remember { mutableStateOf(false) }
+    var activeAccordion by remember { mutableStateOf(AccordionPanel.NONE) }
+    var isSavingPreset by remember { mutableStateOf(false) }
+    var newPresetName by remember { mutableStateOf("") }
 
     DraggableFloatingWindow(
         title = brushType.displayName,
@@ -544,73 +710,271 @@ fun ToolParametersFloatingWindow(
                     )
                 }
             } else {
-                // Unified Graphite Presets for Drawing Tool
+                // Unified Graphite Presets for Drawing Tool: 2-Row Horizontal Scrolling Panel with Custom Preset Saving
                 if (brushType == BrushType.PENCIL) {
+                    val allPresets = remember(customPresets) {
+                        app.goodboy13.milton.core.constants.BrushDefaults.GRAPHITE_PRESETS + customPresets
+                    }
+                    val row1 = remember(allPresets) {
+                        allPresets.filterIndexed { index, _ -> index % 2 == 0 }
+                    }
+                    val row2 = remember(allPresets) {
+                        allPresets.filterIndexed { index, _ -> index % 2 != 0 }
+                    }
+
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        val presets = app.goodboy13.milton.core.constants.BrushDefaults.GRAPHITE_PRESETS
-                        // Row 1: 2B Lead, Tech Pen, Ballpoint
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            presets.take(3).forEach { p ->
-                                val isSelected = activePreset == p.name
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(26.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (isSelected) Color(0xFFFFCC80).copy(alpha = 0.25f) else Color(0xFF22262E))
-                                        .border(
-                                            width = if (isSelected) 1.5.dp else 1.dp,
-                                            color = if (isSelected) Color(0xFFFFCC80) else Color(0x35FFFFFF),
-                                            shape = RoundedCornerShape(6.dp)
-                                        )
-                                        .clickable { onSelectGraphitePreset(p) },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = p.name,
-                                        fontSize = 10.5.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSelected) Color(0xFFFFCC80) else Color.White.copy(alpha = 0.85f),
-                                        maxLines = 1
-                                    )
+                            // Row 1 of Presets
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                row1.forEach { p ->
+                                    val isSelected = activePreset == p.name
+                                    Box(
+                                        modifier = Modifier
+                                            .height(26.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (isSelected) Color(0xFFFFCC80).copy(alpha = 0.25f) else Color(0xFF22262E))
+                                            .border(
+                                                width = if (isSelected) 1.5.dp else 1.dp,
+                                                color = if (isSelected) Color(0xFFFFCC80) else Color(0x35FFFFFF),
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .clickable { onSelectGraphitePreset(p) }
+                                            .padding(horizontal = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(
+                                                text = p.name,
+                                                fontSize = 10.5.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isSelected) Color(0xFFFFCC80) else Color.White.copy(alpha = 0.85f),
+                                                maxLines = 1
+                                            )
+                                            if (p.isCustom) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(14.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0x33FFFFFF))
+                                                        .clickable { onDeleteCustomPreset(p.name) },
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = "×",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.White.copy(alpha = 0.85f)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                if (row1.size <= row2.size) {
+                                    Box(
+                                        modifier = Modifier
+                                            .height(26.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (isSavingPreset) Color(0xFFFFCC80).copy(alpha = 0.20f) else Color(0xFF22262E))
+                                            .border(
+                                                width = 1.dp,
+                                                color = if (isSavingPreset) Color(0xFFFFCC80) else Color(0x55FFFFFF),
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .clickable { isSavingPreset = !isSavingPreset }
+                                            .padding(horizontal = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Add,
+                                                contentDescription = "Save Preset",
+                                                tint = if (isSavingPreset) Color(0xFFFFCC80) else Color.White.copy(alpha = 0.85f),
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Text(
+                                                text = "Save",
+                                                fontSize = 10.5.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = if (isSavingPreset) Color(0xFFFFCC80) else Color.White.copy(alpha = 0.85f),
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Row 2 of Presets
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                row2.forEach { p ->
+                                    val isSelected = activePreset == p.name
+                                    Box(
+                                        modifier = Modifier
+                                            .height(26.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (isSelected) Color(0xFFFFCC80).copy(alpha = 0.25f) else Color(0xFF22262E))
+                                            .border(
+                                                width = if (isSelected) 1.5.dp else 1.dp,
+                                                color = if (isSelected) Color(0xFFFFCC80) else Color(0x35FFFFFF),
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .clickable { onSelectGraphitePreset(p) }
+                                            .padding(horizontal = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(
+                                                text = p.name,
+                                                fontSize = 10.5.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isSelected) Color(0xFFFFCC80) else Color.White.copy(alpha = 0.85f),
+                                                maxLines = 1
+                                            )
+                                            if (p.isCustom) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(14.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0x33FFFFFF))
+                                                        .clickable { onDeleteCustomPreset(p.name) },
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = "×",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.White.copy(alpha = 0.85f)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                if (row1.size > row2.size) {
+                                    Box(
+                                        modifier = Modifier
+                                            .height(26.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (isSavingPreset) Color(0xFFFFCC80).copy(alpha = 0.20f) else Color(0xFF22262E))
+                                            .border(
+                                                width = 1.dp,
+                                                color = if (isSavingPreset) Color(0xFFFFCC80) else Color(0x55FFFFFF),
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .clickable { isSavingPreset = !isSavingPreset }
+                                            .padding(horizontal = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Add,
+                                                contentDescription = "Save Preset",
+                                                tint = if (isSavingPreset) Color(0xFFFFCC80) else Color.White.copy(alpha = 0.85f),
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Text(
+                                                text = "Save",
+                                                fontSize = 10.5.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = if (isSavingPreset) Color(0xFFFFCC80) else Color.White.copy(alpha = 0.85f),
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
 
-                        // Row 2: Charcoal, Soft Wash
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            presets.drop(3).forEach { p ->
-                                val isSelected = activePreset == p.name
+                        // Inline Save Preset Name Card
+                        AnimatedVisibility(visible = isSavingPreset) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF181B20))
+                                    .border(1.dp, Color(0xFFFFCC80).copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                BasicTextField(
+                                    value = newPresetName,
+                                    onValueChange = { newPresetName = it },
+                                    singleLine = true,
+                                    textStyle = TextStyle(
+                                        color = Color.White,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    ),
+                                    modifier = Modifier.weight(1f),
+                                    decorationBox = { innerTextField ->
+                                        if (newPresetName.isEmpty()) {
+                                            Text(
+                                                text = "Preset name...",
+                                                color = Color.White.copy(alpha = 0.45f),
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                )
                                 Box(
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .height(26.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (isSelected) Color(0xFFFFCC80).copy(alpha = 0.25f) else Color(0xFF22262E))
-                                        .border(
-                                            width = if (isSelected) 1.5.dp else 1.dp,
-                                            color = if (isSelected) Color(0xFFFFCC80) else Color(0x35FFFFFF),
-                                            shape = RoundedCornerShape(6.dp)
-                                        )
-                                        .clickable { onSelectGraphitePreset(p) },
+                                        .height(24.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(0xFFFFCC80))
+                                        .clickable {
+                                            val trimmed = newPresetName.trim()
+                                            if (trimmed.isNotEmpty()) {
+                                                onSaveCustomPreset(trimmed)
+                                                newPresetName = ""
+                                                isSavingPreset = false
+                                            }
+                                        }
+                                        .padding(horizontal = 8.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        text = p.name,
-                                        fontSize = 10.5.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSelected) Color(0xFFFFCC80) else Color.White.copy(alpha = 0.85f),
-                                        maxLines = 1
-                                    )
+                                    Text("Save", color = Color(0xFF121418), fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .height(24.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(0xFF282C35))
+                                        .clickable {
+                                            newPresetName = ""
+                                            isSavingPreset = false
+                                        }
+                                        .padding(horizontal = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("✕", color = Color.White.copy(alpha = 0.7f), fontSize = 10.5.sp)
                                 }
                             }
                         }
@@ -646,19 +1010,19 @@ fun ToolParametersFloatingWindow(
                         modifier = Modifier.weight(1f)
                     )
                     CurveToggleButton(
-                        isActive = activeCurveDynamics == ActiveCurveDynamics.SIZE,
+                        isActive = activeAccordion == AccordionPanel.SIZE_CURVE,
                         activeColor = Color(0xFF64B5F6),
                         onClick = {
-                            activeCurveDynamics = if (activeCurveDynamics == ActiveCurveDynamics.SIZE) {
-                                ActiveCurveDynamics.NONE
+                            activeAccordion = if (activeAccordion == AccordionPanel.SIZE_CURVE) {
+                                AccordionPanel.NONE
                             } else {
-                                ActiveCurveDynamics.SIZE
+                                AccordionPanel.SIZE_CURVE
                             }
                         }
                     )
                 }
 
-                AnimatedVisibility(visible = activeCurveDynamics == ActiveCurveDynamics.SIZE) {
+                AnimatedVisibility(visible = activeAccordion == AccordionPanel.SIZE_CURVE) {
                     BezierCurveGraph(
                         config = sizeBezierConfig,
                         onConfigChange = onSizeBezierConfigChange,
@@ -683,19 +1047,19 @@ fun ToolParametersFloatingWindow(
                         modifier = Modifier.weight(1f)
                     )
                     CurveToggleButton(
-                        isActive = activeCurveDynamics == ActiveCurveDynamics.OPACITY,
+                        isActive = activeAccordion == AccordionPanel.OPACITY_CURVE,
                         activeColor = Color(0xFFFFB74D),
                         onClick = {
-                            activeCurveDynamics = if (activeCurveDynamics == ActiveCurveDynamics.OPACITY) {
-                                ActiveCurveDynamics.NONE
+                            activeAccordion = if (activeAccordion == AccordionPanel.OPACITY_CURVE) {
+                                AccordionPanel.NONE
                             } else {
-                                ActiveCurveDynamics.OPACITY
+                                AccordionPanel.OPACITY_CURVE
                             }
                         }
                     )
                 }
 
-                AnimatedVisibility(visible = activeCurveDynamics == ActiveCurveDynamics.OPACITY) {
+                AnimatedVisibility(visible = activeAccordion == AccordionPanel.OPACITY_CURVE) {
                     BezierCurveGraph(
                         config = opacityBezierConfig,
                         onConfigChange = onOpacityBezierConfigChange,
@@ -744,19 +1108,19 @@ fun ToolParametersFloatingWindow(
                             modifier = Modifier.weight(1f)
                         )
                         CurveToggleButton(
-                            isActive = activeCurveDynamics == ActiveCurveDynamics.TILT,
+                            isActive = activeAccordion == AccordionPanel.TILT_CURVE,
                             activeColor = Color(0xFF80DEEA),
                             onClick = {
-                                activeCurveDynamics = if (activeCurveDynamics == ActiveCurveDynamics.TILT) {
-                                    ActiveCurveDynamics.NONE
+                                activeAccordion = if (activeAccordion == AccordionPanel.TILT_CURVE) {
+                                    AccordionPanel.NONE
                                 } else {
-                                    ActiveCurveDynamics.TILT
+                                    AccordionPanel.TILT_CURVE
                                 }
                             }
                         )
                     }
 
-                    AnimatedVisibility(visible = activeCurveDynamics == ActiveCurveDynamics.TILT) {
+                    AnimatedVisibility(visible = activeAccordion == AccordionPanel.TILT_CURVE) {
                         BezierCurveGraph(
                             config = tiltBezierConfig,
                             onConfigChange = onTiltBezierConfigChange,
@@ -764,9 +1128,10 @@ fun ToolParametersFloatingWindow(
                         )
                     }
 
-                    // 5. Paper Texture Collapsible Card
+                    // 5. Paper Texture Collapsible Card (Mutually exclusive with curves)
                     val grainNames = app.goodboy13.milton.core.constants.BrushDefaults.GRAIN_NAMES
                     val currentGrainName = grainNames.getOrElse(grainType) { "Medium" }
+                    val isTextureExpanded = activeAccordion == AccordionPanel.PAPER_TEXTURE
 
                     Box(
                         modifier = Modifier
@@ -779,7 +1144,9 @@ fun ToolParametersFloatingWindow(
                                 if (isTextureExpanded) Color(0xFFFFCC80).copy(alpha = 0.85f) else Color(0x35FFFFFF),
                                 RoundedCornerShape(10.dp)
                             )
-                            .clickable { isTextureExpanded = !isTextureExpanded }
+                            .clickable {
+                                activeAccordion = if (isTextureExpanded) AccordionPanel.NONE else AccordionPanel.PAPER_TEXTURE
+                            }
                             .padding(horizontal = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -921,85 +1288,18 @@ fun ToolParametersFloatingWindow(
                         }
                     }
 
-                    // 6. Deposition Flow Collapsible Card
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(38.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFF22262E))
-                            .border(
-                                1.dp,
-                                if (isDepositionExpanded) Color(0xFF81C784).copy(alpha = 0.85f) else Color(0x35FFFFFF),
-                                RoundedCornerShape(10.dp)
-                            )
-                            .clickable { isDepositionExpanded = !isDepositionExpanded }
-                            .padding(horizontal = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Deposition Flow",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Color.White.copy(alpha = 0.85f)
-                            )
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = "${(minDensity * 100).toInt()}%..${(maxDensity * 100).toInt()}%",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF81C784)
-                                )
-                                Icon(
-                                    imageVector = if (isDepositionExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                    contentDescription = if (isDepositionExpanded) "Collapse" else "Expand",
-                                    tint = Color(0xFF81C784),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    AnimatedVisibility(visible = isDepositionExpanded) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color(0xFF181B20))
-                                .border(1.dp, Color(0x25FFFFFF), RoundedCornerShape(10.dp))
-                                .padding(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            ValueDragControl(
-                                label = "Min Flow",
-                                value = minDensity * 100f,
-                                onValueChange = { onMinDensityChange(it / 100f) },
-                                valueRange = 0f..100f,
-                                unit = "%",
-                                displayDecimals = 0,
-                                fillColor = Color(0xFF81C784),
-                                height = 34.dp
-                            )
-                            ValueDragControl(
-                                label = "Max Flow",
-                                value = maxDensity * 100f,
-                                onValueChange = { onMaxDensityChange(it / 100f) },
-                                valueRange = 5f..100f,
-                                unit = "%",
-                                displayDecimals = 0,
-                                fillColor = Color(0xFF81C784),
-                                height = 34.dp
-                            )
-                        }
-                    }
+                    // 6. Deposition Flow Dual-Range Slider (Min & Max in a single non-overflowing track)
+                    RangeDragControl(
+                        label = "Flow",
+                        minValue = minDensity,
+                        maxValue = maxDensity,
+                        onRangeChange = { newMin, newMax ->
+                            onMinDensityChange(newMin)
+                            onMaxDensityChange(newMax)
+                        },
+                        valueRange = 0f..1f,
+                        fillColor = Color(0xFF81C784)
+                    )
                 }
 
                 // Stabilizer Slider (0% .. 100%)

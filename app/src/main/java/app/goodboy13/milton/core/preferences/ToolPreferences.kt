@@ -224,6 +224,142 @@ object ToolPreferences {
         return getPrefs(context).getString("active_graphite_preset", defaultPreset) ?: defaultPreset
     }
 
+    // --- Custom Presets Serialization ---
+    private const val KEY_CUSTOM_PRESETS = "custom_graphite_presets"
+
+    fun serializePresets(presets: List<app.goodboy13.milton.core.constants.GraphitePreset>): String {
+        val arr = org.json.JSONArray()
+        for (p in presets) {
+            val obj = org.json.JSONObject().apply {
+                put("name", p.name)
+                put("size", p.size.toDouble())
+                put("opacity", p.opacity.toDouble())
+                put("hardness", p.hardness.toDouble())
+                put("particleNoise", p.particleNoise.toDouble())
+                put("grainDepth", p.grainDepth.toDouble())
+                put("grainType", p.grainType)
+                put("grainScale", p.grainScale.toDouble())
+                put("minDensity", p.minDensity.toDouble())
+                put("maxDensity", p.maxDensity.toDouble())
+                put("tilt", p.tilt.toDouble())
+                put("stabilizer", p.stabilizer.toDouble())
+                put("isCustom", true)
+
+                val sb = org.json.JSONObject().apply {
+                    put("cp1x", p.sizeBezier.cp1x.toDouble())
+                    put("cp1y", p.sizeBezier.cp1y.toDouble())
+                    put("cp2x", p.sizeBezier.cp2x.toDouble())
+                    put("cp2y", p.sizeBezier.cp2y.toDouble())
+                    put("min", p.sizeBezier.minPercent.toDouble())
+                    put("max", p.sizeBezier.maxPercent.toDouble())
+                }
+                put("sizeBezier", sb)
+
+                val ob = org.json.JSONObject().apply {
+                    put("cp1x", p.opacityBezier.cp1x.toDouble())
+                    put("cp1y", p.opacityBezier.cp1y.toDouble())
+                    put("cp2x", p.opacityBezier.cp2x.toDouble())
+                    put("cp2y", p.opacityBezier.cp2y.toDouble())
+                    put("min", p.opacityBezier.minPercent.toDouble())
+                    put("max", p.opacityBezier.maxPercent.toDouble())
+                }
+                put("opacityBezier", ob)
+
+                val tb = org.json.JSONObject().apply {
+                    put("cp1x", p.tiltBezier.cp1x.toDouble())
+                    put("cp1y", p.tiltBezier.cp1y.toDouble())
+                    put("cp2x", p.tiltBezier.cp2x.toDouble())
+                    put("cp2y", p.tiltBezier.cp2y.toDouble())
+                    put("min", p.tiltBezier.minPercent.toDouble())
+                    put("max", p.tiltBezier.maxPercent.toDouble())
+                }
+                put("tiltBezier", tb)
+            }
+            arr.put(obj)
+        }
+        return arr.toString()
+    }
+
+    fun deserializePresets(jsonStr: String?): List<app.goodboy13.milton.core.constants.GraphitePreset> {
+        if (jsonStr.isNullOrEmpty()) return emptyList()
+        val list = mutableListOf<app.goodboy13.milton.core.constants.GraphitePreset>()
+        try {
+            val arr = org.json.JSONArray(jsonStr)
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val sbObj = obj.optJSONObject("sizeBezier")
+                val sizeBezier = if (sbObj != null) {
+                    app.goodboy13.milton.core.model.BezierControlPoints(
+                        cp1x = sbObj.optDouble("cp1x", 0.85).toFloat(),
+                        cp1y = sbObj.optDouble("cp1y", 0.52).toFloat(),
+                        cp2x = sbObj.optDouble("cp2x", 0.58).toFloat(),
+                        cp2y = sbObj.optDouble("cp2y", 0.77).toFloat(),
+                        minPercent = sbObj.optDouble("min", 0.0).toFloat(),
+                        maxPercent = sbObj.optDouble("max", 1.0).toFloat()
+                    )
+                } else app.goodboy13.milton.core.model.PressureCurveDefaults.STANDARD
+
+                val obObj = obj.optJSONObject("opacityBezier")
+                val opacityBezier = if (obObj != null) {
+                    app.goodboy13.milton.core.model.BezierControlPoints(
+                        cp1x = obObj.optDouble("cp1x", 0.85).toFloat(),
+                        cp1y = obObj.optDouble("cp1y", 0.52).toFloat(),
+                        cp2x = obObj.optDouble("cp2x", 0.58).toFloat(),
+                        cp2y = obObj.optDouble("cp2y", 0.77).toFloat(),
+                        minPercent = obObj.optDouble("min", 0.0).toFloat(),
+                        maxPercent = obObj.optDouble("max", 1.0).toFloat()
+                    )
+                } else app.goodboy13.milton.core.model.PressureCurveDefaults.STANDARD
+
+                val tbObj = obj.optJSONObject("tiltBezier")
+                val tiltBezier = if (tbObj != null) {
+                    app.goodboy13.milton.core.model.BezierControlPoints(
+                        cp1x = tbObj.optDouble("cp1x", 0.85).toFloat(),
+                        cp1y = tbObj.optDouble("cp1y", 0.52).toFloat(),
+                        cp2x = tbObj.optDouble("cp2x", 0.58).toFloat(),
+                        cp2y = tbObj.optDouble("cp2y", 0.77).toFloat(),
+                        minPercent = tbObj.optDouble("min", 0.0).toFloat(),
+                        maxPercent = tbObj.optDouble("max", 1.0).toFloat()
+                    )
+                } else app.goodboy13.milton.core.model.PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f)
+
+                list.add(
+                    app.goodboy13.milton.core.constants.GraphitePreset(
+                        name = obj.getString("name"),
+                        size = obj.optDouble("size", 24.0).toFloat(),
+                        opacity = obj.optDouble("opacity", 0.35).toFloat(),
+                        hardness = obj.optDouble("hardness", 0.50).toFloat(),
+                        particleNoise = obj.optDouble("particleNoise", 0.35).toFloat(),
+                        grainDepth = obj.optDouble("grainDepth", 0.60).toFloat(),
+                        grainType = obj.optInt("grainType", 1),
+                        grainScale = obj.optDouble("grainScale", 1.0).toFloat(),
+                        minDensity = obj.optDouble("minDensity", 0.24).toFloat(),
+                        maxDensity = obj.optDouble("maxDensity", 0.60).toFloat(),
+                        tilt = obj.optDouble("tilt", 0.50).toFloat(),
+                        stabilizer = obj.optDouble("stabilizer", 0.05).toFloat(),
+                        sizeBezier = sizeBezier,
+                        opacityBezier = opacityBezier,
+                        tiltBezier = tiltBezier,
+                        isCustom = true
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            // Ignored in headless tests or logged
+        }
+        return list
+    }
+
+    fun saveCustomPresets(context: Context, presets: List<app.goodboy13.milton.core.constants.GraphitePreset>) {
+        val serialized = serializePresets(presets)
+        getPrefs(context).edit().putString(KEY_CUSTOM_PRESETS, serialized).apply()
+    }
+
+    fun loadCustomPresets(context: Context): List<app.goodboy13.milton.core.constants.GraphitePreset> {
+        val str = getPrefs(context).getString(KEY_CUSTOM_PRESETS, null)
+        return deserializePresets(str)
+    }
+
     // --- Color ---
     fun saveBrushColor(context: Context, colorRgb: Int) {
         getPrefs(context).edit().putInt(KEY_BRUSH_COLOR, colorRgb).apply()

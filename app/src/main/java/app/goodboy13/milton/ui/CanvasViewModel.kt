@@ -189,6 +189,7 @@ class CanvasViewModel : ViewModel() {
         val activeType = canvasView.brushType
         val color = app.goodboy13.milton.core.preferences.ToolPreferences.loadBrushColor(context, canvasView.brushColorRgb)
         val recents = app.goodboy13.milton.core.preferences.ToolPreferences.loadRecentColors(context)
+        val customPresets = app.goodboy13.milton.core.preferences.ToolPreferences.loadCustomPresets(context)
         _uiState.update { state ->
             state.copy(
                 tool = state.tool.copy(
@@ -209,6 +210,7 @@ class CanvasViewModel : ViewModel() {
                     minDensity = canvasView.minDensity,
                     maxDensity = canvasView.maxDensity,
                     activePreset = canvasView.activePreset,
+                    customPresets = customPresets,
                     recentColors = recents
                 )
             )
@@ -550,10 +552,14 @@ class CanvasViewModel : ViewModel() {
         canvasView.particleNoise = preset.particleNoise
         canvasView.grainDepth = preset.grainDepth
         canvasView.grainType = preset.grainType
+        canvasView.grainScale = preset.grainScale
         canvasView.minDensity = preset.minDensity
         canvasView.maxDensity = preset.maxDensity
         canvasView.brushTilt = preset.tilt
         canvasView.brushStabilizer = preset.stabilizer
+        canvasView.sizeBezierConfig = preset.sizeBezier
+        canvasView.opacityBezierConfig = preset.opacityBezier
+        canvasView.tiltBezierConfig = preset.tiltBezier
         canvasView.activePreset = preset.name
         canvasView.updatePhysicsParams()
 
@@ -570,11 +576,71 @@ class CanvasViewModel : ViewModel() {
                     particleNoise = preset.particleNoise,
                     grainDepth = preset.grainDepth,
                     grainType = preset.grainType,
+                    grainScale = preset.grainScale,
                     minDensity = preset.minDensity,
                     maxDensity = preset.maxDensity,
                     brushTilt = preset.tilt,
                     brushStabilizer = preset.stabilizer,
+                    sizeBezierConfig = preset.sizeBezier,
+                    opacityBezierConfig = preset.opacityBezier,
+                    tiltBezierConfig = preset.tiltBezier,
                     activePreset = preset.name
+                )
+            )
+        }
+    }
+
+    fun saveCurrentAsPreset(name: String, canvasView: MiltonCanvasView) {
+        val cleanName = name.trim().ifEmpty { "Custom Preset" }
+        val newPreset = app.goodboy13.milton.core.constants.GraphitePreset(
+            name = cleanName,
+            size = canvasView.brushSize,
+            opacity = canvasView.brushOpacity,
+            hardness = canvasView.brushHardness,
+            particleNoise = canvasView.particleNoise,
+            grainDepth = canvasView.grainDepth,
+            grainType = canvasView.grainType,
+            grainScale = canvasView.grainScale,
+            minDensity = canvasView.minDensity,
+            maxDensity = canvasView.maxDensity,
+            tilt = canvasView.brushTilt,
+            stabilizer = canvasView.brushStabilizer,
+            sizeBezier = canvasView.sizeBezierConfig,
+            opacityBezier = canvasView.opacityBezierConfig,
+            tiltBezier = canvasView.tiltBezierConfig,
+            isCustom = true
+        )
+        val updated = _uiState.value.tool.customPresets.filter { it.name != newPreset.name } + newPreset
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveCustomPresets(ctx, updated)
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveToolActivePreset(ctx, cleanName)
+        }
+        canvasView.activePreset = cleanName
+        _uiState.update {
+            it.copy(
+                tool = it.tool.copy(
+                    customPresets = updated,
+                    activePreset = cleanName
+                )
+            )
+        }
+    }
+
+    fun deleteCustomPreset(presetName: String) {
+        val updated = _uiState.value.tool.customPresets.filter { it.name != presetName }
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveCustomPresets(ctx, updated)
+        }
+        val fallbackName = if (_uiState.value.tool.activePreset == presetName) {
+            app.goodboy13.milton.core.constants.BrushDefaults.DEFAULT_GRAPHITE_PRESET
+        } else {
+            _uiState.value.tool.activePreset
+        }
+        _uiState.update {
+            it.copy(
+                tool = it.tool.copy(
+                    customPresets = updated,
+                    activePreset = fallbackName
                 )
             )
         }

@@ -152,15 +152,19 @@ object BrushDefaults {
         GraphitePreset(
             name = "2B Lead",
             size = 24.0f,
-            opacity = 0.30f,
+            opacity = 0.35f,
             hardness = 0.50f,
             particleNoise = 0.35f,
             grainDepth = 0.60f,
             grainType = GRAIN_MEDIUM,
+            grainScale = 1.0f,
             minDensity = 0.24f,
             maxDensity = 0.60f,
-            tilt = 0.50f,
-            stabilizer = 0.08f
+            tilt = 0.60f,
+            stabilizer = 0.08f,
+            sizeBezier = PressureCurveDefaults.STANDARD.copy(minPercent = 0.35f),
+            opacityBezier = PressureCurveDefaults.SOFT.copy(minPercent = 0.20f, maxPercent = 0.95f),
+            tiltBezier = PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f)
         ),
         GraphitePreset(
             name = "Tech Pen",
@@ -170,55 +174,72 @@ object BrushDefaults {
             particleNoise = 0.0f,
             grainDepth = 0.0f,
             grainType = GRAIN_SMOOTH,
+            grainScale = 1.0f,
             minDensity = 1.0f,
             maxDensity = 1.0f,
             tilt = 0.0f,
-            stabilizer = 0.05f
+            stabilizer = 0.05f,
+            sizeBezier = PressureCurveDefaults.FIRM.copy(minPercent = 0.20f),
+            opacityBezier = PressureCurveDefaults.LINEAR.copy(minPercent = 1.0f, maxPercent = 1.0f),
+            tiltBezier = PressureCurveDefaults.LINEAR.copy(minPercent = 0.0f, maxPercent = 0.0f)
         ),
         GraphitePreset(
             name = "Ballpoint",
             size = 8.0f,
-            opacity = 0.65f,
+            opacity = 0.70f,
             hardness = 0.85f,
             particleNoise = 0.05f,
             grainDepth = 0.15f,
             grainType = GRAIN_MEDIUM,
-            minDensity = 0.15f,
+            grainScale = 0.8f,
+            minDensity = 0.12f,
             maxDensity = 0.95f,
             tilt = 0.0f,
-            stabilizer = 0.04f
+            stabilizer = 0.03f,
+            sizeBezier = PressureCurveDefaults.LINEAR.copy(minPercent = 0.60f),
+            opacityBezier = PressureCurveDefaults.STANDARD.copy(minPercent = 0.15f, maxPercent = 1.0f),
+            tiltBezier = PressureCurveDefaults.LINEAR.copy(minPercent = 0.0f, maxPercent = 0.0f)
         ),
         GraphitePreset(
             name = "Charcoal",
-            size = 45.0f,
-            opacity = 0.50f,
-            hardness = 0.40f,
+            size = 50.0f,
+            opacity = 0.55f,
+            hardness = 0.35f,
             particleNoise = 0.85f,
-            grainDepth = 0.90f,
+            grainDepth = 0.85f,
             grainType = GRAIN_ROUGH,
-            minDensity = 0.35f,
+            grainScale = 1.2f,
+            minDensity = 0.30f,
             maxDensity = 0.90f,
-            tilt = 1.0f,
-            stabilizer = 0.05f
+            tilt = 1.20f,
+            stabilizer = 0.05f,
+            sizeBezier = PressureCurveDefaults.SOFT.copy(minPercent = 0.40f),
+            opacityBezier = PressureCurveDefaults.SOFT.copy(minPercent = 0.25f, maxPercent = 1.0f),
+            tiltBezier = PressureCurveDefaults.STANDARD.copy(minPercent = 0.10f, maxPercent = 1.0f)
         ),
         GraphitePreset(
             name = "Soft Wash",
             size = 120.0f,
-            opacity = 0.20f,
+            opacity = 0.18f,
             hardness = 0.10f,
             particleNoise = 0.0f,
             grainDepth = 0.25f,
             grainType = GRAIN_MEDIUM,
+            grainScale = 1.5f,
             minDensity = 0.10f,
             maxDensity = 0.40f,
             tilt = 0.0f,
-            stabilizer = 0.06f
+            stabilizer = 0.06f,
+            sizeBezier = PressureCurveDefaults.SOFT.copy(minPercent = 0.50f),
+            opacityBezier = PressureCurveDefaults.STANDARD.copy(minPercent = 0.10f, maxPercent = 0.60f),
+            tiltBezier = PressureCurveDefaults.LINEAR.copy(minPercent = 0.0f, maxPercent = 0.0f)
         )
     )
 }
 
 /**
- * First-class physical configuration for the unified graphite pencil engine.
+ * First-class physical configuration for the unified graphite pencil engine,
+ * encapsulating size, opacity, hardness, grain texture, flow dynamics, and pressure curves.
  */
 data class GraphitePreset(
     val name: String,
@@ -228,8 +249,13 @@ data class GraphitePreset(
     val particleNoise: Float,
     val grainDepth: Float,
     val grainType: Int,
+    val grainScale: Float = 1.0f,
     val minDensity: Float,
     val maxDensity: Float,
     val tilt: Float,
-    val stabilizer: Float = 0.05f
+    val stabilizer: Float = 0.05f,
+    val sizeBezier: BezierControlPoints = PressureCurveDefaults.STANDARD,
+    val opacityBezier: BezierControlPoints = PressureCurveDefaults.STANDARD,
+    val tiltBezier: BezierControlPoints = PressureCurveDefaults.STANDARD.copy(minPercent = 0.0f, maxPercent = 1.0f),
+    val isCustom: Boolean = false
 )

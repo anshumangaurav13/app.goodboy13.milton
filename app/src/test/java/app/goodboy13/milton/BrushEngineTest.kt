@@ -247,7 +247,9 @@ class BrushEngineTest {
         assertEquals(0.60f, props.grainDepth, 0.001f)
         assertEquals(0.24f, props.minDensity, 0.001f)
         assertEquals(0.60f, props.maxDensity, 0.001f)
-        assertEquals(0.50f, props.tilt, 0.001f)
+        assertEquals(0.60f, props.tilt, 0.001f)
+        assertEquals(0.35f, props.sizeBezierConfig.minPercent, 0.001f)
+        assertEquals(0.20f, props.opacityBezierConfig.minPercent, 0.001f)
 
         // 2. Tech Pen (Razor-sharp, 0 noise stipple, 100% density)
         val techPen = app.goodboy13.milton.core.constants.BrushDefaults.GRAPHITE_PRESETS.first { it.name == "Tech Pen" }
@@ -258,6 +260,8 @@ class BrushEngineTest {
         assertEquals(0.0f, props.grainDepth, 0.001f)
         assertEquals(1.0f, props.minDensity, 0.001f)
         assertEquals(1.0f, props.maxDensity, 0.001f)
+        assertEquals(0.20f, props.sizeBezierConfig.minPercent, 0.001f)
+        assertEquals(1.0f, props.opacityBezierConfig.minPercent, 0.001f)
 
         // 3. Ballpoint (Firm edge, sensitive ink flow)
         val ballpoint = app.goodboy13.milton.core.constants.BrushDefaults.GRAPHITE_PRESETS.first { it.name == "Ballpoint" }
@@ -265,16 +269,19 @@ class BrushEngineTest {
         assertEquals("Ballpoint", props.activePreset)
         assertEquals(0.85f, props.hardness, 0.001f)
         assertEquals(0.05f, props.particleNoise, 0.001f)
-        assertEquals(0.15f, props.minDensity, 0.001f)
+        assertEquals(0.12f, props.minDensity, 0.001f)
         assertEquals(0.95f, props.maxDensity, 0.001f)
+        assertEquals(0.60f, props.sizeBezierConfig.minPercent, 0.001f)
+        assertEquals(0.15f, props.opacityBezierConfig.minPercent, 0.001f)
 
         // 4. Charcoal (Rough tooth, heavy noise stipple)
         val charcoal = app.goodboy13.milton.core.constants.BrushDefaults.GRAPHITE_PRESETS.first { it.name == "Charcoal" }
         props.applyGraphitePreset(charcoal)
         assertEquals("Charcoal", props.activePreset)
-        assertEquals(0.40f, props.hardness, 0.001f)
+        assertEquals(0.35f, props.hardness, 0.001f)
         assertEquals(0.85f, props.particleNoise, 0.001f)
-        assertEquals(0.90f, props.grainDepth, 0.001f)
+        assertEquals(0.85f, props.grainDepth, 0.001f)
+        assertEquals(1.20f, props.grainScale, 0.001f)
 
         // 5. Soft Wash (Feathered edge, translucent buildable ink)
         val softWash = app.goodboy13.milton.core.constants.BrushDefaults.GRAPHITE_PRESETS.first { it.name == "Soft Wash" }
@@ -284,6 +291,52 @@ class BrushEngineTest {
         assertEquals(0.0f, props.particleNoise, 0.001f)
         assertEquals(0.10f, props.minDensity, 0.001f)
         assertEquals(0.40f, props.maxDensity, 0.001f)
+        assertEquals(1.50f, props.grainScale, 0.001f)
+    }
+
+    @Test
+    fun testCustomPresetSerialization() {
+        val custom = app.goodboy13.milton.core.constants.GraphitePreset(
+            name = "Studio Inker",
+            size = 45.0f,
+            opacity = 0.90f,
+            hardness = 0.92f,
+            particleNoise = 0.02f,
+            grainType = 1,
+            grainScale = 1.25f,
+            grainDepth = 0.10f,
+            minDensity = 0.40f,
+            maxDensity = 0.98f,
+            tilt = 0.65f,
+            stabilizer = 0.08f,
+            sizeBezier = app.goodboy13.milton.core.model.PressureCurveDefaults.FIRM,
+            opacityBezier = app.goodboy13.milton.core.model.PressureCurveDefaults.LINEAR,
+            tiltBezier = app.goodboy13.milton.core.model.PressureCurveDefaults.SOFT,
+            isCustom = true
+        )
+
+        val serialized = app.goodboy13.milton.core.preferences.ToolPreferences.serializePresets(listOf(custom))
+        val deserialized = app.goodboy13.milton.core.preferences.ToolPreferences.deserializePresets(serialized)
+
+        assertEquals(1, deserialized.size)
+        val loaded = deserialized[0]
+        assertEquals("Studio Inker", loaded.name)
+        assertEquals(45.0f, loaded.size, 0.001f)
+        assertEquals(0.90f, loaded.opacity, 0.001f)
+        assertEquals(0.92f, loaded.hardness, 0.001f)
+        assertEquals(0.02f, loaded.particleNoise, 0.001f)
+        assertEquals(1, loaded.grainType)
+        assertEquals(1.25f, loaded.grainScale, 0.001f)
+        assertEquals(0.10f, loaded.grainDepth, 0.001f)
+        assertEquals(0.40f, loaded.minDensity, 0.001f)
+        assertEquals(0.98f, loaded.maxDensity, 0.001f)
+        assertEquals(0.65f, loaded.tilt, 0.001f)
+        assertEquals(0.08f, loaded.stabilizer, 0.001f)
+        assertTrue(loaded.isCustom)
+        assertEquals(custom.sizeBezier.cp1x, loaded.sizeBezier.cp1x, 0.001f)
+        assertEquals(custom.sizeBezier.cp2y, loaded.sizeBezier.cp2y, 0.001f)
+        assertEquals(custom.opacityBezier.minPercent, loaded.opacityBezier.minPercent, 0.001f)
+        assertEquals(custom.tiltBezier.maxPercent, loaded.tiltBezier.maxPercent, 0.001f)
     }
 
     @Test
