@@ -471,6 +471,14 @@ fun ToolParametersFloatingWindow(
     onGrainScaleChange: (Float) -> Unit = {},
     grainDepth: Float = 0.60f,
     onGrainDepthChange: (Float) -> Unit = {},
+    particleNoise: Float = app.goodboy13.milton.core.constants.BrushDefaults.DEFAULT_PARTICLE_NOISE,
+    onParticleNoiseChange: (Float) -> Unit = {},
+    minDensity: Float = app.goodboy13.milton.core.constants.BrushDefaults.DEFAULT_MIN_DENSITY,
+    onMinDensityChange: (Float) -> Unit = {},
+    maxDensity: Float = app.goodboy13.milton.core.constants.BrushDefaults.DEFAULT_MAX_DENSITY,
+    onMaxDensityChange: (Float) -> Unit = {},
+    activePreset: String = app.goodboy13.milton.core.constants.BrushDefaults.DEFAULT_GRAPHITE_PRESET,
+    onSelectGraphitePreset: (app.goodboy13.milton.core.constants.GraphitePreset) -> Unit = {},
     onClose: () -> Unit,
     containerWidth: Int,
     containerHeight: Int,
@@ -479,6 +487,7 @@ fun ToolParametersFloatingWindow(
 ) {
     var activeCurveDynamics by remember { mutableStateOf(ActiveCurveDynamics.NONE) }
     var isTextureExpanded by remember { mutableStateOf(false) }
+    var isDepositionExpanded by remember { mutableStateOf(false) }
 
     DraggableFloatingWindow(
         title = brushType.displayName,
@@ -535,6 +544,79 @@ fun ToolParametersFloatingWindow(
                     )
                 }
             } else {
+                // Unified Graphite Presets for Drawing Tool
+                if (brushType == BrushType.PENCIL) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        val presets = app.goodboy13.milton.core.constants.BrushDefaults.GRAPHITE_PRESETS
+                        // Row 1: 2B Lead, Tech Pen, Ballpoint
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            presets.take(3).forEach { p ->
+                                val isSelected = activePreset == p.name
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(26.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isSelected) Color(0xFFFFCC80).copy(alpha = 0.25f) else Color(0xFF22262E))
+                                        .border(
+                                            width = if (isSelected) 1.5.dp else 1.dp,
+                                            color = if (isSelected) Color(0xFFFFCC80) else Color(0x35FFFFFF),
+                                            shape = RoundedCornerShape(6.dp)
+                                        )
+                                        .clickable { onSelectGraphitePreset(p) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = p.name,
+                                        fontSize = 10.5.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) Color(0xFFFFCC80) else Color.White.copy(alpha = 0.85f),
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+
+                        // Row 2: Charcoal, Soft Wash
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            presets.drop(3).forEach { p ->
+                                val isSelected = activePreset == p.name
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(26.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isSelected) Color(0xFFFFCC80).copy(alpha = 0.25f) else Color(0xFF22262E))
+                                        .border(
+                                            width = if (isSelected) 1.5.dp else 1.dp,
+                                            color = if (isSelected) Color(0xFFFFCC80) else Color(0x35FFFFFF),
+                                            shape = RoundedCornerShape(6.dp)
+                                        )
+                                        .clickable { onSelectGraphitePreset(p) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = p.name,
+                                        fontSize = 10.5.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) Color(0xFFFFCC80) else Color.White.copy(alpha = 0.85f),
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Live S-curve stroke preview
                 StrokePreviewBox(
                     brushType = brushType,
@@ -621,9 +703,31 @@ fun ToolParametersFloatingWindow(
                     )
                 }
 
-                // Pencil Specific Controls: 3. Tilt, 4. Lead Grade
+                // Hardness / Edge Sharpness Slider (5% .. 98%)
+                ValueDragControl(
+                    label = "Hardness",
+                    value = brushHardness * 100f,
+                    onValueChange = { onBrushHardnessChange(it / 100f) },
+                    valueRange = 5f..98f,
+                    unit = "%",
+                    displayDecimals = 0,
+                    fillColor = Color(0xFFFFB74D)
+                )
+
+                // Pencil Specific Controls: 3. Noise, 4. Tilt, 5. Paper Texture, 6. Deposition Flow
                 if (brushType == BrushType.PENCIL) {
-                    // 3. Tilt Shading Control with Curve Button (0% .. 100%)
+                    // Particle Noise / Stipple Slider (0% .. 100%)
+                    ValueDragControl(
+                        label = "Noise",
+                        value = particleNoise * 100f,
+                        onValueChange = { onParticleNoiseChange(it / 100f) },
+                        valueRange = 0f..100f,
+                        unit = "%",
+                        displayDecimals = 0,
+                        fillColor = Color(0xFFFFCC80)
+                    )
+
+                    // 4. Tilt Shading Control with Curve Button (0% .. 200%)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -660,7 +764,7 @@ fun ToolParametersFloatingWindow(
                         )
                     }
 
-                    // 4. Paper Texture Collapsible Card
+                    // 5. Paper Texture Collapsible Card
                     val grainNames = app.goodboy13.milton.core.constants.BrushDefaults.GRAIN_NAMES
                     val currentGrainName = grainNames.getOrElse(grainType) { "Medium" }
 
@@ -817,9 +921,88 @@ fun ToolParametersFloatingWindow(
                         }
                     }
 
+                    // 6. Deposition Flow Collapsible Card
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF22262E))
+                            .border(
+                                1.dp,
+                                if (isDepositionExpanded) Color(0xFF81C784).copy(alpha = 0.85f) else Color(0x35FFFFFF),
+                                RoundedCornerShape(10.dp)
+                            )
+                            .clickable { isDepositionExpanded = !isDepositionExpanded }
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Deposition Flow",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.White.copy(alpha = 0.85f)
+                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "${(minDensity * 100).toInt()}%..${(maxDensity * 100).toInt()}%",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF81C784)
+                                )
+                                Icon(
+                                    imageVector = if (isDepositionExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = if (isDepositionExpanded) "Collapse" else "Expand",
+                                    tint = Color(0xFF81C784),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    AnimatedVisibility(visible = isDepositionExpanded) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF181B20))
+                                .border(1.dp, Color(0x25FFFFFF), RoundedCornerShape(10.dp))
+                                .padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            ValueDragControl(
+                                label = "Min Flow",
+                                value = minDensity * 100f,
+                                onValueChange = { onMinDensityChange(it / 100f) },
+                                valueRange = 0f..100f,
+                                unit = "%",
+                                displayDecimals = 0,
+                                fillColor = Color(0xFF81C784),
+                                height = 34.dp
+                            )
+                            ValueDragControl(
+                                label = "Max Flow",
+                                value = maxDensity * 100f,
+                                onValueChange = { onMaxDensityChange(it / 100f) },
+                                valueRange = 5f..100f,
+                                unit = "%",
+                                displayDecimals = 0,
+                                fillColor = Color(0xFF81C784),
+                                height = 34.dp
+                            )
+                        }
+                    }
                 }
 
-                // 5. Stabilizer Slider (0% .. 100%)
+                // Stabilizer Slider (0% .. 100%)
                 ValueDragControl(
                     label = "Stabilizer",
                     value = brushStabilizer * 100f,

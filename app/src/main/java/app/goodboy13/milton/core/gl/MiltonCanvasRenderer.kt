@@ -135,6 +135,10 @@ class MiltonCanvasRenderer(
         engine.setGrainParams(type, scale, depth)
     }
 
+    fun setPhysicalParams(particleNoise: Float, minDensity: Float, maxDensity: Float) {
+        engine.setPhysicalParams(particleNoise, minDensity, maxDensity)
+    }
+
     fun deleteLayer(canvasView: MiltonCanvasView, layerId: Long) {
         if (!layerManager.canDeleteLayer()) return
         engine.enqueueCommand(

@@ -48,7 +48,11 @@ data class BrushProperties(
     var tiltBezierConfig: BezierControlPoints = BrushDefaults.getDefaultTiltBezier(BrushType.PENCIL),
     var grainType: Int = BrushDefaults.getDefaultGrainType(BrushType.PENCIL),
     var grainScale: Float = BrushDefaults.getDefaultGrainScale(BrushType.PENCIL),
-    var grainDepth: Float = BrushDefaults.getDefaultGrainDepth(BrushType.PENCIL)
+    var grainDepth: Float = BrushDefaults.getDefaultGrainDepth(BrushType.PENCIL),
+    var particleNoise: Float = BrushDefaults.DEFAULT_PARTICLE_NOISE,
+    var minDensity: Float = BrushDefaults.DEFAULT_MIN_DENSITY,
+    var maxDensity: Float = BrushDefaults.DEFAULT_MAX_DENSITY,
+    var activePreset: String = BrushDefaults.DEFAULT_GRAPHITE_PRESET
 ) {
     // Legacy alias
     var bezierConfig: BezierControlPoints
@@ -66,6 +70,24 @@ data class BrushProperties(
     private val savedGrainTypes = BrushType.values().associateWith { BrushDefaults.getDefaultGrainType(it) }.toMutableMap()
     private val savedGrainScales = BrushType.values().associateWith { BrushDefaults.getDefaultGrainScale(it) }.toMutableMap()
     private val savedGrainDepths = BrushType.values().associateWith { BrushDefaults.getDefaultGrainDepth(it) }.toMutableMap()
+    private val savedParticleNoises = BrushType.values().associateWith { BrushDefaults.DEFAULT_PARTICLE_NOISE }.toMutableMap()
+    private val savedMinDensities = BrushType.values().associateWith { BrushDefaults.DEFAULT_MIN_DENSITY }.toMutableMap()
+    private val savedMaxDensities = BrushType.values().associateWith { BrushDefaults.DEFAULT_MAX_DENSITY }.toMutableMap()
+
+    fun applyGraphitePreset(preset: app.goodboy13.milton.core.constants.GraphitePreset) {
+        activePreset = preset.name
+        size = preset.size
+        opacity = preset.opacity
+        hardness = preset.hardness
+        particleNoise = preset.particleNoise
+        grainDepth = preset.grainDepth
+        grainType = preset.grainType
+        minDensity = preset.minDensity
+        maxDensity = preset.maxDensity
+        tilt = preset.tilt
+        stabilizer = preset.stabilizer
+        minRadius = (size * 0.12f).coerceAtLeast(1.2f)
+    }
 
     fun applyPreset(type: BrushType, saveCurrentFirst: Boolean = true) {
         if (saveCurrentFirst) {
@@ -80,6 +102,9 @@ data class BrushProperties(
             savedGrainTypes[brushType] = grainType
             savedGrainScales[brushType] = grainScale
             savedGrainDepths[brushType] = grainDepth
+            savedParticleNoises[brushType] = particleNoise
+            savedMinDensities[brushType] = minDensity
+            savedMaxDensities[brushType] = maxDensity
         }
 
         brushType = type
@@ -94,6 +119,9 @@ data class BrushProperties(
         grainType = savedGrainTypes[type] ?: BrushDefaults.getDefaultGrainType(type)
         grainScale = savedGrainScales[type] ?: BrushDefaults.getDefaultGrainScale(type)
         grainDepth = savedGrainDepths[type] ?: BrushDefaults.getDefaultGrainDepth(type)
+        particleNoise = savedParticleNoises[type] ?: BrushDefaults.DEFAULT_PARTICLE_NOISE
+        minDensity = savedMinDensities[type] ?: BrushDefaults.DEFAULT_MIN_DENSITY
+        maxDensity = savedMaxDensities[type] ?: BrushDefaults.DEFAULT_MAX_DENSITY
         minRadius = (size * 0.12f).coerceAtLeast(1.2f)
 
         val preset = BrushDefaults.getPreset(type)
@@ -118,7 +146,11 @@ data class BrushProperties(
             savedGrainTypes[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolGrainType(context, t, savedGrainTypes[t] ?: BrushDefaults.getDefaultGrainType(t))
             savedGrainScales[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolGrainScale(context, t, savedGrainScales[t] ?: BrushDefaults.getDefaultGrainScale(t))
             savedGrainDepths[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolGrainDepth(context, t, savedGrainDepths[t] ?: BrushDefaults.getDefaultGrainDepth(t))
+            savedParticleNoises[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolParticleNoise(context, t, savedParticleNoises[t] ?: BrushDefaults.DEFAULT_PARTICLE_NOISE)
+            savedMinDensities[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolMinDensity(context, t, savedMinDensities[t] ?: BrushDefaults.DEFAULT_MIN_DENSITY)
+            savedMaxDensities[t] = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolMaxDensity(context, t, savedMaxDensities[t] ?: BrushDefaults.DEFAULT_MAX_DENSITY)
         }
+        activePreset = app.goodboy13.milton.core.preferences.ToolPreferences.loadToolActivePreset(context, BrushDefaults.DEFAULT_GRAPHITE_PRESET)
         val active = app.goodboy13.milton.core.preferences.ToolPreferences.loadActiveBrushType(context)
         applyPreset(active, saveCurrentFirst = false)
     }
@@ -135,6 +167,10 @@ data class BrushProperties(
         savedGrainTypes[brushType] = grainType
         savedGrainScales[brushType] = grainScale
         savedGrainDepths[brushType] = grainDepth
+        savedParticleNoises[brushType] = particleNoise
+        savedMinDensities[brushType] = minDensity
+        savedMaxDensities[brushType] = maxDensity
+        app.goodboy13.milton.core.preferences.ToolPreferences.saveToolActivePreset(context, activePreset)
         app.goodboy13.milton.core.preferences.ToolPreferences.saveActiveBrushType(context, brushType)
         for (t in BrushType.values()) {
             savedSizes[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolSize(context, t, it) }
@@ -148,6 +184,9 @@ data class BrushProperties(
             savedGrainTypes[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolGrainType(context, t, it) }
             savedGrainScales[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolGrainScale(context, t, it) }
             savedGrainDepths[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolGrainDepth(context, t, it) }
+            savedParticleNoises[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolParticleNoise(context, t, it) }
+            savedMinDensities[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolMinDensity(context, t, it) }
+            savedMaxDensities[t]?.let { app.goodboy13.milton.core.preferences.ToolPreferences.saveToolMaxDensity(context, t, it) }
         }
     }
 }

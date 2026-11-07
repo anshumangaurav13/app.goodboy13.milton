@@ -265,6 +265,14 @@ fun MiltonTabletUi(
                 onGrainScaleChange = actions.tool.onGrainScaleChange,
                 grainDepth = state.tool.grainDepth,
                 onGrainDepthChange = actions.tool.onGrainDepthChange,
+                particleNoise = state.tool.particleNoise,
+                onParticleNoiseChange = actions.tool.onParticleNoiseChange,
+                minDensity = state.tool.minDensity,
+                onMinDensityChange = actions.tool.onMinDensityChange,
+                maxDensity = state.tool.maxDensity,
+                onMaxDensityChange = actions.tool.onMaxDensityChange,
+                activePreset = state.tool.activePreset,
+                onSelectGraphitePreset = actions.tool.onSelectGraphitePreset,
                 onClose = {
                     val cur = workspaceLayout
                     if (cur is WorkspaceLayoutMode.Standard) {

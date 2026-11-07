@@ -84,6 +84,10 @@ class CanvasEngine(
         sceneRenderer.setGrainParams(type, scale, depth)
     }
 
+    fun setPhysicalParams(particleNoise: Float, minDensity: Float, maxDensity: Float) {
+        sceneRenderer.setPhysicalParams(particleNoise, minDensity, maxDensity)
+    }
+
     fun clear() {
         commandQueue.clear()
         dabsToCommit.clear()

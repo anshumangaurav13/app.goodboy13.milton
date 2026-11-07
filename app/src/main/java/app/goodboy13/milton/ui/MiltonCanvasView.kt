@@ -74,6 +74,11 @@ class MiltonCanvasView @JvmOverloads constructor(
             brushEngine.properties.grainScale,
             brushEngine.properties.grainDepth
         )
+        renderer.setPhysicalParams(
+            brushEngine.properties.particleNoise,
+            brushEngine.properties.minDensity,
+            brushEngine.properties.maxDensity
+        )
     }
 
     private val gestureDetector = CanvasGestureDetector(object : CanvasGestureDetector.GestureListener {
@@ -166,6 +171,11 @@ class MiltonCanvasView @JvmOverloads constructor(
                 brushEngine.properties.grainType,
                 brushEngine.properties.grainScale,
                 brushEngine.properties.grainDepth
+            )
+            renderer.setPhysicalParams(
+                brushEngine.properties.particleNoise,
+                brushEngine.properties.minDensity,
+                brushEngine.properties.maxDensity
             )
         }
 
@@ -264,6 +274,46 @@ class MiltonCanvasView @JvmOverloads constructor(
             brushEngine.properties.grainDepth = value
             renderer.setGrainParams(brushEngine.properties.grainType, brushEngine.properties.grainScale, value)
         }
+
+    var particleNoise: Float
+        get() = brushEngine.properties.particleNoise
+        set(value) {
+            brushEngine.properties.particleNoise = value
+            renderer.setPhysicalParams(value, brushEngine.properties.minDensity, brushEngine.properties.maxDensity)
+        }
+
+    var minDensity: Float
+        get() = brushEngine.properties.minDensity
+        set(value) {
+            brushEngine.properties.minDensity = value
+            renderer.setPhysicalParams(brushEngine.properties.particleNoise, value, brushEngine.properties.maxDensity)
+        }
+
+    var maxDensity: Float
+        get() = brushEngine.properties.maxDensity
+        set(value) {
+            brushEngine.properties.maxDensity = value
+            renderer.setPhysicalParams(brushEngine.properties.particleNoise, brushEngine.properties.minDensity, value)
+        }
+
+    var activePreset: String
+        get() = brushEngine.properties.activePreset
+        set(value) {
+            brushEngine.properties.activePreset = value
+        }
+
+    fun updatePhysicsParams() {
+        renderer.setGrainParams(
+            brushEngine.properties.grainType,
+            brushEngine.properties.grainScale,
+            brushEngine.properties.grainDepth
+        )
+        renderer.setPhysicalParams(
+            brushEngine.properties.particleNoise,
+            brushEngine.properties.minDensity,
+            brushEngine.properties.maxDensity
+        )
+    }
 
     var backgroundColorRgb: Int
         get() = renderer.backgroundColorRgb
@@ -473,6 +523,11 @@ class MiltonCanvasView @JvmOverloads constructor(
             brushEngine.properties.grainType,
             brushEngine.properties.grainScale,
             brushEngine.properties.grainDepth
+        )
+        renderer.setPhysicalParams(
+            brushEngine.properties.particleNoise,
+            brushEngine.properties.minDensity,
+            brushEngine.properties.maxDensity
         )
     }
 

@@ -20,6 +20,10 @@ data class ToolActions(
     val onGrainTypeChange: (Int) -> Unit = {},
     val onGrainScaleChange: (Float) -> Unit = {},
     val onGrainDepthChange: (Float) -> Unit = {},
+    val onParticleNoiseChange: (Float) -> Unit = {},
+    val onMinDensityChange: (Float) -> Unit = {},
+    val onMaxDensityChange: (Float) -> Unit = {},
+    val onSelectGraphitePreset: (app.goodboy13.milton.core.constants.GraphitePreset) -> Unit = {},
     val onToggleEyedropper: () -> Unit = {}
 )
 

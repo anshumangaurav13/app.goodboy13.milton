@@ -142,4 +142,94 @@ object BrushDefaults {
     const val GRAIN_LAID = 4
 
     val GRAIN_NAMES = listOf("Smooth", "Medium", "Rough", "Canvas", "Laid")
+
+    const val DEFAULT_PARTICLE_NOISE = 0.35f
+    const val DEFAULT_MIN_DENSITY = 0.24f
+    const val DEFAULT_MAX_DENSITY = 0.60f
+    const val DEFAULT_GRAPHITE_PRESET = "2B Lead"
+
+    val GRAPHITE_PRESETS: List<GraphitePreset> = listOf(
+        GraphitePreset(
+            name = "2B Lead",
+            size = 24.0f,
+            opacity = 0.30f,
+            hardness = 0.50f,
+            particleNoise = 0.35f,
+            grainDepth = 0.60f,
+            grainType = GRAIN_MEDIUM,
+            minDensity = 0.24f,
+            maxDensity = 0.60f,
+            tilt = 0.50f,
+            stabilizer = 0.08f
+        ),
+        GraphitePreset(
+            name = "Tech Pen",
+            size = 12.0f,
+            opacity = 1.0f,
+            hardness = 0.96f,
+            particleNoise = 0.0f,
+            grainDepth = 0.0f,
+            grainType = GRAIN_SMOOTH,
+            minDensity = 1.0f,
+            maxDensity = 1.0f,
+            tilt = 0.0f,
+            stabilizer = 0.05f
+        ),
+        GraphitePreset(
+            name = "Ballpoint",
+            size = 8.0f,
+            opacity = 0.65f,
+            hardness = 0.85f,
+            particleNoise = 0.05f,
+            grainDepth = 0.15f,
+            grainType = GRAIN_MEDIUM,
+            minDensity = 0.15f,
+            maxDensity = 0.95f,
+            tilt = 0.0f,
+            stabilizer = 0.04f
+        ),
+        GraphitePreset(
+            name = "Charcoal",
+            size = 45.0f,
+            opacity = 0.50f,
+            hardness = 0.40f,
+            particleNoise = 0.85f,
+            grainDepth = 0.90f,
+            grainType = GRAIN_ROUGH,
+            minDensity = 0.35f,
+            maxDensity = 0.90f,
+            tilt = 1.0f,
+            stabilizer = 0.05f
+        ),
+        GraphitePreset(
+            name = "Soft Wash",
+            size = 120.0f,
+            opacity = 0.20f,
+            hardness = 0.10f,
+            particleNoise = 0.0f,
+            grainDepth = 0.25f,
+            grainType = GRAIN_MEDIUM,
+            minDensity = 0.10f,
+            maxDensity = 0.40f,
+            tilt = 0.0f,
+            stabilizer = 0.06f
+        )
+    )
 }
+
+/**
+ * First-class physical configuration for the unified graphite pencil engine.
+ */
+data class GraphitePreset(
+    val name: String,
+    val size: Float,
+    val opacity: Float,
+    val hardness: Float,
+    val particleNoise: Float,
+    val grainDepth: Float,
+    val grainType: Int,
+    val minDensity: Float,
+    val maxDensity: Float,
+    val tilt: Float,
+    val stabilizer: Float = 0.05f
+)

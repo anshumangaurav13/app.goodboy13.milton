@@ -119,23 +119,11 @@ fun TabletToolRail(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            // 4 Core Tools with Custom Distinct Vector Logos
-            ToolButton(
-                brushType = BrushType.PEN,
-                isSelected = activeBrush == BrushType.PEN,
-                onSelect = { onSelectBrush(BrushType.PEN) },
-                onOpenMenu = onOpenToolParameters
-            )
+            // Core Tools: Unified Graphite Drawing Engine, Eraser, Lasso, Liquify
             ToolButton(
                 brushType = BrushType.PENCIL,
                 isSelected = activeBrush == BrushType.PENCIL,
                 onSelect = { onSelectBrush(BrushType.PENCIL) },
-                onOpenMenu = onOpenToolParameters
-            )
-            ToolButton(
-                brushType = BrushType.PAINTBRUSH,
-                isSelected = activeBrush == BrushType.PAINTBRUSH,
-                onSelect = { onSelectBrush(BrushType.PAINTBRUSH) },
                 onOpenMenu = onOpenToolParameters
             )
 

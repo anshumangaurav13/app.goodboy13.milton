@@ -29,10 +29,16 @@ class DabShader {
     private var uGrainTypeLoc: Int = -1
     private var uGrainScaleLoc: Int = -1
     private var uGrainDepthLoc: Int = -1
+    private var uParticleNoiseLoc: Int = -1
+    private var uMinDensityLoc: Int = -1
+    private var uMaxDensityLoc: Int = -1
 
     var grainType: Int = 1
     var grainScale: Float = 1.0f
     var grainDepth: Float = 0.60f
+    var particleNoise: Float = 0.35f
+    var minDensity: Float = 0.24f
+    var maxDensity: Float = 0.60f
 
     var usesFramebufferFetch: Boolean = false
         private set
@@ -41,6 +47,12 @@ class DabShader {
         grainType = type
         grainScale = scale
         grainDepth = depth
+    }
+
+    fun setPhysicalParams(particleNoise: Float, minDensity: Float, maxDensity: Float) {
+        this.particleNoise = particleNoise
+        this.minDensity = minDensity
+        this.maxDensity = maxDensity
     }
 
     fun initGl() {
@@ -87,6 +99,9 @@ class DabShader {
             uniform int uGrainType;
             uniform float uGrainScale;
             uniform float uGrainDepth;
+            uniform float uParticleNoise;
+            uniform float uMinDensity;
+            uniform float uMaxDensity;
 
             layout(location = 0) inout vec4 fragColor;
 
@@ -206,6 +221,9 @@ $GRAPHITE_PHYSICS_GLSL
             uniform int uGrainType;
             uniform float uGrainScale;
             uniform float uGrainDepth;
+            uniform float uParticleNoise;
+            uniform float uMinDensity;
+            uniform float uMaxDensity;
 
             out vec4 fragColor;
 
@@ -272,6 +290,9 @@ $GRAPHITE_PHYSICS_GLSL
         uGrainTypeLoc = GLES30.glGetUniformLocation(programId, "uGrainType")
         uGrainScaleLoc = GLES30.glGetUniformLocation(programId, "uGrainScale")
         uGrainDepthLoc = GLES30.glGetUniformLocation(programId, "uGrainDepth")
+        uParticleNoiseLoc = GLES30.glGetUniformLocation(programId, "uParticleNoise")
+        uMinDensityLoc = GLES30.glGetUniformLocation(programId, "uMinDensity")
+        uMaxDensityLoc = GLES30.glGetUniformLocation(programId, "uMaxDensity")
 
         // Setup static Unit Quad in VBO + VAO
         val vaos = IntArray(1)
@@ -318,6 +339,9 @@ $GRAPHITE_PHYSICS_GLSL
         if (uGrainTypeLoc != -1) GLES30.glUniform1i(uGrainTypeLoc, grainType)
         if (uGrainScaleLoc != -1) GLES30.glUniform1f(uGrainScaleLoc, grainScale)
         if (uGrainDepthLoc != -1) GLES30.glUniform1f(uGrainDepthLoc, grainDepth)
+        if (uParticleNoiseLoc != -1) GLES30.glUniform1f(uParticleNoiseLoc, particleNoise)
+        if (uMinDensityLoc != -1) GLES30.glUniform1f(uMinDensityLoc, minDensity)
+        if (uMaxDensityLoc != -1) GLES30.glUniform1f(uMaxDensityLoc, maxDensity)
         GLES30.glBindVertexArray(vaoId)
     }
 
@@ -484,27 +508,28 @@ $GRAPHITE_PHYSICS_GLSL
         """
 
         private const val GRAPHITE_PHYSICS_GLSL = """
-                    // 1. Soft lead contact edge falloff (smooth feathering instead of harsh cutoff)
-                    float leadEdge = smoothstep(1.0, 0.50, dist);
+                    // 1. Lead contact edge falloff modulated by uHardness (sharp technical pen vs soft lead vs wash)
+                    float leadEdge = smoothstep(1.0, uHardness, dist);
 
                     // 2. Multi-octave procedural paper tooth (fixed to world coordinates)
                     float rawTooth = evaluatePaperGrain(vWorldPos, uGrainType, uGrainScale);
                     float pRand = particleHash(pixelCoord, vDabCenter);
 
                     // 3. Stylus pressure modulates fiber penetration & burnishing:
-                    // Low pressure: graphite catches mostly on peaks (strong tooth)
-                    // High pressure: graphite burnishes and compresses into valleys (solid shading)
+                    // Low pressure: pigment catches mostly on peaks (strong tooth)
+                    // High pressure: pigment burnishes and compresses into valleys (solid shading)
                     float pressureNorm = clamp(uPressure, 0.0, 1.0);
                     float toothMod = (rawTooth - 0.5) * 2.0;
                     float contrast = mix(0.65, 0.20, pressureNorm) * uGrainDepth;
-                    float toothCoverage = clamp(0.70 + toothMod * contrast, 0.05, 1.0);
+                    float toothCenter = mix(1.0, 0.70, uGrainDepth);
+                    float toothCoverage = clamp(toothCenter + toothMod * contrast, 0.0, 1.0);
 
-                    // 4. Delicate micro-particle grain variance
-                    float microGrain = 0.88 + 0.24 * pRand;
+                    // 4. Particle grain noise stipple variance (0.0 = razor smooth, 1.0 = rough charcoal stipple)
+                    float microGrain = mix(1.0, 0.76 + 0.48 * pRand, uParticleNoise);
 
-                    // 5. Dense, continuous graphite deposition (responsive to lead hardness & stylus pressure)
-                    float leadDensity = (0.24 + 0.36 * pressureNorm);
-                    dabAlpha = clamp(leadEdge * toothCoverage * microGrain * leadDensity * uColor.a, 0.0, 1.0);
+                    // 5. Continuous deposition (responsive to density range & stylus pressure)
+                    float density = mix(uMinDensity, uMaxDensity, pressureNorm);
+                    dabAlpha = clamp(leadEdge * toothCoverage * microGrain * density * uColor.a, 0.0, 1.0);
         """
     }
 }

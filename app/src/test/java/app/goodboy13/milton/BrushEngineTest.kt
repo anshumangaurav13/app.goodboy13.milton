@@ -233,4 +233,69 @@ class BrushEngineTest {
         engine.endStroke(dabs)
         assertTrue(dabs.size >= beforeEnd)
     }
+
+    @Test
+    fun testUnifiedGraphitePresets() {
+        val props = BrushProperties()
+
+        // 1. 2B Lead
+        val lead2B = app.goodboy13.milton.core.constants.BrushDefaults.GRAPHITE_PRESETS.first { it.name == "2B Lead" }
+        props.applyGraphitePreset(lead2B)
+        assertEquals("2B Lead", props.activePreset)
+        assertEquals(0.50f, props.hardness, 0.001f)
+        assertEquals(0.35f, props.particleNoise, 0.001f)
+        assertEquals(0.60f, props.grainDepth, 0.001f)
+        assertEquals(0.24f, props.minDensity, 0.001f)
+        assertEquals(0.60f, props.maxDensity, 0.001f)
+        assertEquals(0.50f, props.tilt, 0.001f)
+
+        // 2. Tech Pen (Razor-sharp, 0 noise stipple, 100% density)
+        val techPen = app.goodboy13.milton.core.constants.BrushDefaults.GRAPHITE_PRESETS.first { it.name == "Tech Pen" }
+        props.applyGraphitePreset(techPen)
+        assertEquals("Tech Pen", props.activePreset)
+        assertEquals(0.96f, props.hardness, 0.001f)
+        assertEquals(0.0f, props.particleNoise, 0.001f)
+        assertEquals(0.0f, props.grainDepth, 0.001f)
+        assertEquals(1.0f, props.minDensity, 0.001f)
+        assertEquals(1.0f, props.maxDensity, 0.001f)
+
+        // 3. Ballpoint (Firm edge, sensitive ink flow)
+        val ballpoint = app.goodboy13.milton.core.constants.BrushDefaults.GRAPHITE_PRESETS.first { it.name == "Ballpoint" }
+        props.applyGraphitePreset(ballpoint)
+        assertEquals("Ballpoint", props.activePreset)
+        assertEquals(0.85f, props.hardness, 0.001f)
+        assertEquals(0.05f, props.particleNoise, 0.001f)
+        assertEquals(0.15f, props.minDensity, 0.001f)
+        assertEquals(0.95f, props.maxDensity, 0.001f)
+
+        // 4. Charcoal (Rough tooth, heavy noise stipple)
+        val charcoal = app.goodboy13.milton.core.constants.BrushDefaults.GRAPHITE_PRESETS.first { it.name == "Charcoal" }
+        props.applyGraphitePreset(charcoal)
+        assertEquals("Charcoal", props.activePreset)
+        assertEquals(0.40f, props.hardness, 0.001f)
+        assertEquals(0.85f, props.particleNoise, 0.001f)
+        assertEquals(0.90f, props.grainDepth, 0.001f)
+
+        // 5. Soft Wash (Feathered edge, translucent buildable ink)
+        val softWash = app.goodboy13.milton.core.constants.BrushDefaults.GRAPHITE_PRESETS.first { it.name == "Soft Wash" }
+        props.applyGraphitePreset(softWash)
+        assertEquals("Soft Wash", props.activePreset)
+        assertEquals(0.10f, props.hardness, 0.001f)
+        assertEquals(0.0f, props.particleNoise, 0.001f)
+        assertEquals(0.10f, props.minDensity, 0.001f)
+        assertEquals(0.40f, props.maxDensity, 0.001f)
+    }
+
+    @Test
+    fun testDabShaderPhysicalParams() {
+        val shader = app.goodboy13.milton.core.gl.DabShader()
+        assertEquals(0.35f, shader.particleNoise, 0.001f)
+        assertEquals(0.24f, shader.minDensity, 0.001f)
+        assertEquals(0.60f, shader.maxDensity, 0.001f)
+
+        shader.setPhysicalParams(0.85f, 0.10f, 0.90f)
+        assertEquals(0.85f, shader.particleNoise, 0.001f)
+        assertEquals(0.10f, shader.minDensity, 0.001f)
+        assertEquals(0.90f, shader.maxDensity, 0.001f)
+    }
 }

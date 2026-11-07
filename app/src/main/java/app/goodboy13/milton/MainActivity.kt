@@ -238,6 +238,10 @@ class MainActivity : ComponentActivity() {
                         onGrainTypeChange = { viewModel.setGrainType(it, canvasView) },
                         onGrainScaleChange = { viewModel.setGrainScale(it, canvasView) },
                         onGrainDepthChange = { viewModel.setGrainDepth(it, canvasView) },
+                        onParticleNoiseChange = { viewModel.setParticleNoise(it, canvasView) },
+                        onMinDensityChange = { viewModel.setMinDensity(it, canvasView) },
+                        onMaxDensityChange = { viewModel.setMaxDensity(it, canvasView) },
+                        onSelectGraphitePreset = { viewModel.selectGraphitePreset(it, canvasView) },
                         onToggleEyedropper = { viewModel.toggleEyedropper(canvasView) }
                     ),
                     viewport = ViewportActions(

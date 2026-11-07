@@ -205,6 +205,10 @@ class CanvasViewModel : ViewModel() {
                     grainType = canvasView.grainType,
                     grainScale = canvasView.grainScale,
                     grainDepth = canvasView.grainDepth,
+                    particleNoise = canvasView.particleNoise,
+                    minDensity = canvasView.minDensity,
+                    maxDensity = canvasView.maxDensity,
+                    activePreset = canvasView.activePreset,
                     recentColors = recents
                 )
             )
@@ -225,7 +229,11 @@ class CanvasViewModel : ViewModel() {
                     tiltBezierConfig = canvasView.tiltBezierConfig,
                     grainType = canvasView.grainType,
                     grainScale = canvasView.grainScale,
-                    grainDepth = canvasView.grainDepth
+                    grainDepth = canvasView.grainDepth,
+                    particleNoise = canvasView.particleNoise,
+                    minDensity = canvasView.minDensity,
+                    maxDensity = canvasView.maxDensity,
+                    activePreset = canvasView.activePreset
                 ),
                 viewport = state.viewport.copy(
                     isCanvasFlipped = canvasView.isCanvasFlipped
@@ -317,7 +325,11 @@ class CanvasViewModel : ViewModel() {
                     tiltBezierConfig = canvasView.tiltBezierConfig,
                     grainType = canvasView.grainType,
                     grainScale = canvasView.grainScale,
-                    grainDepth = canvasView.grainDepth
+                    grainDepth = canvasView.grainDepth,
+                    particleNoise = canvasView.particleNoise,
+                    minDensity = canvasView.minDensity,
+                    maxDensity = canvasView.maxDensity,
+                    activePreset = canvasView.activePreset
                 )
             )
         }
@@ -501,6 +513,71 @@ class CanvasViewModel : ViewModel() {
             app.goodboy13.milton.core.preferences.ToolPreferences.saveToolGrainDepth(ctx, canvasView.brushType, depth)
         }
         _uiState.update { it.copy(tool = it.tool.copy(grainDepth = depth)) }
+    }
+
+    fun setParticleNoise(noise: Float, canvasView: MiltonCanvasView) {
+        val clamped = noise.coerceIn(0f, 1f)
+        canvasView.particleNoise = clamped
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveToolParticleNoise(ctx, canvasView.brushType, clamped)
+        }
+        _uiState.update { it.copy(tool = it.tool.copy(particleNoise = clamped)) }
+    }
+
+    fun setMinDensity(density: Float, canvasView: MiltonCanvasView) {
+        val clamped = density.coerceIn(0f, 1f)
+        canvasView.minDensity = clamped
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveToolMinDensity(ctx, canvasView.brushType, clamped)
+        }
+        _uiState.update { it.copy(tool = it.tool.copy(minDensity = clamped)) }
+    }
+
+    fun setMaxDensity(density: Float, canvasView: MiltonCanvasView) {
+        val clamped = density.coerceIn(0f, 1f)
+        canvasView.maxDensity = clamped
+        appContext?.let { ctx ->
+            app.goodboy13.milton.core.preferences.ToolPreferences.saveToolMaxDensity(ctx, canvasView.brushType, clamped)
+        }
+        _uiState.update { it.copy(tool = it.tool.copy(maxDensity = clamped)) }
+    }
+
+    fun selectGraphitePreset(preset: app.goodboy13.milton.core.constants.GraphitePreset, canvasView: MiltonCanvasView) {
+        canvasView.brushEngine.properties.applyGraphitePreset(preset)
+        canvasView.brushSize = preset.size
+        canvasView.brushOpacity = preset.opacity
+        canvasView.brushHardness = preset.hardness
+        canvasView.particleNoise = preset.particleNoise
+        canvasView.grainDepth = preset.grainDepth
+        canvasView.grainType = preset.grainType
+        canvasView.minDensity = preset.minDensity
+        canvasView.maxDensity = preset.maxDensity
+        canvasView.brushTilt = preset.tilt
+        canvasView.brushStabilizer = preset.stabilizer
+        canvasView.activePreset = preset.name
+        canvasView.updatePhysicsParams()
+
+        appContext?.let { ctx ->
+            canvasView.brushEngine.properties.savePreferences(ctx)
+        }
+
+        _uiState.update {
+            it.copy(
+                tool = it.tool.copy(
+                    brushSize = preset.size,
+                    brushOpacity = preset.opacity,
+                    brushHardness = preset.hardness,
+                    particleNoise = preset.particleNoise,
+                    grainDepth = preset.grainDepth,
+                    grainType = preset.grainType,
+                    minDensity = preset.minDensity,
+                    maxDensity = preset.maxDensity,
+                    brushTilt = preset.tilt,
+                    brushStabilizer = preset.stabilizer,
+                    activePreset = preset.name
+                )
+            )
+        }
     }
 
     fun toggleEyedropper(canvasView: MiltonCanvasView) {

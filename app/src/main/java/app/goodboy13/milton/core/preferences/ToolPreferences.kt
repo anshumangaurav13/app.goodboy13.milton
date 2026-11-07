@@ -191,6 +191,39 @@ object ToolPreferences {
         return getPrefs(context).getFloat("grain_depth_${type.name}", defaultDepth)
     }
 
+    // --- Per-Tool Physical / Graphite Parameters ---
+    fun saveToolParticleNoise(context: Context, type: BrushType, noise: Float) {
+        getPrefs(context).edit().putFloat("particle_noise_${type.name}", noise).apply()
+    }
+
+    fun loadToolParticleNoise(context: Context, type: BrushType, defaultNoise: Float = BrushDefaults.DEFAULT_PARTICLE_NOISE): Float {
+        return getPrefs(context).getFloat("particle_noise_${type.name}", defaultNoise)
+    }
+
+    fun saveToolMinDensity(context: Context, type: BrushType, density: Float) {
+        getPrefs(context).edit().putFloat("min_density_${type.name}", density).apply()
+    }
+
+    fun loadToolMinDensity(context: Context, type: BrushType, defaultDensity: Float = BrushDefaults.DEFAULT_MIN_DENSITY): Float {
+        return getPrefs(context).getFloat("min_density_${type.name}", defaultDensity)
+    }
+
+    fun saveToolMaxDensity(context: Context, type: BrushType, density: Float) {
+        getPrefs(context).edit().putFloat("max_density_${type.name}", density).apply()
+    }
+
+    fun loadToolMaxDensity(context: Context, type: BrushType, defaultDensity: Float = BrushDefaults.DEFAULT_MAX_DENSITY): Float {
+        return getPrefs(context).getFloat("max_density_${type.name}", defaultDensity)
+    }
+
+    fun saveToolActivePreset(context: Context, preset: String) {
+        getPrefs(context).edit().putString("active_graphite_preset", preset).apply()
+    }
+
+    fun loadToolActivePreset(context: Context, defaultPreset: String = BrushDefaults.DEFAULT_GRAPHITE_PRESET): String {
+        return getPrefs(context).getString("active_graphite_preset", defaultPreset) ?: defaultPreset
+    }
+
     // --- Color ---
     fun saveBrushColor(context: Context, colorRgb: Int) {
         getPrefs(context).edit().putInt(KEY_BRUSH_COLOR, colorRgb).apply()

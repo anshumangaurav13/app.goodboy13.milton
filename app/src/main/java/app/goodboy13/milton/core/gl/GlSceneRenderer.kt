@@ -127,6 +127,10 @@ class GlSceneRenderer {
         dabShader.setGrainParams(type, scale, depth)
     }
 
+    fun setPhysicalParams(particleNoise: Float, minDensity: Float, maxDensity: Float) {
+        dabShader.setPhysicalParams(particleNoise, minDensity, maxDensity)
+    }
+
     fun computeFinalMvpMatrix(viewport: Viewport, bufferInfo: BufferInfo, transform: FloatArray): FloatArray {
         if (viewport.nativePtr != 0L) {
             MiltonNative.viewportComputeFinalMvp(
